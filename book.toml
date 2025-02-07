@@ -1,0 +1,28 @@
+[book]
+authors = ["Sebastian Nagel"]
+language = "en"
+multilingual = false
+src = "book"
+title = "EUTxO L2 Interoperability"
+
+[build]
+build-dir = "out"
+
+[preprocessor]
+
+[preprocessor.alerts]
+
+[preprocessor.mermaid]
+command = "mdbook-mermaid"
+
+[preprocessor.katex]
+after = ["links"]
+
+[output]
+
+[output.html]
+additional-js = [".mdbook/mermaid.min.js", ".mdbook/mermaid-init.js"]
+smart-punctuation = true
+site-url = "/eutxo-l2-interop/"
+git-repository-url = "https://github.com/cardano-scaling/eutxo-l2-interop/tree/main"
+edit-url-template = "https://github.com/cardano-scaling/eutxo-l2-interop/edit/main/{path}"

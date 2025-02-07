@@ -1,0 +1,8 @@
+# Built mdbook
+/out
+
+# Direnv cache
+/.direnv/
+
+# Trivial flake, no need to check in lock file
+/flake.lock
