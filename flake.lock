@@ -59,11 +59,11 @@
     "wiki": {
       "flake": false,
       "locked": {
-        "lastModified": 1743500123,
-        "narHash": "sha256-nckcHBTeTXyfhxk4mUgAwflXD738FdumWbJp5B/invM=",
+        "lastModified": 1743506663,
+        "narHash": "sha256-2g25NCPlKLZx4qph1aotvpGAmSqsD/Smx3pBQCP74Ew=",
         "ref": "refs/heads/master",
-        "rev": "83b9f6f808a9573a7c9d800a20aef9572a22eabd",
-        "revCount": 6,
+        "rev": "e48eae415265e324e9b0bb6fb4f181494277a6ed",
+        "revCount": 7,
         "type": "git",
         "url": "file:wiki"
       },
