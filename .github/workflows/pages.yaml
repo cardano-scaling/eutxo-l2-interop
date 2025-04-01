@@ -7,6 +7,10 @@ on:
 
   workflow_dispatch:
 
+  schedule:
+    # Everyday at 12:00
+    - cron: "0 12 * * *"
+
 permissions:
   contents: read
   pages: write
