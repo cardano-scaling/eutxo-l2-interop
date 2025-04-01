@@ -41,6 +41,10 @@ jobs:
 
       - name: Build
         run: |
+          # Fetch latest commits from wiki for logbook
+          git submodule update --recursive --remote
+          nix flake update wiki
+
           nix build
 
       - name: Setup Pages
