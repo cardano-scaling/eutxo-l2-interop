@@ -11,4 +11,5 @@
 
 ---
 
+- [Logbook](./logbook.md)
 - [Demo](./demo.md)

@@ -57,3 +57,12 @@ more information on what is available for editing.
 [mdbook]: https://rust-lang.github.io/mdBook/index.html
 [gfm]: https://github.github.com/gfm/
 [nix]: https://nixos.org/download.html
+
+## Logbook
+
+We keep a [logbook in the Github wiki](https://github.com/cardano-scaling/eutxo-l2-interop/wiki/logbook) and build it also into the resulting report. To update the included logbook:
+
+```shell
+git submodule update --recursive --remote
+nix flake update wiki
+```

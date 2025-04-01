@@ -6,3 +6,4 @@
 
 # Trivial flake, no need to check in lock file
 /flake.lock
+/result

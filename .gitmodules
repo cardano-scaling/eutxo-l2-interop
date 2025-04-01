@@ -1,0 +1,3 @@
+[submodule "eutxo-l2-interop.wiki"]
+	path = wiki
+	url = git@github.com:cardano-scaling/eutxo-l2-interop.wiki.git
