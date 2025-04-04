@@ -1,8 +1,7 @@
 # Summary
 
 - [Introduction](./README.md)
-- [Background]()
-- [Milestone 1]()
+- [Milestone 1](./ms1/README.md)
 - [Milestone 2]()
 - [Milestone 3]()
 - [Milestone 4]()
