@@ -26,6 +26,12 @@ and links to other materials to reproduce or use our results in further work.
 - [Cross-Rollup MEV: Non-Atomic Arbitrage Across L2 Blockchains]( https://arxiv.org/html/2406.02172v2#:~:text=average%2C%20for%C2%A010%20to%C2%A020%20blocks%2C%20necessitating,25)
 - 
 
+### Hash Timelock Contracts (HTLC)
+
+Setting up an HTLC allows the sender to lock an asset to be spent "accordingly" or it allows them to get back their funds after a timeout. Not much scripting is required for this construction, hence it is popularly [used in Bitcoin Lightning](https://docs.lightning.engineering/the-lightning-network/multihop-payments/hash-time-lock-contract-htlc) to effectively forward payments between channels.
+
+In Bitcoin Lightning, HTLCs are also used to _swap into_ and _out of_ lightning channels from the Bitcoin main chain. These atomic swaps are called [Submarine Swaps](https://docs.lightning.engineering/the-lightning-network/multihop-payments/understanding-submarine-swaps) and are fully trustless (no custody, no counterparty risk) because they share the same underlying chain / security model (= Bitcoin).
+
 ### Adaptor signatures
 
 Originating from ideas on [Scriptless scripts](https://download.wpsoftware.net/bitcoin/wizardry/mw-slides/2017-03-mit-bitcoin-expo/slides.pdf) where correct execution of scripts is captured by the validity of digital signatures (elliptic curve based schemes), so-called adaptor signature schemes can be used to reveal information through the actual signature. Verifiably Encrypted Signatures (VES) are a generalization of this concept onto both Schnorr and ECDSA signature schemes.
