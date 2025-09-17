@@ -7,3 +7,6 @@
 # Trivial flake, no need to check in lock file
 /flake.lock
 /result
+
+src/infra/persistence/alice/*
+src/infra/persistence/bob/*
