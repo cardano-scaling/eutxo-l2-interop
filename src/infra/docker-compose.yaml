@@ -3,6 +3,7 @@ services:
     image: ghcr.io/cardano-scaling/hydra-node:0.22.0
     volumes:
       - .:/devnet
+      - ./persistence/alice:/devnet/persistence/alice
     ports:
       - "4001:4001"
       - "5001:5001"
@@ -29,6 +30,7 @@ services:
     image: ghcr.io/cardano-scaling/hydra-node:0.22.0
     volumes:
       - .:/devnet
+      - ./persistence/bob:/devnet/persistence/bob
     ports:
       - "4002:4002"
       - "5002:5002"
@@ -51,6 +53,10 @@ services:
       hydra_net:
         ipv4_address: 172.16.238.20
     restart: always
+
+volumes:
+  alice_persistence:
+  bob_persistence:
 
 networks:
   hydra_net:
