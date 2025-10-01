@@ -1,0 +1,34 @@
+{
+  "name": "eutxo-l2-interop-offchain",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch index.ts",
+    "start": "node ./build/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "lint": "eslint .",
+    "lint:fix": "eslint --fix .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@types/blake2b": "^2.1.3",
+    "@types/node": "^24.6.1",
+    "@types/ws": "^8.5.12",
+    "eslint": "^9.36.0",
+    "prettier": "^3.5.3",
+    "tsx": "^4.19.1",
+    "typescript": "^5.7"
+  },
+  "dependencies": {
+    "@lucid-evolution/lucid": "^0.4.27",
+    "axios": "^1.7.7",
+    "blake2b": "^2.1.4",
+    "pino": "^9.12.0",
+    "pino-pretty": "^13.1.1",
+    "ws": "^8.18.0"
+  }
+}

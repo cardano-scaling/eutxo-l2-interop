@@ -10,3 +10,5 @@
 
 src/infra/persistence/alice/*
 src/infra/persistence/bob/*
+node_modules
+**/build
