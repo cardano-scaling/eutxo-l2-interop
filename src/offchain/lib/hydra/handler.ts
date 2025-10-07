@@ -5,11 +5,10 @@ import {
   CBORHex,
   CML,
   fromUnit,
-  LucidEvolution,
   UTxO,
 } from '@lucid-evolution/lucid';
 import blake2b from 'blake2b';
-import { logger } from './logger';
+import { logger } from '../logger';
 
 const ERROR_TAGS = [
   'PeerHandshakeFailure',
@@ -25,21 +24,18 @@ const ERROR_TAGS = [
  */
 class HydraHandler {
   private connection: Websocket;
-  private lucid: LucidEvolution;
   private url: URL;
   private isReady: boolean = false;
 
   /**
    * @constructor
-   * @param lucid - An instance of LucidEvolution used to interact with the blockchain.
    * @param url - The URL of the Hydra node WebSocket server.
    * Initializes the HydraHandler class and sets up the WebSocket connection.
    */
-  constructor(lucid: LucidEvolution, url: string) {
+  constructor(url: string) {
     const wsURL = new URL(url);
     wsURL.protocol = wsURL.protocol.replace('http', 'ws');
 
-    this.lucid = lucid;
     this.url = wsURL;
     this.connection = new Websocket(wsURL + '?history=no');
     this.setupEventHandlers();
@@ -160,66 +156,67 @@ class HydraHandler {
     utxos: UTxO[],
     blueprint?: CBORHex
   ): Promise<string> {
-    try {
-      const formatUtxos = (utxos: UTxO[]) =>
-        utxos.reduce(
-          (acc, utxo) => {
-            acc[`${utxo.txHash}#${utxo.outputIndex}`] =
-              lucidUtxoToHydraUtxo(utxo);
-            return acc;
-          },
-          {} as Record<string, any> //eslint-disable-line
-        );
+    throw new Error('Not implemented');
+    // try {
+    //   const formatUtxos = (utxos: UTxO[]) =>
+    //     utxos.reduce(
+    //       (acc, utxo) => {
+    //         acc[`${utxo.txHash}#${utxo.outputIndex}`] =
+    //           lucidUtxoToHydraUtxo(utxo);
+    //         return acc;
+    //       },
+    //       {} as Record<string, any> //eslint-disable-line
+    //     );
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let payload: { blueprintTx?: any; utxo?: any } = {};
+    //   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    //   let payload: { blueprintTx?: any; utxo?: any } = {};
 
-      if (utxos.length > 0) {
-        if (blueprint) {
-          // We are commiting fund utxos, we include the blueprint transaction and the validator reference
-          // in the commited utxos
-          payload['blueprintTx'] = {
-            cborHex: blueprint,
-            description: '',
-            type: 'Tx ConwayEra',
-          };
+    //   if (utxos.length > 0) {
+    //     if (blueprint) {
+    //       // We are commiting fund utxos, we include the blueprint transaction and the validator reference
+    //       // in the commited utxos
+    //       payload['blueprintTx'] = {
+    //         cborHex: blueprint,
+    //         description: '',
+    //         type: 'Tx ConwayEra',
+    //       };
 
-          if (!process.env.VALIDATOR_REF) {
-            throw new Error('VALIDATOR_REF is not set in .env file');
-          }
+    //       if (!process.env.VALIDATOR_REF) {
+    //         throw new Error('VALIDATOR_REF is not set in .env file');
+    //       }
 
-          const [referenceScriptUtxo] = await this.lucid.utxosByOutRef([
-            { txHash: process.env.VALIDATOR_REF, outputIndex: 0 },
-          ]);
-          utxos.push(referenceScriptUtxo);
-          payload['utxo'] = formatUtxos(utxos);
-        } else {
-          // We just commit the utxos without a blueprint transaction
-          payload = formatUtxos(utxos);
-        }
-      }
+    //       const [referenceScriptUtxo] = await this.lucid.utxosByOutRef([
+    //         { txHash: process.env.VALIDATOR_REF, outputIndex: 0 },
+    //       ]);
+    //       utxos.push(referenceScriptUtxo);
+    //       payload['utxo'] = formatUtxos(utxos);
+    //     } else {
+    //       // We just commit the utxos without a blueprint transaction
+    //       payload = formatUtxos(utxos);
+    //     }
+    //   }
 
-      const response = await axios.post(apiUrl, payload);
-      const txWitnessed = response.data.cborHex;
-      if (!process.env.SEED) {
-        throw new Error('SEED is not set in .env file');
-      }
-      this.lucid.selectWallet.fromSeed(process.env.SEED);
-      const signedTx = await this.lucid
-        .fromTx(txWitnessed)
-        .sign.withWallet()
-        .complete()
-        .then((tx) => setRedeemersAsMap(tx.toCBOR()));
-      const txHash = await this.lucid.wallet().submitTx(signedTx);
-      return txHash;
-    } catch (error) {
-      logger.debug(
-        `There was an error sending the commit transaction: ${{
-          error: error as unknown as string,
-        }}`
-      );
-      throw error;
-    }
+    //   const response = await axios.post(apiUrl, payload);
+    //   const txWitnessed = response.data.cborHex;
+    //   if (!process.env.SEED) {
+    //     throw new Error('SEED is not set in .env file');
+    //   }
+    //   this.lucid.selectWallet.fromSeed(process.env.SEED);
+    //   const signedTx = await this.lucid
+    //     .fromTx(txWitnessed)
+    //     .sign.withWallet()
+    //     .complete()
+    //     .then((tx) => setRedeemersAsMap(tx.toCBOR()));
+    //   const txHash = await this.lucid.wallet().submitTx(signedTx);
+    //   return txHash;
+    // } catch (error) {
+    //   logger.debug(
+    //     `There was an error sending the commit transaction: ${{
+    //       error: error as unknown as string,
+    //     }}`
+    //   );
+    //   throw error;
+    // }
   }
 
   /**
