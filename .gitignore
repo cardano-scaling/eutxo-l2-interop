@@ -8,7 +8,7 @@
 /flake.lock
 /result
 
-src/infra/persistence/alice/*
-src/infra/persistence/bob/*
+src/infra/persistence/*
+
 node_modules
 **/build
