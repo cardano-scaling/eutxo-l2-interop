@@ -13,3 +13,6 @@ src/infra/startup_time.txt
 
 node_modules
 **/build
+
+# For typst compilations
+*.pdf
