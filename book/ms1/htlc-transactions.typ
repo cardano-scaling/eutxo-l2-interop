@@ -1,7 +1,7 @@
 #import "../lib/transaction.typ": *
 
-#let tx_create_htlc = transaction(
-  "Create HTLC",
+#let tx_lock_htlc = transaction(
+  "Lock HTLC",
   inputs: ((
       name: "User Input",
       value: (
@@ -73,8 +73,8 @@
 #let export = sys.inputs.export
 
 #(
-  if export == "create" {
-    tx_create_htlc
+  if export == "lock" {
+    tx_lock_htlc
   } else if export == "claim" {
     tx_claim_htlc
   } else if export == "refund" {
