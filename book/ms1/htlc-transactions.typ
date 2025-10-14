@@ -1,5 +1,9 @@
 #import "../lib/transaction.typ": *
 
+#set page(
+  height: auto,
+)
+
 #let tx_lock_htlc = transaction(
   "Lock HTLC",
   inputs: ((
