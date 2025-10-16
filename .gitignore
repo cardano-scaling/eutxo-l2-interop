@@ -9,6 +9,7 @@
 /result
 
 src/infra/persistence/*
+src/infra/startup_time.txt
 
 node_modules
 **/build

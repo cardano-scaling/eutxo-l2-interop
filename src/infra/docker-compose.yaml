@@ -111,6 +111,17 @@ services:
           ipv4_address: 172.16.238.40
       restart: always
 
+  startup-time-logger:
+    image: alpine
+    depends_on:
+      - hydra-node-alice
+      - hydra-node-bob
+      - hydra-node-ida-1
+      - hydra-node-ida-2
+    command: sh -c "echo $$(( $$(date +%s) * 1000 )) > /shared/startup_time.txt && echo 'Timestamp written:' $$(cat /shared/startup_time.txt)"
+    volumes:
+      - .:/shared
+
 volumes:
   alice_persistence:
   bob_persistence:

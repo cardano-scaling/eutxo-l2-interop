@@ -1,5 +1,6 @@
 use aiken/builtin.{blake2b_256}
 use aiken/collection/list
+use aiken/interval.{is_entirely_after, is_entirely_before}
 use cardano/transaction.{OutputReference, Transaction}
 
 pub type HtlcDatum {
