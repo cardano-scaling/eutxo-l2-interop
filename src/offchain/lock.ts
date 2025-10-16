@@ -4,13 +4,18 @@
 
 import { HydraHandler } from "./lib/hydra/handler";
 import { HydraProvider } from "./lib/hydra/provider";
-import { CBORHex, CML, Data, Lucid, LucidEvolution, ScriptType, SpendingValidator, toHex, validatorToAddress } from "@lucid-evolution/lucid";
+import { CBORHex, CML, Data, Lucid, SpendingValidator, toHex, validatorToAddress } from "@lucid-evolution/lucid";
 import { logger } from "./lib/logger";
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { getNetworkFromLucid } from "./lib/utils"
 import { HtlcDatum, HtlcDatumT } from "./lib/types";
 import plutusBlueprint from '../onchain/plutus.json' assert { type: 'json' };
+import { createInterface, type Interface } from 'node:readline/promises';
+import { stdin as input, stdout as output } from 'node:process';
+
+
+const rli = createInterface({ input, output, terminal: true });
 
 
 // load the alice funds signing key
@@ -25,7 +30,6 @@ const idaFundsVkPath = join(process.cwd(), '../infra/credentials/ida/ida-funds.v
 const idaFundsVk = JSON.parse(readFileSync(idaFundsVkPath, 'utf8'));
 
 const idaFundsCborBytes = Buffer.from(idaFundsVk.cborHex, 'hex');
-console.log(idaFundsVk.cborHex)
 
 const aliceSkBytes = Buffer.from(aliceFundsSk.cborHex, 'hex');
 
@@ -33,9 +37,6 @@ const aliceSkBytes = Buffer.from(aliceFundsSk.cborHex, 'hex');
 // 58 is the cbor type for byte string
 // 20 is the length of the byte string
 const aliceSk = CML.PrivateKey.from_normal_bytes(aliceSkBytes.subarray(2));
-
-logger.info(`Loaded signing key: ${aliceSk.to_bech32()}`);
-logger.info(`Loaded signing key: ${toHex(aliceSk.to_raw_bytes())}`);
 
 const aliceVkBytes = Buffer.from(aliceFundsVk.cborHex, 'hex');
 const aliceVk = CML.PublicKey.from_bytes(aliceVkBytes.subarray(2));
@@ -48,9 +49,17 @@ const handler = new HydraHandler('http://127.0.0.1:4001');
 const lucid = await Lucid(new HydraProvider(handler), "Custom");
 lucid.selectWallet.fromPrivateKey(aliceSk.to_bech32());
 
+// Ask user for the hash
+const hash = await rli.question("What's the Hash for this HTLC?\n");
+const amountStr = await rli.question("What's the amount to lock (in lovelace) for this HTLC?\n");
+const amount = BigInt(amountStr.trim())
+
+// 2 hours from now
+const timeout = BigInt(Date.now() + 2 * 60 * 60 * 1000)
+
 let htlcDatum = {
-    hash: "",
-    timeout: 100n,
+    hash: hash,
+    timeout: timeout,
     sender: aliceVk.hash().to_hex(),
     receiver: idaVk.hash().to_hex(),
 }
@@ -71,7 +80,7 @@ const tx = await lucid
   .pay.ToContract(
     scriptAddress,
     { kind: "inline", value: datum},
-    { lovelace: 1_000_000_000n },
+    { lovelace: amount },
   )
   .complete();
 
