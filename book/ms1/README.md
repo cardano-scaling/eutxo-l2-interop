@@ -62,6 +62,7 @@ In step 4, Bob uses the preimage that they generated in step 0 to claim the fund
 Consumes a `HTLCUtxo` with the `Refund` redeemer. This transaction must be submited after the timeout and be signed by the sender.
 
 ![Refund funds from HTLC](tx_refund_htlc.svg)
+
 ## Ad-hoc ledgers
 
 The [State Machines across Isomorphic Layer 2 Ledgers](https://eprint.iacr.org/2023/1027.pdf) paper describes a solution for implementing atomic transactions performed across multiple L2 ledgers. By the paper, this is achieved by the verify→perform mechanism.
@@ -117,7 +118,7 @@ The verify step stages a reversible transaction that proves the perform step can
 
 This process guarantees that if both heads succeed in verify, the perform transactions can later be executed with no risk of failure, while still allowing reversibility if one side cannot verify.
 
-### Use case
+### Basic Use Case Specification
 
 Transfer from User 1 in Head A → User 2 in Head B (with intermediaries set 𝙄)
 
@@ -132,7 +133,7 @@ Transfer from User 1 in Head A → User 2 in Head B (with intermediaries set �
 - nonce (Integer): random value generated at setup to uniquely bind the UTxO to a specific ad-hoc ledger instance.
 - perform tx body hash (Hash): hash of expected `perform` tx body to be executed after `verify`.
 
-#### Step-by-Step
+#### Step-by-Step Flow
 - Wrap assets to transfer + collateral
   - A: User 1 locks asset X in `Lₚ` script → creates wrapped UTxO in replica `R₀`.
   - B: Each Iᵢ locks their share of collateral in `Lₚ` script → creates wrapped UTxOs in replica `R₁`.
@@ -153,3 +154,31 @@ Transfer from User 1 in Head A → User 2 in Head B (with intermediaries set �
 
 - `perform`<sub>`B`</sub> (Head B)
   - Delivers assets to User 2 in `B`.
+
+### HTLC using ad-hoc ledgers
+
+Lets analyze the Lock operation of an HTLC with ad-hoc ledgers.
+
+#### Wrapping UTxOs
+
+The first step for being "inside" of the corresponding replica of the ad-hoc ledger is to wrap the UTxOs that will be used to perform the atomic transaction (the Lock transaction in this case).
+
+![Wrap UTxO](tx_wrap_utxo.svg)
+
+#### Verify the Lock transaction
+
+The next step is to verify the Lock transaction. This is done by the `verify` step of the explained mechanism.
+
+![Verify Lock transaction](tx_htlc_verify_lock.svg)
+
+#### Perform the Lock transaction
+
+The final step is to actually perform the Lock transaction. This is done by the `perform` step.
+
+![Perform Lock transaction](tx_htlc_perform_lock.svg)
+
+#### What's the difference between using ad-hoc ledger or a simpler HTLC across L2s?
+
+The main difference between using an ad-hoc ledger and a simpler HTLC is that the ad-hoc ledger allows for atomic transactions across multiple ledgers, while the simpler approach doesn't.
+
+Concretely, for the lock operation using just plain HTLC on two ledgers isn't atomic. One of the parties could do the lock operation and then the other party don't, and this would result in a liquidity trap until the HTLC expires. On the other hand, the ad-hoc ledger allows for more complex interactions via the verify→perform mechanism, where the `verify` step is reversible and the `perform` step is irreversible.
