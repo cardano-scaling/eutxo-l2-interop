@@ -11,7 +11,7 @@ const HtlcDatum = HtlcDatumSchema as unknown as HtlcDatumT
 
 
 const HtlcRedeemerSchema = Data.Enum([
-    Data.Object({ Claim: Data.Bytes() }),
+    Data.Literal('Claim'),
     Data.Literal('Refund'),
   ]);
 

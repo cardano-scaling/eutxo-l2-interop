@@ -27,36 +27,32 @@ const idaFundsVk = JSON.parse(readFileSync(idaFundsVkPath, 'utf8'));
 const idaFundsCborBytes = Buffer.from(idaFundsVk.cborHex, 'hex');
 console.log(idaFundsVk.cborHex)
 
-// instantiate the hydra handler, provider, and lucid
-const handler = new HydraHandler('http://127.0.0.1:4001');
-const lucid = await Lucid(new HydraProvider(handler), "Custom");
-
-// create private key from the signing key
-// The cborHex contains cbor-encoded bytes, we need to decode it
-// cbor format: 5820 (byte string of 32 bytes) + 32 bytes of key
-const cborBytes = Buffer.from(aliceFundsSk.cborHex, 'hex');
-logger.info('CBOR hex:', aliceFundsSk.cborHex);
+const aliceSkBytes = Buffer.from(aliceFundsSk.cborHex, 'hex');
 
 // skip the cbor header (5820) to get the actual 32-byte key
 // 58 is the cbor type for byte string
 // 20 is the length of the byte string
-const keyBytes = cborBytes.slice(2);
+const aliceSk = CML.PrivateKey.from_normal_bytes(aliceSkBytes.subarray(2));
 
-const privateKey = CML.PrivateKey.from_normal_bytes(keyBytes);
+logger.info(`Loaded signing key: ${aliceSk.to_bech32()}`);
+logger.info(`Loaded signing key: ${toHex(aliceSk.to_raw_bytes())}`);
 
-logger.info(`Loaded signing key: ${privateKey.to_bech32()}`);
-logger.info(`Loaded signing key: ${toHex(privateKey.to_raw_bytes())}`);
+const aliceVkBytes = Buffer.from(aliceFundsVk.cborHex, 'hex');
+const aliceVk = CML.PublicKey.from_bytes(aliceVkBytes.subarray(2));
 
-lucid.selectWallet.fromPrivateKey(privateKey.to_bech32());
+const idaVkBytes = Buffer.from(idaFundsVk.cborHex, 'hex');
+const idaVk = CML.PublicKey.from_bytes(idaVkBytes.subarray(2))
 
-let alicePublic = privateKey.to_public()
-// simple transaction to send 1 million ADA to bob funds address
+// instantiate the hydra handler, provider, and lucid
+const handler = new HydraHandler('http://127.0.0.1:4001');
+const lucid = await Lucid(new HydraProvider(handler), "Custom");
+lucid.selectWallet.fromPrivateKey(aliceSk.to_bech32());
 
 let htlcDatum = {
     hash: "",
     timeout: 100n,
-    sender: alicePublic.hash().to_hex(),
-    receiver: "",
+    sender: aliceVk.hash().to_hex(),
+    receiver: idaVk.hash().to_hex(),
 }
 
 let datum = Data.to<HtlcDatumT>(htlcDatum, HtlcDatum)
