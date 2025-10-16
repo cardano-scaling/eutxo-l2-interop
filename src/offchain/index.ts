@@ -8,12 +8,23 @@ import { CML, Lucid, toHex } from "@lucid-evolution/lucid";
 import { logger } from "./lib/logger";
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { SLOT_CONFIG_NETWORK } from "@lucid-evolution/plutus";
+
+const startupTime = readFileSync(join(process.cwd(), '../infra/startup_time.txt'), 'utf8');
+const startupTimeMs = parseInt(startupTime);
+logger.info(`Startup time: ${startupTimeMs}`);
+
+SLOT_CONFIG_NETWORK["Custom"] = {
+  zeroTime: startupTimeMs,
+  zeroSlot: 0,
+  slotLength: 1000
+};
 
 // load the alice funds signing key
-const aliceFundsSkPath = join(process.cwd(), '../infra/credentials/alice-funds.sk');
+const aliceFundsSkPath = join(process.cwd(), '../infra/credentials/alice/alice-funds.sk');
 const aliceFundsSk = JSON.parse(readFileSync(aliceFundsSkPath, 'utf8'));
 // and the bob funds address to send the funds to
-const bobFundsAddrPath = join(process.cwd(), '../infra/credentials/bob-funds.addr');
+const bobFundsAddrPath = join(process.cwd(), '../infra/credentials/bob/bob-funds.addr');
 const bobFundsAddr = readFileSync(bobFundsAddrPath, 'utf8');
 
 // instantiate the hydra handler, provider, and lucid
@@ -44,6 +55,7 @@ const tx = await lucid
     bobFundsAddr,
     { lovelace: 1_000_000_000n }
   )
+  .validTo(Date.now() + 1000 * 60 * 60) // 1 hour
   .complete();
 
 const txSigned = await tx.sign.withWallet().complete();
