@@ -1,0 +1,97 @@
+{
+  "preamble": {
+    "title": "hydra/htlc",
+    "description": "Aiken contracts for project 'hydra/htlc",
+    "version": "0.0.0",
+    "plutusVersion": "v3",
+    "compiler": {
+      "name": "Aiken",
+      "version": "v1.1.19+e525483"
+    },
+    "license": "Apache-2.0"
+  },
+  "validators": [
+    {
+      "title": "htlc.htlc.spend",
+      "datum": {
+        "title": "datum_opt",
+        "schema": {
+          "$ref": "#/definitions/htlc~1HtlcDatum"
+        }
+      },
+      "redeemer": {
+        "title": "redeemer",
+        "schema": {
+          "$ref": "#/definitions/htlc~1Redeemer"
+        }
+      },
+      "compiledCode": "59023001010029800aba2aba1aab9faab9eaab9dab9a48888896600264653001300700198039804000cdc3a400530070024888966002600460106ea800e26466453001159800980098059baa0028cc004c038c030dd5001488c8cc004004dd618089809180918091809180918091809180918079baa0032259800800c528456600266e3cdd71809000801c528c4cc008008c04c00500e2022918079808180818081808180818081808000c8c03cc040005222259800980298079baa00b8acc004cdc79b94375c602460206ea802cdd7180918081baa0048acc004c8cc8966002601860246ea800a264b3001300d30133754600a60286ea8c014c050dd500244cdc400080144cdc48008012024375a602a60266ea800a2941011180998089baa3002301137540026eb4c008c044dd5002980118081baa0088998018041bae30123013301330133010375400914a08072294100e4566002646644b3001300c3012375400513259800980698099baa300530143754602c60286ea8012266e20008006266e240080050121bad30153013375400514a08088c04cc044dd5180998089baa001375a600460226ea8014c008c040dd500444cc00c020dd718091809980998081baa0048a5040388071164029300b375400f300e00348896600260080051323259800980a00140162c8090dd7180900098079baa00a8acc004c02000a2b3001300f37540150038b20208b201a4034300c300d001370e900018049baa0038b200e180380098019baa0078a4d13656400401",
+      "hash": "f6a48cab3fceebd8e397d28c3774f414b2d24fdd3951f89fc800b251"
+    },
+    {
+      "title": "htlc.htlc.else",
+      "redeemer": {
+        "schema": {}
+      },
+      "compiledCode": "59023001010029800aba2aba1aab9faab9eaab9dab9a48888896600264653001300700198039804000cdc3a400530070024888966002600460106ea800e26466453001159800980098059baa0028cc004c038c030dd5001488c8cc004004dd618089809180918091809180918091809180918079baa0032259800800c528456600266e3cdd71809000801c528c4cc008008c04c00500e2022918079808180818081808180818081808000c8c03cc040005222259800980298079baa00b8acc004cdc79b94375c602460206ea802cdd7180918081baa0048acc004c8cc8966002601860246ea800a264b3001300d30133754600a60286ea8c014c050dd500244cdc400080144cdc48008012024375a602a60266ea800a2941011180998089baa3002301137540026eb4c008c044dd5002980118081baa0088998018041bae30123013301330133010375400914a08072294100e4566002646644b3001300c3012375400513259800980698099baa300530143754602c60286ea8012266e20008006266e240080050121bad30153013375400514a08088c04cc044dd5180998089baa001375a600460226ea8014c008c040dd500444cc00c020dd718091809980998081baa0048a5040388071164029300b375400f300e00348896600260080051323259800980a00140162c8090dd7180900098079baa00a8acc004c02000a2b3001300f37540150038b20208b201a4034300c300d001370e900018049baa0038b200e180380098019baa0078a4d13656400401",
+      "hash": "f6a48cab3fceebd8e397d28c3774f414b2d24fdd3951f89fc800b251"
+    }
+  ],
+  "definitions": {
+    "ByteArray": {
+      "dataType": "bytes"
+    },
+    "Int": {
+      "dataType": "integer"
+    },
+    "htlc/HtlcDatum": {
+      "title": "HtlcDatum",
+      "anyOf": [
+        {
+          "title": "HtlcDatum",
+          "dataType": "constructor",
+          "index": 0,
+          "fields": [
+            {
+              "title": "hash",
+              "$ref": "#/definitions/ByteArray"
+            },
+            {
+              "title": "timeout",
+              "$ref": "#/definitions/Int"
+            },
+            {
+              "title": "sender",
+              "$ref": "#/definitions/ByteArray"
+            },
+            {
+              "title": "receiver",
+              "$ref": "#/definitions/ByteArray"
+            }
+          ]
+        }
+      ]
+    },
+    "htlc/Redeemer": {
+      "title": "Redeemer",
+      "anyOf": [
+        {
+          "title": "Claim",
+          "dataType": "constructor",
+          "index": 0,
+          "fields": [
+            {
+              "$ref": "#/definitions/ByteArray"
+            }
+          ]
+        },
+        {
+          "title": "Refund",
+          "dataType": "constructor",
+          "index": 1,
+          "fields": []
+        }
+      ]
+    }
+  }
+}
