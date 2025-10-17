@@ -1,4 +1,4 @@
-import { Address, CML, OutRef, ProtocolParameters, Provider, Unit, UTxO, Credential, RewardAddress, Delegation, Datum, DatumHash, TxHash, Transaction, EvalRedeemer } from "@lucid-evolution/lucid";
+import { Address, CML, OutRef, ProtocolParameters, Provider, Unit, UTxO, Credential, RewardAddress, Delegation, Datum, DatumHash, TxHash, Transaction, EvalRedeemer, credentialToAddress } from "@lucid-evolution/lucid";
 import { join } from 'path';
 import { HydraHandler } from './handler';
 import { logger } from '../logger';
@@ -40,14 +40,24 @@ class HydraProvider implements Provider {
     const result: UTxO[] = [];
 
     const snapshotUTxOs = await this.hydra.getSnapshot();
-    const addressAsBech32 = typeof addressOrCredential === 'string'
-      ? addressOrCredential // already bech32
-      : CML.Address.from_hex(addressOrCredential.hash).to_bech32();
-    snapshotUTxOs.forEach((utxo) => {
-      if (utxo.address === addressAsBech32) {
-        result.push(utxo);
-      }
-    });
+
+    if (typeof addressOrCredential === 'string') {
+      // Direct address string
+      snapshotUTxOs.forEach((utxo) => {
+        if (utxo.address === addressOrCredential) {
+          result.push(utxo);
+        }
+      });
+    } else {
+      const credential = credentialToAddress("Custom", addressOrCredential);
+      logger.info(`credential: ${credential}`);
+      logger.info(snapshotUTxOs);
+      snapshotUTxOs.forEach((utxo) => {
+        if (utxo.address === credential) {
+          result.push(utxo);
+        }
+      });
+    }
     return result;
   }
 

@@ -11,15 +11,19 @@ const HtlcDatum = HtlcDatumSchema as unknown as HtlcDatumT
 
 
 const HtlcRedeemerSchema = Data.Enum([
-    Data.Literal('Claim'),
-    Data.Literal('Refund'),
-  ]);
+  Data.Object({
+    Claim: Data.Tuple([Data.Bytes()])
+  }),
+  Data.Object({
+    Refund: Data.Tuple([])
+  })
+]);
 
 type HtlcRedeemerT = Data.Static<typeof HtlcRedeemerSchema>;
 const HtlcRedeemer = HtlcRedeemerSchema as unknown as HtlcRedeemerT;
 
 namespace Spend {
-    export const Refund = Data.to<HtlcRedeemerT>('Refund', HtlcRedeemer);
+    export const Refund = Data.to<HtlcRedeemerT>({ Refund: [] }, HtlcRedeemer);
   }
 
 export { HtlcDatumSchema, HtlcDatumT, HtlcDatum, HtlcRedeemerSchema, HtlcRedeemer, HtlcRedeemerT, Spend}
