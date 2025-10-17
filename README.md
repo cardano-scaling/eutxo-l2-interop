@@ -58,6 +58,15 @@ more information on what is available for editing.
 [gfm]: https://github.github.com/gfm/
 [nix]: https://nixos.org/download.html
 
+## Transaction diagrams
+
+To build transaction diagrams we use [typst][typst] version 0.13.1. To make modifications to the diagrams you can install the compiler following the [install instructions][ii].
+
+Then, you can edit each typst file and execute [the export script](book/export_transactions.sh) to re-export all svgs.
+
+[typst]: https://typst.app/
+[ii]: https://github.com/typst/typst?tab=readme-ov-file#installation
+
 ## Logbook
 
 We keep a [logbook in the Github wiki](https://github.com/cardano-scaling/eutxo-l2-interop/wiki/logbook) and build it also into the resulting report. To update the included logbook:
