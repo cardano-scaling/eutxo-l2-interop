@@ -26,7 +26,7 @@ SLOT_CONFIG_NETWORK["Custom"] = {
   slotLength: 1000
 };
 
-const { sk: receiverPrivateKey, vk: receiverVk, receiverNodeUrl: idaNodeUrl } = await getUserDetails("receiver", rli)
+const { sk: receiverPrivateKey, vk: receiverVk, receiverNodeUrl } = await getUserDetails("receiver", rli)
 const preimage = await rli.question("What's the preimage for this HTLC?\n");
 logger.info(`preimage: ${preimage}`);
 
@@ -35,7 +35,7 @@ const htlcScript = plutusJson.validators[0].compiledCode;
 const htlcScriptHash = plutusJson.validators[0].hash;
 
 // instantiate the hydra handler, provider, and lucid
-const receiverNodeHandler = new HydraHandler(idaNodeUrl!);
+const receiverNodeHandler = new HydraHandler(receiverNodeUrl!);
 const lucid = await Lucid(new HydraProvider(receiverNodeHandler), "Custom");
 
 const receiverAddress = credentialToAddress("Custom", { type: "Key", hash: receiverVk.hash().to_hex()});
