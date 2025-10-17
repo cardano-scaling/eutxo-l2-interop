@@ -1,10 +1,10 @@
 /**
- * Bob claims the funds from the HTLC contract locked by the intermediary.
+ * Ida/Bob claims the funds from the HTLC contract locked by Alice/Ida.
  */
 
 import { HydraHandler } from "./lib/hydra/handler";
 import { HydraProvider } from "./lib/hydra/provider";
-import { CML, Lucid, toHex } from "@lucid-evolution/lucid";
+import { CML, credentialToAddress, Lucid, toHex } from "@lucid-evolution/lucid";
 import { logger } from "./lib/logger";
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -13,11 +13,9 @@ import plutusJson from '../onchain/plutus.json';
 import { HtlcDatum, HtlcDatumT, HtlcRedeemer, HtlcRedeemerT } from "./lib/types";
 import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
+import { getUserDetails } from "./lib/utils";
 
 const rli = createInterface({ input, output, terminal: true });
-
-// Ask user for the preimage
-const preimage = await rli.question("What's the preimage for this HTLC?\n");
 
 const startupTime = readFileSync(join(process.cwd(), '../infra/startup_time.txt'), 'utf8');
 const startupTimeMs = parseInt(startupTime);
@@ -28,39 +26,23 @@ SLOT_CONFIG_NETWORK["Custom"] = {
   slotLength: 1000
 };
 
-// load the alice funds signing key
-const idaFundsSkPath = join(process.cwd(), '../infra/credentials/ida/ida-funds.sk');
-const idaFundsSk = JSON.parse(readFileSync(idaFundsSkPath, 'utf8'));
+const { sk: receiverPrivateKey, vk: receiverVk, receiverNodeUrl: idaNodeUrl } = await getUserDetails("receiver", rli)
+const preimage = await rli.question("What's the preimage for this HTLC?\n");
+logger.info(`preimage: ${preimage}`);
 
 // load htlc script
 const htlcScript = plutusJson.validators[0].compiledCode;
 const htlcScriptHash = plutusJson.validators[0].hash;
 
 // instantiate the hydra handler, provider, and lucid
-const idaHydraNodeHandler = new HydraHandler('http://127.0.0.1:4003');
-const idaLucid = await Lucid(new HydraProvider(idaHydraNodeHandler), "Custom");
+const receiverNodeHandler = new HydraHandler(idaNodeUrl!);
+const lucid = await Lucid(new HydraProvider(receiverNodeHandler), "Custom");
 
-const idaAddress = join(process.cwd(), '../infra/credentials/ida/ida-funds.addr');
+const receiverAddress = credentialToAddress("Custom", { type: "Key", hash: receiverVk.hash().to_hex()});
 
-// create private key from the signing key
-// The cborHex contains cbor-encoded bytes, we need to decode it
-// cbor format: 5820 (byte string of 32 bytes) + 32 bytes of key
-const idaCborBytes = Buffer.from(idaFundsSk.cborHex, 'hex');
-// skip the cbor header (5820) to get the actual 32-byte key
-// 58 is the cbor type for byte string
-// 20 is the length of the byte string
-const idaKeyBytes = idaCborBytes.slice(2);
+lucid.selectWallet.fromPrivateKey(receiverPrivateKey.to_bech32());
 
-const idaPrivateKey = CML.PrivateKey.from_normal_bytes(idaKeyBytes);
-
-const idaFundsVkPath = join(process.cwd(), '../infra/credentials/ida/ida-funds.vk');
-const idaFundsVk = JSON.parse(readFileSync(idaFundsVkPath, 'utf8'));
-const idaVkBytes = Buffer.from(idaFundsVk.cborHex, 'hex');
-const idaVk = CML.PublicKey.from_bytes(idaVkBytes.subarray(2));
-
-idaLucid.selectWallet.fromPrivateKey(idaPrivateKey.to_bech32());
-
-const htlcUTxOs = await idaLucid.utxosAt({ type: "Script", hash: htlcScriptHash });
+const htlcUTxOs = await lucid.utxosAt({ type: "Script", hash: htlcScriptHash });
 
 // TODO select the correct HTLC UTxO to claim from cli?
 const [htlcUTxO,] = htlcUTxOs.filter(async (utxo) => {;
@@ -68,7 +50,7 @@ const [htlcUTxO,] = htlcUTxOs.filter(async (utxo) => {;
     utxo.datum ?? Data.void(),
     HtlcDatum
   );
-  return receiver === idaVk.hash().to_hex()
+  return receiver === receiverVk.hash().to_hex()
 });
 
 const { timeout } = Data.from<HtlcDatumT>(
@@ -77,25 +59,25 @@ const { timeout } = Data.from<HtlcDatumT>(
 );
 
 // claim the funds from the HTLC contract
-const tx = await idaLucid
+const tx = await lucid
   .newTx()
   .collectFrom([htlcUTxO], Data.to<HtlcRedeemerT>({ Claim: [toHex(Buffer.from(preimage))] }, HtlcRedeemer))
-  .validTo(Number(timeout))
-  .addSigner(idaAddress)
+  .validTo(Number(timeout) - 1)
+  .addSigner(receiverAddress)
   .attach.Script({ type: "PlutusV3", script: htlcScript })
   .complete();
 
 const txSigned = await tx.sign.withWallet().complete();
 
-const snapshotBeforeTx = await idaHydraNodeHandler.getSnapshot();
+const snapshotBeforeTx = await receiverNodeHandler.getSnapshot();
 logger.info('Snapshot before tx');
 logger.info(snapshotBeforeTx);
 
 const submittedTx = await txSigned.submit();
 logger.info(submittedTx);
-while (!await idaLucid.awaitTx(submittedTx, 3000)) {}
+while (!await lucid.awaitTx(submittedTx, 3000)) {}
 
-const snapshotAfterTx = await idaHydraNodeHandler.getSnapshot();
+const snapshotAfterTx = await receiverNodeHandler.getSnapshot();
 logger.info('Snapshot after tx');
 logger.info(snapshotAfterTx);
 
