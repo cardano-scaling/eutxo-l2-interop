@@ -4,7 +4,7 @@
 
 import { HydraHandler } from "./lib/hydra/handler";
 import { HydraProvider } from "./lib/hydra/provider";
-import { Data, Lucid, OutRef, SLOT_CONFIG_NETWORK, SpendingValidator, UTxO, validatorToAddress } from "@lucid-evolution/lucid";
+import { Data, Lucid, SLOT_CONFIG_NETWORK, SpendingValidator, validatorToAddress } from "@lucid-evolution/lucid";
 import { logger } from "./lib/logger";
 import { readFileSync } from 'fs';
 import { join } from 'path';

@@ -4,19 +4,16 @@
 
 import { HydraHandler } from "./lib/hydra/handler";
 import { HydraProvider } from "./lib/hydra/provider";
-import { CBORHex, CML, Data, Lucid, SpendingValidator, toHex, validatorToAddress } from "@lucid-evolution/lucid";
+import { Data, Lucid, SpendingValidator, validatorToAddress } from "@lucid-evolution/lucid";
 import { logger } from "./lib/logger";
-import { readFileSync } from 'fs';
-import { join } from 'path';
 import { getNetworkFromLucid, getUserDetails } from "./lib/utils"
 import { HtlcDatum, HtlcDatumT } from "./lib/types";
 import plutusBlueprint from '../onchain/plutus.json' assert { type: 'json' };
-import { createInterface, type Interface } from 'node:readline/promises';
+import { createInterface} from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 
 
 const rli = createInterface({ input, output, terminal: true });
-
 
 const senderDetails = await getUserDetails("sender", rli)
 

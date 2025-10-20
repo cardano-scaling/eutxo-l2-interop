@@ -4,7 +4,7 @@
 
 import { HydraHandler } from "./lib/hydra/handler";
 import { HydraProvider } from "./lib/hydra/provider";
-import { CML, credentialToAddress, Lucid, toHex } from "@lucid-evolution/lucid";
+import { credentialToAddress, Lucid } from "@lucid-evolution/lucid";
 import { logger } from "./lib/logger";
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -61,8 +61,8 @@ const { timeout } = Data.from<HtlcDatumT>(
 // claim the funds from the HTLC contract
 const tx = await lucid
   .newTx()
-  .collectFrom([htlcUTxO], Data.to<HtlcRedeemerT>({ Claim: [toHex(Buffer.from(preimage))] }, HtlcRedeemer))
-  .validTo(Number(timeout) - 1)
+  .collectFrom([htlcUTxO], Data.to<HtlcRedeemerT>({ Claim: [preimage] }, HtlcRedeemer))
+  .validTo(Number(timeout) - 10 * 60 * 1000)
   .addSigner(receiverAddress)
   .attach.Script({ type: "PlutusV3", script: htlcScript })
   .complete();
