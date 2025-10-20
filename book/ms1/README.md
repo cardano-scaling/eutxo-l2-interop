@@ -88,11 +88,11 @@ In the `verify` step, the protocol does not directly produce the final outputs o
 
 - Once `verify` has succeeded in both heads, the `perform` transaction does what the stored original body says, burns any temporary tokens, and creates the final outputs exactly as pre-agreed.
 
-This mechanism implies that `verify` should be reversible. For example, transferring USDM from `A` to `B` without an intermediary liquidity provider involves burning them from `A` and minting them in `B`. If `verify`<sub>`A`</sub> succeeds and `verify`<sub>`B`</sub> doesn’t, we must be able to recover the USDM in `A`.
+This mechanism implies that `verify` should be reversible. The paper includes situations where the `verify` step must be reversible, for example, transferring assets from `A` to `B` without an intermediary liquidity provider. This would involve burning them from `A` and minting them in `B`. If `verify`<sub>`A`</sub> succeeds and `verify`<sub>`B`</sub> doesn’t, we must be able to recover those assets in `A`. But if intermediaries provide the liquidity on the destinations ledgers, this might not be needed. Further investigation is needed to determine if this is the case.
 
-This implies that NFTs are not considered in this mechanism. Only for ADA and fungible tokens. Extra policy engineering is needed to support NFTs.
+In any case, NFTs are not considered in this mechanism. Only for ADA and fungible tokens. Extra policy engineering is needed to support NFTs.
 
-In scenarios where one of the parties in charge of doing `perform` hangs out the protocol flow by not doing it, a *merge-transaction* is needed to resolve disputed UTxOs, supported by other safety measures like collateralization.
+In scenarios where one of the parties in charge of doing `perform` stalls the protocol flow by not doing it, a *merge-transaction* is needed to resolve disputed UTxOs, supported by other safety measures like collateralization.
 
 The UTxOs subject to the verify→perform mechanism are called *wrapped UTxOs*, whose set defines the ad-hoc ledger `Lₚ`. Each head will contain a replica of the `Lₚ`. For the given use case of `A`→`B` transfer
 
@@ -120,12 +120,12 @@ This process guarantees that if both heads succeed in verify, the perform transa
 
 ### Basic Use Case Specification
 
-Transfer from User 1 in Head A → User 2 in Head B (with intermediaries set 𝙄)
+Transfer from Alce in Head A → Bob in Head B (with intermediaries set 𝙄 = {Ida})
 
 #### Participants
-- User 1 in Head A: sender of asset X
-- User 2 in Head B: receiver of asset X
-- 𝙄 = {I₁, …, Iₖ}, k ≥ 2: intermediaries present in both heads; hold collateral; co-sign atomic steps
+- Alice in Head A: sender of asset X
+- Bob in Head B: receiver of asset X
+- 𝙄 = {Ida}: intermediaries present in both heads; hold collateral; co-sign atomic steps (Ida is the only intermediary in this case)
 
 #### Wrapped UTxO Datum Specification
 - owner (Address)
@@ -135,33 +135,37 @@ Transfer from User 1 in Head A → User 2 in Head B (with intermediaries set �
 
 #### Step-by-Step Flow
 - Wrap assets to transfer + collateral
-  - A: User 1 locks asset X in `Lₚ` script → creates wrapped UTxO in replica `R₀`.
-  - B: Each Iᵢ locks their share of collateral in `Lₚ` script → creates wrapped UTxOs in replica `R₁`.
+  - Head A: Alice locks asset X in `Lₚ` script → creates wrapped UTxO in replica `R₀`.
+  - Head B: Ida locks their share of collateral in `Lₚ` script → creates wrapped UTxOs in replica `R₁`.
 
 - `verify`<sub>`A`</sub> (Head A)
-  - Consumes User 1's wrapped UTxO, produces a staging UTxO (same assets, reversible, with proof of validity).
-  - Intermediaries multisig is performed.
+  - Consumes Alice's wrapped UTxO, produces a staging UTxO (same assets, reversible, with proof of validity).
+  - Ida's signature is made.
 
 - `verify`<sub>`B`</sub> (Head B)
   - Consumes collateral UTxOs, produces staging collateral UTxO (same assets, reversible, with proof of validity).
-  - Intermediaries multisig is performed.
+  - Ida's signature is made.
 
 - Collect perform signatures
-  - Each Iᵢ agree and sign both `perform`<sub>`A`</sub> and `perform`<sub>`B`</sub> tx bodies.
+  - Ida agrees and signs both `perform`<sub>`A`</sub> and `perform`<sub>`B`</sub> tx bodies.
 
 - `perform`<sub>`A`</sub> (Head A)
-  - Finalizes burn/removal/transfer of asset in `A`.
+  - Finalizes transfer of assets from Alice to Ida in Head A.
 
 - `perform`<sub>`B`</sub> (Head B)
-  - Delivers assets to User 2 in `B`.
+  - Finalizes transfer of assets from Ida to Bob in Head B.
 
-### HTLC using ad-hoc ledgers
+### One-hop payment with ad-hoc ledgers
 
-Lets analyze the Lock operation of an HTLC with ad-hoc ledgers.
+Continuing with the example use case of two Hydra heads `A` and `B`, with `Alice` in Head `A` and `Bob` in Head `B`, and `Ida` as the intermediary i.e. present in both heads, we will analyze a Lock operation of a one-hop payment with ad-hoc ledgers.
+
+The Lock operation is the first step of the one-hop payment, akin to the HTLC Lock operation. It is the operation that locks the assets to be transferred from Alice to Bob via Ida.
 
 #### Wrapping UTxOs
 
 The first step for being "inside" of the corresponding replica of the ad-hoc ledger is to wrap the UTxOs that will be used to perform the atomic transaction (the Lock transaction in this case).
+
+Each ledger (in this case, Head `A` and Head `B`) will contain a replica of the ad-hoc ledger `Lₚ`, named replica `R₀` in Head `A` and replica `R₁` in Head `B`. The replicas, as stated above, are defined by the set of wrapped UTxOs that are semantically equivalent between them.
 
 ![Wrap UTxO](tx_wrap_utxo.svg)
 
@@ -182,3 +186,7 @@ The final step is to actually perform the Lock transaction. This is done by the 
 The main difference between using an ad-hoc ledger and a simpler HTLC is that the ad-hoc ledger allows for atomic transactions across multiple ledgers, while the simpler approach doesn't.
 
 Concretely, for the lock operation using just plain HTLC on two ledgers isn't atomic. One of the parties could do the lock operation and then the other party don't, and this would result in a liquidity trap until the HTLC expires. On the other hand, the ad-hoc ledger allows for more complex interactions via the verify→perform mechanism, where the `verify` step is reversible and the `perform` step is irreversible.
+
+Also, the collateralization burden is distributed across the intermediaries, rather than being concentrated on one party. This makes the protocol more robust to failures and more flexible to different scenarios. By the paper, this makes the transfer between ledgers more capital efficient.
+
+Further investigation about these (and more) differences will be done throughout the project.
