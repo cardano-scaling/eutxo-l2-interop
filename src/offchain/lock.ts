@@ -8,7 +8,7 @@ import { Data, Lucid, SpendingValidator, validatorToAddress } from "@lucid-evolu
 import { logger } from "./lib/logger";
 import { getNetworkFromLucid, getUserDetails } from "./lib/utils"
 import { HtlcDatum, HtlcDatumT } from "./lib/types";
-import plutusBlueprint from '../onchain/plutus.json' assert { type: 'json' };
+import plutusJson from '../onchain/plutus.json' assert { type: 'json' };
 import { createInterface} from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 
@@ -41,9 +41,21 @@ let htlcDatum = {
 
 let datum = Data.to<HtlcDatumT>(htlcDatum, HtlcDatum)
 
+// load htlc script
+const htlcScript = plutusJson.validators.find(
+  ({ title }) => title === 'htlc.htlc.spend'
+);
+
+if (!htlcScript) {
+  logger.error("Htlc script not found in plutus.json")
+  throw "Htlc script not found in plutus.json"
+}
+
+const htlcScriptBytes = htlcScript.compiledCode;
+
 let script: SpendingValidator = {
     type: "PlutusV3",
-    script: plutusBlueprint.validators[0].compiledCode
+    script: htlcScriptBytes
 };
 
 const network = getNetworkFromLucid(lucid);

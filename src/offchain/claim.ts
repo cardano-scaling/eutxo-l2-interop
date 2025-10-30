@@ -12,7 +12,7 @@ import { Data, SLOT_CONFIG_NETWORK } from "@lucid-evolution/plutus";
 import plutusJson from '../onchain/plutus.json';
 import { HtlcDatum, HtlcDatumT, HtlcRedeemer, HtlcRedeemerT } from "./lib/types";
 import { createInterface } from 'node:readline/promises';
-import { stdin as input, stdout as output } from 'node:process';
+import { exit, stdin as input, stdout as output } from 'node:process';
 import { getUserDetails } from "./lib/utils";
 
 const rli = createInterface({ input, output, terminal: true });
@@ -31,8 +31,17 @@ const preimage = await rli.question("What's the preimage for this HTLC?\n");
 logger.info(`preimage: ${preimage}`);
 
 // load htlc script
-const htlcScript = plutusJson.validators[0].compiledCode;
-const htlcScriptHash = plutusJson.validators[0].hash;
+const htlcScript = plutusJson.validators.find(
+  ({ title }) => title === 'htlc.htlc.spend'
+);
+
+if (!htlcScript) {
+  logger.error("Htlc script not found in plutus.json")
+  throw "Htlc script not found in plutus.json"
+}
+
+const htlcScriptBytes = htlcScript.compiledCode;
+const htlcScriptHash = htlcScript.hash;
 
 // instantiate the hydra handler, provider, and lucid
 const receiverNodeHandler = new HydraHandler(receiverNodeUrl!);
@@ -64,7 +73,7 @@ const tx = await lucid
   .collectFrom([htlcUTxO], Data.to<HtlcRedeemerT>({ Claim: [preimage] }, HtlcRedeemer))
   .validTo(Number(timeout) - 10 * 60 * 1000)
   .addSigner(receiverAddress)
-  .attach.Script({ type: "PlutusV3", script: htlcScript })
+  .attach.Script({ type: "PlutusV3", script: htlcScriptBytes })
   .complete();
 
 const txSigned = await tx.sign.withWallet().complete();
