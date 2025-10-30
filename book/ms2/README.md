@@ -18,13 +18,51 @@ The mechanism is comprised of the following operations:
 
 ### Contract Design
 
+#### Wrapped UTxOs
+
+L2 users will send UTxOs to the Lp script address for making them available in the ad-hoc ledger.
+
+- Address: Lp script
+- Value: any
+- Datum:
+  - owner: Address
+  - intermediaries: List[PublicKey]
+  - extension: Data
+
+#### Reserved UTxO
+
+The state UTxO used to store the reserved wrapped UTxOs. Its NFT will be minted by the `mint` purpose of the Lp script.
+
+- Address: Lp script
+- Value: 1 NFT
+- Datum:
+  - reserved_utxos: Map[TransactionHash, List[OutputRef]]
+
+#### Lp script
+
+- Spend purpose redeemers:
+  - Verify
+  - Perform
+  - Unwrap
+
+- Mint purpose redeemers:
+  - Data: for minting the Reserved UTxOs
+
+- No other purposes allowed
+
 #### Operations overview
 
 The `wrap` operation will not be on-chain validated for a first implementation version. It will just boil down to simply paying a UTxO with a well-formed datum to the script address.
 
+![Wrap UTxOs](tx_wrap_utxos.svg)
+
 The `verify` operation will mark the wrapped UTxOs as **reserved** for a specific `perform` transaction, and also disallow the usage for other `verify` operations. The marked UTxOs list will be stored in the datum of a unique "state UTxO" for the ad-hoc ledger. By off-chain mechanisms, the wrapped UTxOs will be tagged with the `perform` transaction hash, and a set of privileged participants will cosign the transaction as a way to guarantee some level of security for the mechanism.
 
+![Verify](tx_verify.svg)
+
 The `perform` operation will consume their reserved wrapped UTxOs, and validate its hash against the tag of those UTxOs.
+
+![Perform](tx_perform.svg)
 
 The `unwrap` operation will unwrap the UTxOs from the ad-hoc ledger and make them available in the L2.
 
