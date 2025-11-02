@@ -26,5 +26,24 @@ namespace Spend {
     export const Refund = Data.to<HtlcRedeemerT>({ Refund: [] }, HtlcRedeemer);
   }
 
-export { HtlcDatumSchema, HtlcDatumT, HtlcDatum, HtlcRedeemerSchema, HtlcRedeemer, HtlcRedeemerT, Spend}
+const VestingDatumSchema = Data.Object({
+  timeout: Data.Integer(),
+  receiver: Data.Bytes()
+})
+type VestingDatumT = Data.Static<typeof VestingDatumSchema>
+const VestingDatum = VestingDatumSchema as unknown as VestingDatumT
+
+
+export {
+  HtlcDatumSchema,
+  HtlcDatumT,
+  HtlcDatum,
+  HtlcRedeemerSchema,
+  HtlcRedeemer,
+  HtlcRedeemerT,
+  Spend,
+  VestingDatumSchema,
+  VestingDatumT,
+  VestingDatum,
+}
 
