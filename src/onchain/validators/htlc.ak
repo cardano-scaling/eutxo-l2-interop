@@ -33,9 +33,9 @@ pub fn check_desired_output(
     fn(o) {
       let untyped_o_datum: Data = o.datum
       and {
-        o.address == desired_htlc_output.address,
-        untyped_o_datum == desired_htlc_output.datum,
-        o.value == from_asset_list(desired_htlc_output.value),
+        (o.address == desired_htlc_output.address)?,
+        (untyped_o_datum == desired_htlc_output.datum)?,
+        (o.value == from_asset_list(desired_htlc_output.value))?,
       }
     },
   )
@@ -57,20 +57,20 @@ validator htlc {
     when redeemer is {
       Claim(preimage) -> and {
           // Preimage matches hash
-          blake2b_256(preimage) == hash,
+          (blake2b_256(preimage) == hash)?,
           // HTLC is not expired
-          is_entirely_before(validity_range, timeout),
+          is_entirely_before(validity_range, timeout)?,
           // Receiver is signing
-          list.has(extra_signatories, receiver),
+          list.has(extra_signatories, receiver)?,
           // Desired output is created
-          check_desired_output(desired_output, outputs),
+          check_desired_output(desired_output, outputs)?,
         }
 
       Refund -> and {
           // HTLC is expired
-          is_entirely_after(validity_range, timeout),
+          is_entirely_after(validity_range, timeout)?,
           // Sender is signing
-          list.has(extra_signatories, sender),
+          list.has(extra_signatories, sender)?,
         }
     }
   }
