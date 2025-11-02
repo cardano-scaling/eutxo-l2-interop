@@ -20,8 +20,8 @@ validator vesting {
   ) {
     expect Some(datum) = datum_opt
     and {
-      is_entirely_after(tx.validity_range, datum.timeout),
-      signed_by(tx, datum.receiver),
+      is_entirely_after(tx.validity_range, datum.timeout)?,
+      signed_by(tx, datum.receiver)?,
     }
   }
 
