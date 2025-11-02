@@ -27,7 +27,6 @@ L2 users will send UTxOs to the Lp script address for making them available in t
 - Datum:
   - owner: Address
   - intermediaries: List[PublicKey]
-  - extension: Data
 
 #### Reserved UTxO
 
@@ -38,7 +37,7 @@ The state UTxO used to store the reserved wrapped UTxOs. Its NFT will be minted 
 - Datum:
   - reserved_utxos: Map[TransactionHash, List[OutputRef]]
 
-#### Lp script
+#### Lₚ script
 
 - Spend purpose redeemers:
   - Verify
@@ -66,4 +65,6 @@ The `perform` operation will consume their reserved wrapped UTxOs, and validate 
 
 The `unwrap` operation will unwrap the UTxOs from the ad-hoc ledger and make them available in the L2.
 
-The operation for creating the state UTxO will be on the validator's `mint` purpose.
+The operation for creating the _reserved UTxOs_ state UTxO will be on the validator's `mint` purpose.
+
+As stated in the `verify-perform` mechanism description for ms1 deliverable, each L2s replica of the ad-hoc ledger must be semantically equivallent i.e. same UTxO set except their addresses, for ensuring no liquidity traps. This consistency, along with the correct ordering of the operations for atomicity, is ensured by the intermediaries cosigning the `verify` and `perform` transactions in each L2 replica.

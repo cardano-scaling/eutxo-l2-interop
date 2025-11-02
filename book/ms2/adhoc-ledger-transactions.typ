@@ -36,7 +36,6 @@
       datum: (
         owner: [Address],
         intermediaries: [List[PublicKey]],
-        extension: [Data],
       ),
     ),
     (dots: ""),
@@ -50,7 +49,6 @@
       datum: (
         owner: [Address],
         intermediaries: [List[PublicKey]],
-        extension: [Data],
       ),
     ),
   ),
@@ -86,7 +84,6 @@
       datum: (
         "owner₁": [Address],
         intermediaries: [List[PublicKey]],
-        extension: [Data],
       ),
       reference: true,
     ),
@@ -101,7 +98,6 @@
       datum: (
         "ownerₙ": [Address],
         intermediaries: [List[PublicKey]],
-        extension: [Data],
       ),
       reference: true,
     ),
@@ -154,7 +150,6 @@
       datum: (
         owner: [Address],
         intermediaries: [List[PublicKey]],
-        extension: [Data],
       ),
     ),
     (dots: ""),
@@ -168,7 +163,6 @@
       datum: (
         owner: [Address],
         intermediaries: [List[PublicKey]],
-        extension: [Data],
       ),
     ),
   ),
@@ -193,7 +187,6 @@
       datum: (
         owner: [Address],
         intermediaries: [List[PublicKey]],
-        extension: [Data],
       ),
     )
   ),
