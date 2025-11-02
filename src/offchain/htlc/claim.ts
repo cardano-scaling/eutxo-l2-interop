@@ -2,17 +2,17 @@
  * Ida/Bob claims the funds from the HTLC contract locked by Alice/Ida.
  */
 
-import { HydraHandler } from "./lib/hydra/handler";
-import { HydraProvider } from "./lib/hydra/provider";
+import { HydraHandler } from "../lib/hydra/handler";
+import { HydraProvider } from "../lib/hydra/provider";
 import { credentialToAddress, Lucid } from "@lucid-evolution/lucid";
-import { logger } from "./lib/logger";
+import { logger } from "../lib/logger";
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { Data, SLOT_CONFIG_NETWORK } from "@lucid-evolution/plutus";
-import { HtlcDatum, HtlcDatumT, HtlcRedeemer, HtlcRedeemerT } from "./lib/types";
+import { HtlcDatum, HtlcDatumT, HtlcRedeemer, HtlcRedeemerT } from "../lib/types";
 import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
-import { getScriptInfo, getUserDetails } from "./lib/utils";
+import { getScriptInfo, getUserDetails } from "../lib/utils";
 
 const rli = createInterface({ input, output, terminal: true });
 

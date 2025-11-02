@@ -2,14 +2,14 @@
  * This script is used to build a lock transaction with a fixed datum and 10 ADAs
  */
 
-import { HydraHandler } from "./lib/hydra/handler";
-import { HydraProvider } from "./lib/hydra/provider";
+import { HydraHandler } from "../lib/hydra/handler";
+import { HydraProvider } from "../lib/hydra/provider";
 import { Data, Lucid, SLOT_CONFIG_NETWORK, SpendingValidator } from "@lucid-evolution/lucid";
-import { logger } from "./lib/logger";
+import { logger } from "../lib/logger";
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { getScriptInfo, getUserDetails } from "./lib/utils"
-import { HtlcDatum, HtlcDatumT, Spend } from "./lib/types";
+import { getScriptInfo, getUserDetails } from "../lib/utils"
+import { HtlcDatum, HtlcDatumT, Spend } from "../lib/types";
 import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 
