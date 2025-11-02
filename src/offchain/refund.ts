@@ -4,13 +4,12 @@
 
 import { HydraHandler } from "./lib/hydra/handler";
 import { HydraProvider } from "./lib/hydra/provider";
-import { Data, Lucid, SLOT_CONFIG_NETWORK, SpendingValidator, validatorToAddress } from "@lucid-evolution/lucid";
+import { Data, Lucid, SLOT_CONFIG_NETWORK, SpendingValidator } from "@lucid-evolution/lucid";
 import { logger } from "./lib/logger";
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { getNetworkFromLucid, getUserDetails } from "./lib/utils"
+import { getScriptInfo, getUserDetails } from "./lib/utils"
 import { HtlcDatum, HtlcDatumT, Spend } from "./lib/types";
-import plutusJson from '../onchain/plutus.json' assert { type: 'json' };
 import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 
@@ -32,18 +31,7 @@ const handler = new HydraHandler(senderDetails.senderNodeUrl!);
 const lucid = await Lucid(new HydraProvider(handler), "Custom");
 lucid.selectWallet.fromPrivateKey(senderDetails.sk.to_bech32());
 
-// load htlc script
-const htlcScript = plutusJson.validators.find(
-  ({ title }) => title === 'htlc.htlc.spend'
-);
-
-if (!htlcScript) {
-  logger.error("Htlc script not found in plutus.json")
-  throw "Htlc script not found in plutus.json"
-}
-
-const htlcScriptBytes = htlcScript.compiledCode;
-const htlcScriptHash = htlcScript.hash;
+const [htlcScriptBytes, htlcScriptHash] = getScriptInfo("htlc")
 
 let script: SpendingValidator = {
   type: "PlutusV3",

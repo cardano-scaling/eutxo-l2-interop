@@ -2,6 +2,7 @@ import { CML, LucidEvolution, Network } from "@lucid-evolution/lucid";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Interface } from 'node:readline/promises';
+import plutusJson from '../../onchain/plutus.json';
 
 function getNetworkFromLucid(lucid: LucidEvolution): Network {
     const network = lucid.config().network;
@@ -74,4 +75,20 @@ async function getUserDetails(role: string, rli: Interface): Promise<UserDetails
     return userDetails
 }
 
-export { getNetworkFromLucid, getUserDetails }
+function getScriptInfo(scriptName: string, scriptPurpose: string = "spend"): [string, string] {
+    // load selected script
+    const script = plutusJson.validators.find(
+    ({ title }) => title === `${scriptName}.${scriptName}.${scriptPurpose}`
+    );
+
+    if (!script) {
+     throw `${scriptName} script not found in plutus.json`
+    }
+
+    const scriptBytes = script.compiledCode;
+    const scriptHash = script.hash
+
+    return [scriptBytes, scriptHash]
+}
+
+export { getNetworkFromLucid, getUserDetails, getScriptInfo }

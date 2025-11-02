@@ -6,9 +6,8 @@ import { HydraHandler } from "./lib/hydra/handler";
 import { HydraProvider } from "./lib/hydra/provider";
 import { Data, Lucid, SpendingValidator, validatorToAddress } from "@lucid-evolution/lucid";
 import { logger } from "./lib/logger";
-import { getNetworkFromLucid, getUserDetails } from "./lib/utils"
+import { getNetworkFromLucid, getScriptInfo, getUserDetails } from "./lib/utils"
 import { HtlcDatum, HtlcDatumT } from "./lib/types";
-import plutusJson from '../onchain/plutus.json' assert { type: 'json' };
 import { createInterface} from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 
@@ -41,17 +40,7 @@ let htlcDatum = {
 
 let datum = Data.to<HtlcDatumT>(htlcDatum, HtlcDatum)
 
-// load htlc script
-const htlcScript = plutusJson.validators.find(
-  ({ title }) => title === 'htlc.htlc.spend'
-);
-
-if (!htlcScript) {
-  logger.error("Htlc script not found in plutus.json")
-  throw "Htlc script not found in plutus.json"
-}
-
-const htlcScriptBytes = htlcScript.compiledCode;
+const [htlcScriptBytes,_] = getScriptInfo("htlc")
 
 let script: SpendingValidator = {
     type: "PlutusV3",
