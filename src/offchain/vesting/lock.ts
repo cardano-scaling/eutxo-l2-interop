@@ -1,14 +1,13 @@
 /**
- * This script is used to build a lock transaction with a fixed datum and 10 ADAs
+ * This script is used to build a lock transaction for the vesting contract
  */
 
-import { HydraHandler } from "./lib/hydra/handler";
-import { HydraProvider } from "./lib/hydra/provider";
+import { HydraHandler } from "../lib/hydra/handler";
+import { HydraProvider } from "../lib/hydra/provider";
 import { Data, Lucid, SpendingValidator, validatorToAddress } from "@lucid-evolution/lucid";
-import { logger } from "./lib/logger";
-import { getNetworkFromLucid, getUserDetails } from "./lib/utils"
-import { HtlcDatum, HtlcDatumT } from "./lib/types";
-import plutusBlueprint from '../onchain/plutus.json' assert { type: 'json' };
+import { logger } from "../lib/logger";
+import { getNetworkFromLucid, getScriptInfo, getUserDetails } from "../lib/utils"
+import { VestingDatum, VestingDatumT } from "../lib/types";
 import { createInterface} from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 
@@ -25,30 +24,28 @@ const lucid = await Lucid(new HydraProvider(handler), "Custom");
 lucid.selectWallet.fromPrivateKey(senderDetails.sk.to_bech32());
 
 // Ask user for the hash
-const hash = await rli.question("What's the Hash for this HTLC?\n");
-const amountStr = await rli.question("What's the amount to lock (in lovelace) for this HTLC?\n");
+const amountStr = await rli.question("What's the amount to lock (in lovelace) for this Vesting contract?\n");
+const timeoutStr = await rli.question("When will the vesting be available to claim? (In POSIX millisencods)\n");
+
 const amount = BigInt(amountStr.trim())
+const timeout = BigInt(timeoutStr.trim())
 
-// 2 hours from now
-const timeout = BigInt(Date.now() + 2 * 60 * 60 * 1000)
-
-let htlcDatum = {
-    hash: hash,
+let vestingDatum = {
     timeout: timeout,
-    sender: senderDetails.vk.hash().to_hex(),
     receiver: receiverDetails.vk.hash().to_hex(),
 }
 
-let datum = Data.to<HtlcDatumT>(htlcDatum, HtlcDatum)
+const [vestingScriptBytes,_] = getScriptInfo("vesting")
+
+let datum = Data.to<VestingDatumT>(vestingDatum, VestingDatum)
 
 let script: SpendingValidator = {
     type: "PlutusV3",
-    script: plutusBlueprint.validators[0].compiledCode
+    script: vestingScriptBytes
 };
 
 const network = getNetworkFromLucid(lucid);
 let scriptAddress = validatorToAddress(network, script)
-
 
 const tx = await lucid
   .newTx()
@@ -75,3 +72,7 @@ logger.info('Snapshot after tx');
 logger.info(snapshotAfterTx);
 
 process.exit(0);
+function getSpendingScriptInfo(arg0: string): [any, any] {
+  throw new Error("Function not implemented.");
+}
+

@@ -1,19 +1,18 @@
 /**
- * Ida/Bob claims the funds from the HTLC contract locked by Alice/Ida.
+ * Claims the funds from the Vesting contract.
  */
 
-import { HydraHandler } from "./lib/hydra/handler";
-import { HydraProvider } from "./lib/hydra/provider";
+import { HydraHandler } from "../lib/hydra/handler";
+import { HydraProvider } from "../lib/hydra/provider";
 import { credentialToAddress, Lucid } from "@lucid-evolution/lucid";
-import { logger } from "./lib/logger";
+import { logger } from "../lib/logger";
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { Data, SLOT_CONFIG_NETWORK } from "@lucid-evolution/plutus";
-import plutusJson from '../onchain/plutus.json';
-import { HtlcDatum, HtlcDatumT, HtlcRedeemer, HtlcRedeemerT } from "./lib/types";
+import { VestingDatum, VestingDatumT } from "../lib/types";
 import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
-import { getUserDetails } from "./lib/utils";
+import { getScriptInfo, getUserDetails } from "../lib/utils";
 
 const rli = createInterface({ input, output, terminal: true });
 
@@ -27,12 +26,9 @@ SLOT_CONFIG_NETWORK["Custom"] = {
 };
 
 const { sk: receiverPrivateKey, vk: receiverVk, receiverNodeUrl } = await getUserDetails("receiver", rli)
-const preimage = await rli.question("What's the preimage for this HTLC?\n");
-logger.info(`preimage: ${preimage}`);
 
-// load htlc script
-const htlcScript = plutusJson.validators[0].compiledCode;
-const htlcScriptHash = plutusJson.validators[0].hash;
+
+const [vestingScriptBytes, vestingScriptHash] = getScriptInfo("vesting")
 
 // instantiate the hydra handler, provider, and lucid
 const receiverNodeHandler = new HydraHandler(receiverNodeUrl!);
@@ -42,29 +38,29 @@ const receiverAddress = credentialToAddress("Custom", { type: "Key", hash: recei
 
 lucid.selectWallet.fromPrivateKey(receiverPrivateKey.to_bech32());
 
-const htlcUTxOs = await lucid.utxosAt({ type: "Script", hash: htlcScriptHash });
+const vestingUTxOs = await lucid.utxosAt({ type: "Script", hash: vestingScriptHash });
 
-// TODO select the correct HTLC UTxO to claim from cli?
-const [htlcUTxO,] = htlcUTxOs.filter(async (utxo) => {;
-  const { receiver } = Data.from<HtlcDatumT>(
+// TODO select the correct Vesting UTxO to claim from cli?
+const [vestingUTxO,] = vestingUTxOs.filter(async (utxo) => {;
+  const { receiver } = Data.from<VestingDatumT>(
     utxo.datum ?? Data.void(),
-    HtlcDatum
+    VestingDatum
   );
   return receiver === receiverVk.hash().to_hex()
 });
 
-const { timeout } = Data.from<HtlcDatumT>(
-  htlcUTxO.datum ?? Data.void(),
-  HtlcDatum
+const { timeout } = Data.from<VestingDatumT>(
+  vestingUTxO.datum ?? Data.void(),
+  VestingDatum
 );
 
-// claim the funds from the HTLC contract
+// claim the funds from the Vesting contract
 const tx = await lucid
   .newTx()
-  .collectFrom([htlcUTxO], Data.to<HtlcRedeemerT>({ Claim: [preimage] }, HtlcRedeemer))
-  .validTo(Number(timeout) - 10 * 60 * 1000)
+  .collectFrom([vestingUTxO], Data.void())
+  .validFrom(Number(timeout) + 1 * 60 * 1000)
   .addSigner(receiverAddress)
-  .attach.Script({ type: "PlutusV3", script: htlcScript })
+  .attach.Script({ type: "PlutusV3", script: vestingScriptBytes })
   .complete();
 
 const txSigned = await tx.sign.withWallet().complete();
@@ -82,4 +78,8 @@ logger.info('Snapshot after tx');
 logger.info(snapshotAfterTx);
 
 process.exit(0);
+
+function getSpendingScriptInfo(arg0: string): [any, any] {
+  throw new Error("Function not implemented.");
+}
 

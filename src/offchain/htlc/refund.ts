@@ -2,15 +2,14 @@
  * This script is used to build a lock transaction with a fixed datum and 10 ADAs
  */
 
-import { HydraHandler } from "./lib/hydra/handler";
-import { HydraProvider } from "./lib/hydra/provider";
-import { Data, Lucid, SLOT_CONFIG_NETWORK, SpendingValidator, validatorToAddress } from "@lucid-evolution/lucid";
-import { logger } from "./lib/logger";
+import { HydraHandler } from "../lib/hydra/handler";
+import { HydraProvider } from "../lib/hydra/provider";
+import { Data, Lucid, SLOT_CONFIG_NETWORK, SpendingValidator } from "@lucid-evolution/lucid";
+import { logger } from "../lib/logger";
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { getNetworkFromLucid, getUserDetails } from "./lib/utils"
-import { HtlcDatum, HtlcDatumT, Spend } from "./lib/types";
-import plutusBlueprint from '../onchain/plutus.json' assert { type: 'json' };
+import { getScriptInfo, getUserDetails } from "../lib/utils"
+import { HtlcDatum, HtlcDatumT, Spend } from "../lib/types";
 import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 
@@ -32,17 +31,12 @@ const handler = new HydraHandler(senderDetails.senderNodeUrl!);
 const lucid = await Lucid(new HydraProvider(handler), "Custom");
 lucid.selectWallet.fromPrivateKey(senderDetails.sk.to_bech32());
 
-// load htlc script
-const htlcScript = plutusBlueprint.validators[0].compiledCode;
-const htlcScriptHash = plutusBlueprint.validators[0].hash;
+const [htlcScriptBytes, htlcScriptHash] = getScriptInfo("htlc")
 
 let script: SpendingValidator = {
   type: "PlutusV3",
-  script: htlcScript
+  script: htlcScriptBytes
 };
-
-const network = getNetworkFromLucid(lucid);
-let scriptAddress = validatorToAddress(network, script)
 
 const htlcUTxOs = await lucid.utxosAt({ type: "Script", hash: htlcScriptHash });
 
