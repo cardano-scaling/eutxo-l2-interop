@@ -12,6 +12,42 @@
   },
   "validators": [
     {
+      "title": "adhoc_ledger.lp.spend",
+      "datum": {
+        "title": "_datum_opt",
+        "schema": {
+          "$ref": "#/definitions/adhoc_ledger~1WrappedDatum"
+        }
+      },
+      "redeemer": {
+        "title": "redeemer",
+        "schema": {
+          "$ref": "#/definitions/adhoc_ledger~1LpRedeemer"
+        }
+      },
+      "compiledCode": "58c101010029800aba2aba1aab9faab9eaab9dab9a488888966002646465300130053754003370e90004c02000e601000491112cc004cdc3a400400913298009806800cc034c03800660146ea800a2b30013004300a375400514a314a2804922225980098040014566002601e6ea801a00316404115980099b874800800a2b3001300f375400d0018b20208b201a4034300a375400b159800980180244c9289bae300c300a375400b1640208040600e6010002600e00260066ea801e29344d95900101",
+      "hash": "46835c2628e9b6a11bd73441b1c6d65689ff979c0d038622101bc337"
+    },
+    {
+      "title": "adhoc_ledger.lp.mint",
+      "redeemer": {
+        "title": "_redeemer",
+        "schema": {
+          "$ref": "#/definitions/cardano~1transaction~1Redeemer"
+        }
+      },
+      "compiledCode": "58c101010029800aba2aba1aab9faab9eaab9dab9a488888966002646465300130053754003370e90004c02000e601000491112cc004cdc3a400400913298009806800cc034c03800660146ea800a2b30013004300a375400514a314a2804922225980098040014566002601e6ea801a00316404115980099b874800800a2b3001300f375400d0018b20208b201a4034300a375400b159800980180244c9289bae300c300a375400b1640208040600e6010002600e00260066ea801e29344d95900101",
+      "hash": "46835c2628e9b6a11bd73441b1c6d65689ff979c0d038622101bc337"
+    },
+    {
+      "title": "adhoc_ledger.lp.else",
+      "redeemer": {
+        "schema": {}
+      },
+      "compiledCode": "58c101010029800aba2aba1aab9faab9eaab9dab9a488888966002646465300130053754003370e90004c02000e601000491112cc004cdc3a400400913298009806800cc034c03800660146ea800a2b30013004300a375400514a314a2804922225980098040014566002601e6ea801a00316404115980099b874800800a2b3001300f375400d0018b20208b201a4034300a375400b159800980180244c9289bae300c300a375400b1640208040600e6010002600e00260066ea801e29344d95900101",
+      "hash": "46835c2628e9b6a11bd73441b1c6d65689ff979c0d038622101bc337"
+    },
+    {
       "title": "htlc.htlc.spend",
       "datum": {
         "title": "datum_opt",
@@ -72,6 +108,53 @@
     },
     "Int": {
       "dataType": "integer"
+    },
+    "List$ByteArray": {
+      "dataType": "list",
+      "items": {
+        "$ref": "#/definitions/ByteArray"
+      }
+    },
+    "adhoc_ledger/LpRedeemer": {
+      "title": "LpRedeemer",
+      "anyOf": [
+        {
+          "title": "Verify",
+          "dataType": "constructor",
+          "index": 0,
+          "fields": []
+        },
+        {
+          "title": "Perform",
+          "dataType": "constructor",
+          "index": 1,
+          "fields": []
+        }
+      ]
+    },
+    "adhoc_ledger/WrappedDatum": {
+      "title": "WrappedDatum",
+      "anyOf": [
+        {
+          "title": "WrappedDatum",
+          "dataType": "constructor",
+          "index": 0,
+          "fields": [
+            {
+              "title": "owner",
+              "$ref": "#/definitions/ByteArray"
+            },
+            {
+              "title": "intermediaries",
+              "$ref": "#/definitions/List$ByteArray"
+            }
+          ]
+        }
+      ]
+    },
+    "cardano/transaction/Redeemer": {
+      "title": "Redeemer",
+      "description": "Any Plutus data."
     },
     "htlc/HtlcDatum": {
       "title": "HtlcDatum",

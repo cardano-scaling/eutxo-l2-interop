@@ -4,3 +4,6 @@ typst compile ms1/htlc-transactions.typ ms1/tx_refund_htlc.svg --input export="r
 typst compile ms1/adhoc-ledger-transactions.typ ms1/tx_wrap_utxo.svg --input export="wrap" --root .
 typst compile ms1/adhoc-ledger-transactions.typ ms1/tx_htlc_verify_lock.svg --input export="verify_lock" --root .
 typst compile ms1/adhoc-ledger-transactions.typ ms1/tx_htlc_perform_lock.svg --input export="perform_lock" --root .
+typst compile ms2/adhoc-ledger-transactions.typ ms2/tx_wrap_utxos.svg --input export="wrap" --root .
+typst compile ms2/adhoc-ledger-transactions.typ ms2/tx_verify.svg --input export="verify" --root .
+typst compile ms2/adhoc-ledger-transactions.typ ms2/tx_perform.svg --input export="perform" --root .
