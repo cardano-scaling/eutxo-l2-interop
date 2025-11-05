@@ -76,20 +76,27 @@ async function getUserDetails(role: string, rli: Interface): Promise<UserDetails
     return userDetails
 }
 
-function getScriptInfo(scriptName: string, scriptPurpose: string = "spend"): [string, string] {
-    // load selected script
-    const script = plutusJson.validators.find(
-    ({ title }) => title === `${scriptName}.${scriptName}.${scriptPurpose}`
-    );
+function getScriptInfo(
+  scriptName: string | { filename: string, scriptName: string },
+  scriptPurpose: string = "spend"
+): [string, string] {
+  // load selected script
+  const script = typeof scriptName === 'string'
+    ? plutusJson.validators.find(
+        ({ title }) => title === `${scriptName}.${scriptName}.${scriptPurpose}`
+    )
+    : plutusJson.validators.find(
+        ({ title }) => title === `${scriptName.filename}.${scriptName.scriptName}.${scriptPurpose}`
+    )
 
-    if (!script) {
-     throw `${scriptName} script not found in plutus.json`
-    }
+  if (!script) {
+    throw `${scriptName} script not found in plutus.json`
+  }
 
-    const scriptBytes = script.compiledCode;
-    const scriptHash = script.hash
+  const scriptBytes = script.compiledCode
+  const scriptHash = script.hash
 
-    return [scriptBytes, scriptHash]
+  return [scriptBytes, scriptHash]
 }
 
 // Converts an Assets list from LucidEvo to the desired nested maps format
