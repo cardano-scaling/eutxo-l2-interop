@@ -4,10 +4,10 @@
 
 import { HydraHandler } from "../lib/hydra/handler";
 import { HydraProvider } from "../lib/hydra/provider";
-import { Data, Lucid, SpendingValidator, validatorToAddress } from "@lucid-evolution/lucid";
+import { Assets, credentialToAddress, Data, Lucid, SpendingValidator, validatorToAddress } from "@lucid-evolution/lucid";
 import { logger } from "../lib/logger";
-import { getNetworkFromLucid, getScriptInfo, getUserDetails } from "../lib/utils"
-import { HtlcDatum, HtlcDatumT } from "../lib/types";
+import { assetsToDataPairs, bech32ToDataAddress, getNetworkFromLucid, getScriptInfo, getUserDetails } from "../lib/utils"
+import { HtlcDatum, HtlcDatumT, HtlcOutputT, VestingDatum, VestingDatumT } from "../lib/types";
 import { createInterface} from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 
@@ -21,21 +21,45 @@ const receiverDetails = await getUserDetails("receiver", rli)
 // instantiate the hydra handler, provider, and lucid
 const handler = new HydraHandler(senderDetails.senderNodeUrl!);
 const lucid = await Lucid(new HydraProvider(handler), "Custom");
+const network = getNetworkFromLucid(lucid);
 lucid.selectWallet.fromPrivateKey(senderDetails.sk.to_bech32());
 
 // Ask user for the hash
 const hash = await rli.question("What's the Hash for this HTLC?\n");
 const amountStr = await rli.question("What's the amount to lock (in lovelace) for this HTLC?\n");
+const timeoutStr = await rli.question("When will the vesting be available to claim? (in posix milliseconds)\n");
+
 const amount = BigInt(amountStr.trim())
+const vestingTimeout = BigInt(timeoutStr.trim())
 
 // 2 hours from now
-const timeout = BigInt(Date.now() + 2 * 60 * 60 * 1000)
+const htlcTimeout = BigInt(Date.now() + 2 * 60 * 60 * 1000)
 
-let htlcDatum = {
+const pay_amount: Assets = {['lovelace']: amount}
+
+const desired_datum: VestingDatumT = {
+  receiver: receiverDetails.vk.hash().to_hex(),
+  timeout: vestingTimeout
+}
+
+const [, vestingScriptHash] = getScriptInfo("vesting")
+const vestingAddress = credentialToAddress(network, {
+  type: "Script",
+  hash: vestingScriptHash
+})
+
+const desired_output: HtlcOutputT = {
+  address: bech32ToDataAddress(vestingAddress),
+  value: assetsToDataPairs(pay_amount),
+  datum: Data.from(Data.to<VestingDatumT>(desired_datum, VestingDatum))
+}
+
+let htlcDatum: HtlcDatumT = {
     hash: hash,
-    timeout: timeout,
+    timeout: htlcTimeout,
     sender: senderDetails.vk.hash().to_hex(),
     receiver: receiverDetails.vk.hash().to_hex(),
+    desired_output: desired_output,
 }
 
 let datum = Data.to<HtlcDatumT>(htlcDatum, HtlcDatum)
@@ -47,16 +71,14 @@ let script: SpendingValidator = {
     script: htlcScriptBytes
 };
 
-const network = getNetworkFromLucid(lucid);
 let scriptAddress = validatorToAddress(network, script)
-
 
 const tx = await lucid
   .newTx()
   .pay.ToContract(
     scriptAddress,
-    { kind: "inline", value: datum},
-    { lovelace: amount },
+    { kind: "inline", value: datum },
+    pay_amount,
   )
   .complete();
 

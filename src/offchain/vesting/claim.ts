@@ -27,7 +27,6 @@ SLOT_CONFIG_NETWORK["Custom"] = {
 
 const { sk: receiverPrivateKey, vk: receiverVk, receiverNodeUrl } = await getUserDetails("receiver", rli)
 
-
 const [vestingScriptBytes, vestingScriptHash] = getScriptInfo("vesting")
 
 // instantiate the hydra handler, provider, and lucid
@@ -78,8 +77,4 @@ logger.info('Snapshot after tx');
 logger.info(snapshotAfterTx);
 
 process.exit(0);
-
-function getSpendingScriptInfo(arg0: string): [any, any] {
-  throw new Error("Function not implemented.");
-}
 
