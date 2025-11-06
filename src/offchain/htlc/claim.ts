@@ -12,7 +12,7 @@ import { Data, SLOT_CONFIG_NETWORK } from "@lucid-evolution/plutus";
 import { HtlcDatum, HtlcDatumT, HtlcRedeemer, HtlcRedeemerT } from "../lib/types";
 import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
-import { getScriptInfo, getUserDetails } from "../lib/utils";
+import { dataAddressToBech32, getScriptInfo, getUserDetails, dataPairsToAssets } from "../lib/utils";
 
 const rli = createInterface({ input, output, terminal: true });
 
@@ -50,7 +50,7 @@ const [htlcUTxO,] = htlcUTxOs.filter(async (utxo) => {;
   return receiver === receiverVk.hash().to_hex()
 });
 
-const { timeout } = Data.from<HtlcDatumT>(
+const { timeout, desired_output } = Data.from<HtlcDatumT>(
   htlcUTxO.datum ?? Data.void(),
   HtlcDatum
 );
@@ -58,8 +58,17 @@ const { timeout } = Data.from<HtlcDatumT>(
 // claim the funds from the HTLC contract
 const tx = await lucid
   .newTx()
+  .pay.ToAddressWithData(
+    dataAddressToBech32(lucid, desired_output.address),
+    {
+      kind: "inline",
+      value: Data.to(desired_output.datum)
+    },
+    dataPairsToAssets(desired_output.value)
+  )
   .collectFrom([htlcUTxO], Data.to<HtlcRedeemerT>({ Claim: [preimage] }, HtlcRedeemer))
-  .validTo(Number(timeout) - 10 * 60 * 1000)
+  // 20 seconds before timeout to account for block and slot rounding
+  .validTo(Number(timeout) - 20 * 60 * 1000)
   .addSigner(receiverAddress)
   .attach.Script({ type: "PlutusV3", script: htlcScriptBytes })
   .complete();
