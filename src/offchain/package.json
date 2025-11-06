@@ -14,6 +14,7 @@
     "vesting:lock": "tsx vesting/lock.ts",
     "vesting:claim": "tsx vesting/claim.ts",
     "adhoc:setup": "tsx adhoc-ledger/setup.ts",
+    "adhoc:wrap": "tsx adhoc-ledger/wrap.ts",
     "test": "echo \"Error: no test specified\" && exit 1",
     "lint": "eslint .",
     "lint:fix": "eslint --fix .",

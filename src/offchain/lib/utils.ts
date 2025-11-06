@@ -1,4 +1,4 @@
-import { Assets, CML, credentialToAddress, fromUnit, getAddressDetails, LucidEvolution, Network, TxOutput } from "@lucid-evolution/lucid";
+import { Assets, CML, credentialToAddress, fromUnit, getAddressDetails, LucidEvolution, Network, UTxO } from "@lucid-evolution/lucid";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Interface } from 'node:readline/promises';
@@ -173,6 +173,48 @@ function bech32ToDataAddress(addr: string): AddressT {
   };
 }
 
+// ida1 and ida2: the number mean the head number
+function getUserNodeAndKeys(
+  { name, head }: { name: "alice" | "bob" | "ida", head: 1 | 2 },
+): { nodeUrl: string, sk: CML.PrivateKey, vk: CML.PublicKey } {
+  const nodeUrl = name === "alice"
+    ? "http://127.0.0.1:4001"
+    : name === "bob"
+      ? "http://127.0.0.1:4002"
+      : name === "ida" && head === 1
+        ? "http://127.0.0.1:4003"
+        : name === "ida" && head === 2
+          ? "http://127.0.0.1:4004"
+          : undefined;
+  if (!nodeUrl) {
+    throw new Error(`Invalid name: ${name} and head: ${head}`);
+  }
+  const skPath = join(process.cwd(), `../infra/credentials/${name}/${name}-funds.sk`);
+  const sk = JSON.parse(readFileSync(skPath, 'utf8'));
+  const skBytes = Buffer.from(sk.cborHex, 'hex');
+  const cmlSk = CML.PrivateKey.from_normal_bytes(skBytes.subarray(2));
+  const vkPath = join(process.cwd(), `../infra/credentials/${name}/${name}-funds.vk`);
+  const vk = JSON.parse(readFileSync(vkPath, 'utf8'));
+  const vkBytes = Buffer.from(vk.cborHex, 'hex');
+  const cmlVk = CML.PublicKey.from_bytes(vkBytes.subarray(2));
+  return { nodeUrl, sk: cmlSk, vk: cmlVk };
+}
+
+function utxoSetSymmetricDiff(prevUtxos: UTxO[], newUtxos: UTxO[]): { removed: UTxO[], added: UTxO[] } {
+  const prevUtxosSet = new Set(prevUtxos.map(utxo => `${utxo.txHash}#${utxo.outputIndex}`));
+  const newUtxosSet = new Set(newUtxos.map(utxo => `${utxo.txHash}#${utxo.outputIndex}`));
+
+  const prevMinusNew = prevUtxos.filter(({ txHash, outputIndex }) => !newUtxosSet.has(`${txHash}#${outputIndex}`));
+  const newMinusPrev = newUtxos.filter(({ txHash, outputIndex }) => !prevUtxosSet.has(`${txHash}#${outputIndex}`));
+
+  return {
+    // prev - new = removed
+    removed: prevMinusNew,
+    // new - prev = added
+    added: newMinusPrev,
+  }
+}
+
 export {
   getNetworkFromLucid,
   getUserDetails,
@@ -180,5 +222,7 @@ export {
   assetsToDataPairs,
   dataPairsToAssets,
   bech32ToDataAddress,
-  dataAddressToBech32
+  dataAddressToBech32,
+  getUserNodeAndKeys,
+  utxoSetSymmetricDiff
 }

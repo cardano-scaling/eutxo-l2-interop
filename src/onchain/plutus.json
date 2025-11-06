@@ -133,10 +133,10 @@
     "Int": {
       "dataType": "integer"
     },
-    "List$ByteArray": {
+    "List$cardano/address/Credential": {
       "dataType": "list",
       "items": {
-        "$ref": "#/definitions/ByteArray"
+        "$ref": "#/definitions/cardano~1address~1Credential"
       }
     },
     "Option$Data": {
@@ -232,11 +232,45 @@
           "fields": [
             {
               "title": "owner",
-              "$ref": "#/definitions/ByteArray"
+              "$ref": "#/definitions/cardano~1address~1Credential"
             },
             {
               "title": "intermediaries",
-              "$ref": "#/definitions/List$ByteArray"
+              "$ref": "#/definitions/List$cardano~1address~1Credential"
+            }
+          ]
+        }
+      ]
+    },
+    "aiken/crypto/ScriptHash": {
+      "title": "ScriptHash",
+      "dataType": "bytes"
+    },
+    "aiken/crypto/VerificationKeyHash": {
+      "title": "VerificationKeyHash",
+      "dataType": "bytes"
+    },
+    "cardano/address/Credential": {
+      "title": "Credential",
+      "description": "A general structure for representing an on-chain `Credential`.\n\n Credentials are always one of two kinds: a direct public/private key\n pair, or a script (native or Plutus).",
+      "anyOf": [
+        {
+          "title": "VerificationKey",
+          "dataType": "constructor",
+          "index": 0,
+          "fields": [
+            {
+              "$ref": "#/definitions/aiken~1crypto~1VerificationKeyHash"
+            }
+          ]
+        },
+        {
+          "title": "Script",
+          "dataType": "constructor",
+          "index": 1,
+          "fields": [
+            {
+              "$ref": "#/definitions/aiken~1crypto~1ScriptHash"
             }
           ]
         }
