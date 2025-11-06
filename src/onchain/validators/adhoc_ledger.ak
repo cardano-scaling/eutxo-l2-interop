@@ -1,12 +1,12 @@
 use cardano/transaction.{OutputReference, Transaction, Redeemer, TransactionId, InlineDatum, find_input}
 use cardano/assets.{PolicyId, quantity_of}
-use cardano/address.{Script}
+use cardano/address.{Script, Credential}
 use aiken/collection/dict.{Dict}
 use aiken/collection/list
 
 pub type WrappedDatum {
-  owner: ByteArray,
-  intermediaries: List<ByteArray>,
+  owner: Credential,
+  intermediaries: List<Credential>,
 }
 
 pub type LpRedeemer {

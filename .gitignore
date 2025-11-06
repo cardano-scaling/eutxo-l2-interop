@@ -10,6 +10,8 @@
 
 src/infra/persistence/*
 src/infra/startup_time.txt
+src/offchain/adhoc-ledger/lp_script_head_1.cbor
+src/offchain/adhoc-ledger/lp_script_head_2.cbor
 
 node_modules
 **/build

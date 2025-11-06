@@ -7,10 +7,10 @@ import { HydraHandler } from "../lib/hydra/handler";
 import { HydraProvider } from "../lib/hydra/provider";
 import { applyDoubleCborEncoding, applyParamsToScript, CML, Lucid, validatorToAddress, validatorToScriptHash } from "@lucid-evolution/lucid";
 import { logger } from "../lib/logger";
-import { readFileSync } from 'fs';
+import { readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { Data, SLOT_CONFIG_NETWORK } from "@lucid-evolution/plutus";
-import { getNetworkFromLucid, getScriptInfo } from "../lib/utils";
+import { getNetworkFromLucid, getScriptInfo, getUserNodeAndKeys, utxoSetSymmetricDiff } from "../lib/utils";
 
 const startupTime = readFileSync(join(process.cwd(), '../infra/startup_time.txt'), 'utf8');
 const startupTimeMs = parseInt(startupTime);
@@ -22,18 +22,12 @@ SLOT_CONFIG_NETWORK["Custom"] = {
 };
 
 const [lpScriptBytes, _] = getScriptInfo({ filename: "adhoc_ledger", scriptName: "lp" }, "mint")
-const idaNodeHead1Url = "http://127.0.0.1:4003";
-const idaNodeHead2Url = "http://127.0.0.1:4004";
+const { nodeUrl: idaNodeHead1Url, sk: idaPrivateKey } = getUserNodeAndKeys({ name: "ida", head: 1 });
+const { nodeUrl: idaNodeHead2Url } = getUserNodeAndKeys({ name: "ida", head: 2 });
 
 // instantiate the hydra handler, provider, and lucid
 const idaNode1Handler = new HydraHandler(idaNodeHead1Url);
 const lucid1 = await Lucid(new HydraProvider(idaNode1Handler), "Custom");
-
-// get ida private key
-const skPath = join(process.cwd(), `../infra/credentials/ida/ida-funds.sk`);
-const sk = JSON.parse(readFileSync(skPath, 'utf8'));
-const skBytes = Buffer.from(sk.cborHex, 'hex');
-const idaPrivateKey = CML.PrivateKey.from_normal_bytes(skBytes.subarray(2));
 
 // select ida wallet
 lucid1.selectWallet.fromPrivateKey(idaPrivateKey.to_bech32());
@@ -113,6 +107,12 @@ const snapshotAfterTx = await idaNode1Handler.getSnapshot();
 logger.info('Snapshot after tx');
 logger.info(snapshotAfterTx);
 
+logger.info('UTxO set diff:');
+logger.info(utxoSetSymmetricDiff(snapshotBeforeTx, snapshotAfterTx));
+
+// save script with applied parameters on filesystem. for reference on future transactions
+writeFileSync(join(process.cwd(), `./adhoc-ledger/lp_script_head_1.cbor`), lpScript);
+
 logger.info('Now setup on head 2');
 
 // now do the setup on head 2
@@ -160,6 +160,12 @@ while (!await lucid2.awaitTx(submittedTx2, 3000)) {}
 const snapshotAfterTx2 = await idaNode2Handler.getSnapshot();
 logger.info('Snapshot after tx2');
 logger.info(snapshotAfterTx2);
+
+logger.info('UTxO set diff:');
+logger.info(utxoSetSymmetricDiff(snapshotBeforeTx2, snapshotAfterTx2));
+
+// save script with applied parameters on filesystem. for reference on future transactions
+writeFileSync(join(process.cwd(), `./adhoc-ledger/lp_script_head_2.cbor`), lpScript2);
 
 process.exit(0);
 
