@@ -3,12 +3,14 @@ use aiken/collection/list
 use aiken/interval.{is_entirely_after, is_entirely_before}
 use cardano/address.{Address}
 use cardano/assets.{AssetName, PolicyId, from_asset_list}
-use cardano/transaction.{InlineDatum, Output, OutputReference, Transaction}
+use cardano/transaction.{
+  InlineDatum, NoDatum, Output, OutputReference, Transaction,
+}
 
 pub type HtlcOutput {
   address: Address,
   value: Pairs<PolicyId, Pairs<AssetName, Int>>,
-  datum: Data,
+  datum: Option<Data>,
 }
 
 pub type HtlcDatum {
@@ -31,9 +33,15 @@ pub fn check_desired_output(
   list.any(
     outputs,
     fn(o) {
+      let correct_datum =
+        when desired_htlc_output.datum is {
+          Some(desired_datum) -> o.datum == InlineDatum(desired_datum)
+          None -> o.datum == NoDatum
+        }
+
       and {
         (o.address == desired_htlc_output.address)?,
-        (o.datum == InlineDatum(desired_htlc_output.datum))?,
+        correct_datum?,
         (o.value == from_asset_list(desired_htlc_output.value))?,
       }
     },
