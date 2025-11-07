@@ -58,7 +58,19 @@ const { timeout, desired_output } = Data.from<HtlcDatumT>(
 // claim the funds from the HTLC contract
 const tx = await lucid
   .newTx()
-  .pay.ToAddressWithData(
+  .collectFrom([htlcUTxO], Data.to<HtlcRedeemerT>({ Claim: [preimage] }, HtlcRedeemer))
+  // 20 seconds before timeout to account for block and slot rounding
+  .validTo(Number(timeout) - 20 * 60 * 1000)
+  .addSigner(receiverAddress)
+  .attach.Script({ type: "PlutusV3", script: htlcScriptBytes })
+
+if (desired_output.datum == null) {
+  tx.pay.ToAddress(
+    dataAddressToBech32(lucid, desired_output.address),
+    dataPairsToAssets(desired_output.value)
+  )
+} else {
+  tx.pay.ToAddressWithData(
     dataAddressToBech32(lucid, desired_output.address),
     {
       kind: "inline",
@@ -66,14 +78,10 @@ const tx = await lucid
     },
     dataPairsToAssets(desired_output.value)
   )
-  .collectFrom([htlcUTxO], Data.to<HtlcRedeemerT>({ Claim: [preimage] }, HtlcRedeemer))
-  // 20 seconds before timeout to account for block and slot rounding
-  .validTo(Number(timeout) - 20 * 60 * 1000)
-  .addSigner(receiverAddress)
-  .attach.Script({ type: "PlutusV3", script: htlcScriptBytes })
-  .complete();
+}
 
-const txSigned = await tx.sign.withWallet().complete();
+const completedTx = await tx.complete()
+const txSigned = await completedTx.sign.withWallet().complete();
 
 const snapshotBeforeTx = await receiverNodeHandler.getSnapshot();
 logger.info('Snapshot before tx');
