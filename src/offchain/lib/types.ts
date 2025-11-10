@@ -36,7 +36,7 @@ type MapAssetsT = Data.Static<typeof MapAssetsSchema>;
 const HtlcOutputSchema = Data.Object({
   address: AddressSchema,
   value: MapAssetsSchema,
-  datum: Data.Any()
+  datum: Data.Nullable(Data.Any())
 });
 type HtlcOutputT = Data.Static<typeof HtlcOutputSchema>
 const HtlcOutput = HtlcOutputSchema as unknown as HtlcOutputT
