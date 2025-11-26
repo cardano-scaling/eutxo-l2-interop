@@ -3,6 +3,42 @@
 Consists of two parts:
 1. HTLC + Vesting implementation
 2. Ad-hoc ledgers `verify-perform` mechanism PoC
+## HTLC + Vesting implementation
+
+For this second milestone, we extended the HTLC contract implemented in MS1. By adding output validation, we allow the HTLC to enforce the creation of smart contract UTxOs during the claim operation. We also implemented a very simple vesting contact to use as an example of inter-head smart contract interaction.
+
+The canonical use case for HTLCs, explained in MS1, require two parties interested in executing a transaction (Alice and Bob in our case). This way, the party that will receive the funds is in charge of generating the preimage and sharing the hash, the other party creates the HTLC. This dinamic is important, if there's only a single party interested in making the transaction, the flow breaks, so, in order to maintain it, the example we choose is a vesting contract, where Alice is sending funds to Bob, but they will be unlocked at a future time. Bob can share the preimage once the funds are guaranteed by the HTLC 2.0 contract to be sent to the vesting address with the appropiate timeout.
+
+### HTLC 2.0 Improvements
+
+We'll list the changes made from the HTLC desing in MS1, anything not mentioned in this document is the same as the previous version, which you can read more here (TODO: Add link)
+
+The first change was to add a new data type called `HTLCOutput`, this type represents everything we want to specify as the desired output when claiming the HTLC, including a non-opaque representation of a Value and an optional datum (if a datum is included, we force it to be Inline).
+
+#### UTxO Specification
+
+> **Datum**
+>
+> - hash: ByteString
+> - timeout: PosixTime
+> - sender: VerificationKeyHash
+> - receiver: VerificationKeyHash
+> - desired_output: HtlcOutput
+>
+> **HTLCOutput**
+>
+> - address: Address
+> - value: Pairs<PolicyId, Pairs<AssetName, Int>>
+> - datum: Option<Data>
+
+#### HTLC Transactions
+
+##### Claim funds
+
+Consumes a `HTLCUtxo` with the `Claim` redeemer, providing the preimage of the stored hash. This transaction must be submited before the timeout, signed by the receiver and create the desired_output.
+
+![Claim funds from HTLC](tx_claim_htlc.svg)
+
 
 ## Ah-hoc ledger `verify-perform` mechanism PoC
 
