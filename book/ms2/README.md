@@ -91,10 +91,8 @@ The main challenge is to assess the feasibility of the mechanism by implementing
 We'll implement the mechanism as part of a script that UTxOs from the involved L2s will interact with. The script will be used to `verify` and `perform` the transactions across the L2s.
 
 The mechanism is comprised of the following operations:
-- `wrap`: wrapping a UTxO from the L2 means to make it available in the ad-hoc ledger
 - `verify`: verify a future `perform` transaction in this ledger, using wrapped UTxOs.
 - `perform`: perform the already-verified transaction.
-- `unwrap`: unwrap a UTxO from the ad-hoc ledger means to make it available in the L2.
 
 ### Contract Design
 
@@ -122,7 +120,6 @@ The state UTxO used to store the reserved wrapped UTxOs. Its NFT will be minted 
 - Spend purpose redeemers:
   - Verify
   - Perform
-  - Unwrap
 
 - Mint purpose redeemers:
   - Data: for minting the Reserved UTxOs
@@ -131,11 +128,7 @@ The state UTxO used to store the reserved wrapped UTxOs. Its NFT will be minted 
 
 #### Operations overview
 
-The `wrap` operation will not be on-chain validated for a first implementation version. It will just boil down to simply paying a UTxO with a well-formed datum to the script address.
-
-![Wrap UTxOs](tx_wrap_utxos.svg)
-
-The `verify` operation will mark the wrapped UTxOs as **reserved** for a specific `perform` transaction, and also disallow the usage for other `verify` operations. The marked UTxOs list will be stored in the datum of a unique "state UTxO" for the ad-hoc ledger. By off-chain mechanisms, the wrapped UTxOs will be tagged with the `perform` transaction hash, and a set of privileged participants will cosign the transaction as a way to guarantee some level of security for the mechanism.
+The `verify` operation will mark some specific UTxOs as **reserved** for a `perform` transaction, and also disallow the usage for other `verify` operations. The marked UTxOs list will be stored in the datum of a unique "state UTxO" for the ad-hoc ledger. By off-chain mechanisms, the UTxOs will be tagged with the `perform` transaction hash, and a set of privileged participants will cosign the transaction as a way to guarantee some level of security for the mechanism.
 
 ![Verify](tx_verify.svg)
 
@@ -143,8 +136,16 @@ The `perform` operation will consume their reserved wrapped UTxOs, and validate 
 
 ![Perform](tx_perform.svg)
 
-The `unwrap` operation will unwrap the UTxOs from the ad-hoc ledger and make them available in the L2.
-
-The setup operation for creating the _reserved UTxOs_ state UTxO will be on the validator's `mint` purpose.
-
 As stated in the `verify-perform` mechanism description for ms1 deliverable, each L2s replica of the ad-hoc ledger must be semantically equivallent i.e. same UTxO set except their addresses, for ensuring no liquidity traps. This consistency, along with the correct ordering of the operations for atomicity, is ensured by the intermediaries cosigning the `verify` and `perform` transactions in each L2 replica.
+
+### Implementation & Research Notes
+
+- Any piece of data that is needed for the `perform` operation could not be related to the `verify` operation in any way, since we need to calculate the `perform` tx hash _before_ building the `verify` transaction.  
+This implies that the reserved UTxOs could not be spent in both transactions, nor the reserved UTxO datum could be updated in both transactions. Even more, reserved UTxO datum could not be updated in the `verify` transaction _only_ because it must be referenced in the `perform` transaction with the `verify` tx hash, which is unknown at the time of building the `perform` transaction body.  
+So, the core problem to solve is how to on-chain relate `verify` and `perform` transactions in order to ensure atomicity and consistency, taking into account the previous constraints.
+
+- The intermediaries might be a parameter of the Lₚ validator instead of being part of the reserved UTxOs datum?
+
+- How to relate on-chain Lₚ scripts from different heads? We might need a unique identifier mechanism, as proposed in the paper.
+
+- How to prevent intermediaries from cheating by doing verify-perform in only one head, whilst doing nothing in the other head? This might be a concern for the _dispute mechanism_ proposed in the paper, and subject to further research in a coming milestone.
