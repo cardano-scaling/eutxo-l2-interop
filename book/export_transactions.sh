@@ -8,3 +8,5 @@ typst compile ms2/adhoc-ledger-transactions.typ ms2/tx_wrap_utxos.svg --input ex
 typst compile ms2/adhoc-ledger-transactions.typ ms2/tx_verify.svg --input export="verify" --root .
 typst compile ms2/adhoc-ledger-transactions.typ ms2/tx_perform.svg --input export="perform" --root .
 typst compile ms2/htlc-transactions.typ ms2/tx_claim_htlc.svg --input export="claim" --root .
+typst compile ms2/vesting-transactions.typ ms2/tx_claim_vesting.svg --input export="claim" --root .
+typst compile ms2/vesting-transactions.typ ms2/tx_lock_vesting.svg --input export="lock" --root .
