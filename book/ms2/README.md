@@ -4,6 +4,86 @@ Consists of two parts:
 1. HTLC + Vesting implementation
 2. Ad-hoc ledgers `verify-perform` mechanism PoC
 
+## HTLC + Vesting implementation
+
+For this second milestone, we extended the HTLC contract implemented in MS1. By adding output validation, we allow the HTLC to enforce the creation of smart contract UTxOs during the claim operation. We also implemented a very simple vesting contact to use as an example of inter-head smart contract interaction.
+
+The canonical use case for HTLCs, explained in MS1, require two parties interested in executing a transaction (Alice and Bob in our case). This way, the party that will receive the funds is in charge of generating the preimage and sharing the hash, the other party creates the HTLC. This dinamic is important, if there's only a single party interested in making the transaction, the flow breaks, so, in order to maintain it, the example we choose is a vesting contract, where Alice is sending funds to Bob, but they will be unlocked at a future time. Bob can share the preimage once the funds are guaranteed by the HTLC 2.0 contract to be sent to the vesting address with the appropiate timeout.
+
+### HTLC 2.0 Improvements
+
+We'll list the changes made from the HTLC desing in MS1, anything not mentioned in this document is the same as the previous version, which you can read more here (TODO: Add link)
+
+The first change was to add a new data type called `HTLCOutput`, this type represents everything we want to specify as the desired output when claiming the HTLC, including a non-opaque representation of a Value and an optional datum (if a datum is included, we force it to be Inline).
+
+#### UTxO Specification
+
+> **Datum**
+>
+> - hash: ByteString
+> - timeout: PosixTime
+> - sender: VerificationKeyHash
+> - receiver: VerificationKeyHash
+> - desired_output: HtlcOutput
+>
+> **HTLCOutput**
+>
+> - address: Address
+> - value: Pairs<PolicyId, Pairs<AssetName, Int>>
+> - datum: Option<Data>
+
+#### HTLC Transactions
+
+##### Claim funds
+
+Consumes a `HTLCUtxo` with the `Claim` redeemer, providing the preimage of the stored hash. This transaction must be submited before the timeout, signed by the receiver and create the desired_output.
+
+![Claim funds from HTLC](tx_claim_htlc.svg)
+
+### Vesting Contract
+
+The vesting contract is a single validator with a single operation, "Claim".
+
+#### UTxOs Specification
+
+##### VestingUTxO
+
+> **Address**
+>
+> - Script address
+
+> - **Datum**
+>
+> - timeout: PosixTime
+> - receiver: ByteArray
+
+> **Value**
+>
+> - min ADA
+> - offered tokens
+
+#### Vesting Transactions
+
+##### Lock Funds
+
+Creates a `VestingUTxO` containing the offered tokens. The datum specifies the timeout in posix time from when the tokens become available to claim and the receiver that can claim them. This transaction has no validation, so the fields of the datum must be carefully considered. An invalid pubkeyhash or a timeout on the far future might make the UTxO unspendable.
+
+![Lock funds into vesting UTxO](tx_lock_vesting.svg)
+
+##### Claim Funds
+
+Consumes a `VestingUTxO`. This transaction should be submitted after the deadline and signed by the receiver.
+
+![Claim funds from a vesting UTxO](tx_claim_vesting.svg)
+
+### Drawbacks of this design
+
+As mentioned in the introduction, HTLCs still require two parties to be interested in the transaction taking place. For single party examples, like Alice wanting to place a bet in a lotery happening in another head, the preimage and hash management becomes fuzzy. This issue is demonstrated further when you take into account that Alice has no way to ensure that the HTLC UTxO that Ida created in Head B has the correct desired_output. For a single party example, this makes it a fully trusting protocol. For the dual party example, this is still not ideal. Bob could collude with Ida to make the timeout of the vesting UTxO shorter, or delete it altogether. A potential solution would involve making the desired_output field part of the hash, so the claim becomes impossible if this value is tampered with.
+
+This solution sounds ideal, but the issue now becomes that the desired_output is not the same in Head A a in Head B. In Head B we want to create the vesting UTxO in the name of Bob for a future timeout, but in Head A, Ida would want to recover the assets as soon as possible without waiting and certainly without having to get Bob's signature.
+
+This design constraints will be discussed in more detail once we start to compare HTLCs with the Ad-hoc ledger approach.
+
 ## Ah-hoc ledger `verify-perform` mechanism PoC
 
 The main challenge is to assess the feasibility of the mechanism by implementing a first version.
