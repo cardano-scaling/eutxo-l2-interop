@@ -169,8 +169,8 @@ Same as Version 1.
   - Perform
 
 - Mint purpose redeemers:
-  - VerifyMint: for minting validity tokens. This tokens "reserve" the UTxOs for a future `perform` transaction.
-  - PerformBurn: for burning validity tokens.
+  - MintVerified: for minting validity tokens. This tokens "reserve" the UTxOs for a future `perform` transaction.
+  - BurnVerified: for burning validity tokens.
 
 - No other purposes allowed
 

@@ -22,7 +22,7 @@ pub type ReservedDatum {
 
 const reserved_utxo_nft_name: ByteArray = ""
 
-validator lp(seed: OutputReference) {
+validator lp_v1(seed: OutputReference) {
   spend(
     datum_opt: Option<ReservedDatum>,
     redeemer: LpRedeemer,
@@ -30,6 +30,8 @@ validator lp(seed: OutputReference) {
     tx: Transaction,
   ) {
     when redeemer is {
+      // to build perform_tx_hash, we need the output reference of reserved utxo produced by
+      // this verify transaction --> impossible!
       Verify { perform_tx_hash } -> {
         let Transaction { inputs, reference_inputs, outputs, extra_signatories, .. } = tx
         // look for own input and output
