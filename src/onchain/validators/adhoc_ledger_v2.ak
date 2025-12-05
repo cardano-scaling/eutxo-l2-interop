@@ -1,4 +1,4 @@
-use cardano/transaction.{Output,  OutputReference, Transaction, InlineDatum}
+use cardano/transaction.{Output,  OutputReference, Transaction, InlineDatum, find_input}
 use cardano/assets.{PolicyId, quantity_of}
 use cardano/address.{Script}
 use aiken/collection/list
@@ -25,14 +25,46 @@ validator lp_v2 {
   spend(
     _datum_opt: Option<LpDatum>,
     redeemer: LpSpendRedeemer,
-    _own_input_ref: OutputReference,
-    _tx: Transaction,
+    own_input_ref: OutputReference,
+    tx: Transaction,
   ) {
+    let Transaction { inputs, mint, extra_signatories, .. } = tx
+
+    expect Some(own_input) = find_input(inputs, own_input_ref)
+    expect Script(script_hash) = own_input.output.address.payment_credential
+
     when redeemer is {
       Verify ->
+        // TODO verify logic when the tx inputs to be spent in a perform tx that belong to this script
         True
-      Perform ->
+      Perform -> {
+        // all verified tokens present in the inputs must be burnt
+        let verified_tokens_in_inputs_count, required_signatories <- list.foldl2(
+          inputs,
+          0,
+          [],
+          fn (input, verified_tokens_in_inputs_count, required_signatories, return) {
+            if (input.output.address.payment_credential == Script(script_hash)) {
+              expect InlineDatum(datum) = input.output.datum
+              expect LpDatum { intermediaries, owner } = datum
+              return(
+                verified_tokens_in_inputs_count + 1,
+                required_signatories |> list.concat(intermediaries) |> list.push(owner),
+              )
+            } else {
+              return(
+                verified_tokens_in_inputs_count,
+                required_signatories,
+              )
+            }
+          }
+        )
+        expect quantity_of(mint, script_hash, verified_token_name) == -verified_tokens_in_inputs_count
+        // intermediaries and owners must be in the signatories
+        expect extra_signatories == required_signatories
+        // ENHACEMENTS: incrementally add validations over the outputs. first version: blind trust on the intermediaries and owners
         True
+      }
     }
   }
 
