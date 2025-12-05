@@ -128,7 +128,7 @@ The state UTxO used to store the reserved wrapped UTxOs. Its NFT will be minted 
 
 #### Operations overview
 
-The `verify` operation will mark some specific UTxOs as **reserved** for a `perform` transaction, and also disallow the usage for other `verify` operations. The marked UTxOs list will be stored in the datum of a unique "state UTxO" for the ad-hoc ledger. By off-chain mechanisms, the UTxOs will be tagged with the `perform` transaction hash, and a set of privileged participants will cosign the transaction as a way to guarantee some level of security for the mechanism.
+The `verify` operation will mark some specific UTxOs as **reserved** for a `perform` transaction, while disallowing the usage for other `verify` operations. The marked UTxOs list will be stored in the datum of a unique "state UTxO" for the ad-hoc ledger. By off-chain mechanisms, the UTxOs will be tagged with the `perform` transaction hash, and a set of privileged participants will cosign the transaction as a way to guarantee some level of security.
 
 ![Verify](tx_verify.svg)
 
@@ -138,10 +138,14 @@ The `perform` operation will consume their reserved wrapped UTxOs, and validate 
 
 As stated in the `verify-perform` mechanism description for ms1 deliverable, each L2s replica of the ad-hoc ledger must be semantically equivallent i.e. same UTxO set except their addresses, for ensuring no liquidity traps. This consistency, along with the correct ordering of the operations for atomicity, is ensured by the intermediaries cosigning the `verify` and `perform` transactions in each L2 replica.
 
-#### Research & Implementation Notes
+#### Restrictions, Notes & Future Improvements
 
-- Any piece of data that is needed for the `perform` operation could not be related to the `verify` operation in any way, since we need to calculate the `perform` tx hash _before_ building the `verify` transaction.  
-This implies that the reserved UTxOs could not be spent in both transactions, nor the reserved UTxO datum could be updated in both transactions. Even more, reserved UTxO datum could not be updated in the `verify` transaction _only_ because it must be referenced in the `perform` transaction with the `verify` tx hash, which is unknown at the time of building the `perform` transaction body.  
+- Any piece of data that is needed for the `perform` operation could not be related to the `verify` operation in any way, since we need to calculate the `perform` tx hash _before_ building the `verify` transaction.
+
+This happens because if we relate a verify-perform pair by the `perform` transaction hash, we need to build the `perform` transaction _before_ building the verify tx. This implies that the reserved UTxOs could not be spent in both transactions, nor the reserved UTxO datum could be updated in both transactions.
+
+Even more, reserved UTxO datum could not be updated in the `verify` transaction _only_ because it must be referenced in the `perform` transaction with the `verify` tx hash, which is unknown at the time of building the `perform` transaction body.
+
 So, the core problem to solve is how to on-chain relate `verify` and `perform` transactions in order to ensure atomicity and consistency, taking into account the previous constraints.
 
 - The intermediaries might be a parameter of the Lₚ validator instead of being part of the reserved UTxOs datum?
@@ -190,8 +194,27 @@ Then, `perform` consumes the User Wrapped UTxO and burns the validity token, mea
 
 #### Notes & Future Improvements
 
-- There's no constraint that explicitly relates a pair of `verify` and `perform` transactions. A non-scalable approach might be to restrict the mechanism to only one `verify` happening at a time, with each `verify` having a very short timeout for the `perform` transaction to be executed.
+- There's no constraint that explicitly relates a pair of `verify` and `perform` transactions. A non-scalable approach might be to restrict the mechanism to only one `verify` happening at a time, with each `verify` having a very short timeout for the `perform` transaction to be executed. Resolving this on-chain is quite neccessary for being a robust mechanism.
+
+- Also, the constraint of actually doing the `perform` that the intermediaries and owners agreed about in `verify` is not enforced by this implementation. This is delegated to the good faith of intermediaries. We must tighten this solution to match the requirement in a future enhancement as well.
 
 - Add unique identifier mechanism to relate the "same" Lₚ script from different heads.
 
-- Add collateral slashing tracking between intermediaries: how much of the value of each colalteral UTxO is from each intermediary?
+- Add collateral slashing tracking between intermediaries, for answering: how much of the value of each collateral UTxO is from each intermediary?
+
+### Contract Design - Version 3
+
+A middle-ground between Version 1 and Version 2.
+
+For solving the problem posed by Version 1 of circularity happening by relating a verify-perform pair with the `perform` transaction hash, we must break it. This can be achieved by
+  - labeling the reserved inputs with a token, as in Version 2. This avoids `verify` double-spending as well.
+  - create a spec for the expected `perform` transaction outputs.
+
+The outputs spec definition and usage is challenging, but we can think of using the transaction redeemers to pass that information.
+
+- pass by redeemer the expected `perform` outputs spec to `verify`. `verify` collects inputs, validates that is possible to produce the `perform` outputs from them, and reserves those inputs by attaching a token (as in Version 2).
+- `perform` just collects those reserved inputs, burn their marker tokens and produces the outputs.
+
+Then, there's still an issue to resolve: how do we ensure that perform actually consumes the `verify`-marked inputs and produces the expected outputs?
+
+A possible solution might be to produce a hash from the outputs spec, and use it as the token name of the `verify`-minted tokens, which in turn are attached to the marked inputs. Then, in `perform` we burn those tokens and validate that hashing the produced outputs matches the name of the tokens being burnt. This way, we relate a pair of verify-perform while avoiding clashes between distinct `verify`'s.
