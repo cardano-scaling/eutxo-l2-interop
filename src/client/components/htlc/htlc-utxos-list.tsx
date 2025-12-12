@@ -36,14 +36,14 @@ export default function HtlcUtxosList({
     <Card className="flex flex-col overflow-hidden min-w-[480px]">
       <CardHeader className="p-0">
         <CardTitle className="text-center bg-primary text-primary-foreground rounded-t-lg p-4">
-          HTLC UTXOs ({filteredUtxos.length})
+          HTLC & Vesting UTXOs ({filteredUtxos.length})
         </CardTitle>
       </CardHeader>
       <CardContent className="flex-1 overflow-y-auto p-4 max-h-[630px]">
         <div className="mb-4">
           <div className="relative">
             <Input
-              placeholder="Search by HTLC hash"
+              placeholder="Search by hash"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pr-10"
@@ -64,7 +64,7 @@ export default function HtlcUtxosList({
             ))
           ) : (
             <div className="text-center text-muted-foreground">
-              No HTLC UTXOs found.
+              No UTXOs found.
             </div>
           )}
         </div>

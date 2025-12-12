@@ -32,3 +32,6 @@ export const htlcContract = {
 
 export const htlcTransmitterAddress =
   "addr_test1qqhtlctransmitterplaceholder00000000000000000";
+
+export const vestingContractAddress =
+  "addr_test1qqvestingcontractplaceholder000000000000000000";

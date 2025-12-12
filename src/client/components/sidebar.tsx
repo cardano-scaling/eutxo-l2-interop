@@ -4,6 +4,8 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { hydraHeads } from '@/lib/config'
 import UserSwitcher from './user/user-switcher'
+import GeneratePreimageDialog from './htlc/generate-preimage-dialog'
+import { Button } from './ui/button'
 
 export default function Sidebar() {
   return (
@@ -16,7 +18,19 @@ export default function Sidebar() {
           </SidebarLink>
         ))}
       </nav>
-      <UserSwitcher />
+      <div className="space-y-2">
+        <div className="border-t pt-2">
+          <GeneratePreimageDialog>
+            <Button
+              variant="outline"
+              className="w-full justify-start"
+            >
+              Generate Preimage
+            </Button>
+          </GeneratePreimageDialog>
+        </div>
+        <UserSwitcher />
+      </div>
     </aside>
   )
 }

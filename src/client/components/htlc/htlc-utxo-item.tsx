@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button'
 import { formatId } from '@/lib/utils'
 import { Copy } from 'lucide-react'
 import { useState, useEffect } from 'react'
+import UtxoDialog from './utxo-dialog'
+import { htlcContract, vestingContractAddress } from '@/lib/config'
 
 export type HtlcUtxoItem = {
   id: string
@@ -13,12 +15,13 @@ export type HtlcUtxoItem = {
   from: string
   to: string
   amountAda: number
+  address: string // UTXO address to detect if it's HTLC or Vesting
 }
 
 interface HtlcUtxoItemProps {
   item: HtlcUtxoItem
   currentUserVkeyHash?: string
-  onClaim?: (txHash: string) => void
+  onClaim?: (txHash: string, preimage?: string) => void
   onRefund?: (txHash: string) => void
 }
 
@@ -38,16 +41,27 @@ export default function HtlcUtxoItemCard({
   }, [])
 
   const isTimeout = currentTime >= item.timeout
+  const isVesting = item.address === vestingContractAddress
+  const isHtlc = item.address === htlcContract.address
+
   const isYourAddress = (vkeyhash: string) => {
     return currentUserVkeyHash === vkeyhash
   }
 
   const canBeRefunded = (timeout: number) => {
+    // Refund only for HTLC (not vesting)
+    if (isVesting) return false
     return currentTime >= timeout + 1 * 60 * 1000 // add 1 minute buffer
   }
 
   const canBeClaimed = (timeout: number) => {
-    return currentTime < timeout - 1 * 60 * 1000 // subtract 1 minute buffer
+    if (isVesting) {
+      // Vesting: claim button enabled AFTER timeout
+      return currentTime >= timeout
+    } else {
+      // HTLC: claim button enabled until timeout (disabled after timeout)
+      return currentTime <= timeout
+    }
   }
 
   const formatDate = (timestamp: number) => {
@@ -63,7 +77,10 @@ export default function HtlcUtxoItemCard({
 
   const formatCountdown = (targetTime: number) => {
     const diff = targetTime - currentTime
-    if (diff <= 0) return 'Expired'
+    if (diff <= 0) {
+      // For vesting, timeout means it's claimable (not expired)
+      return isVesting ? 'Ready to claim' : 'Expired'
+    }
     const seconds = Math.floor(diff / 1000)
     const minutes = Math.floor(seconds / 60)
     const hours = Math.floor(minutes / 60)
@@ -79,13 +96,35 @@ export default function HtlcUtxoItemCard({
   }
 
   return (
-    <Card className="bg-muted">
-      <CardContent className="p-4">
-        <div className="flex justify-between items-start mb-2">
-          <div className="space-y-1 flex-1">
-            <div className="text-xs font-mono text-muted-foreground">
-              ID: {formatId(item.id, 12, 12)}
-            </div>
+    <UtxoDialog
+      item={item}
+      currentUserVkeyHash={currentUserVkeyHash}
+      onClaim={onClaim}
+      onRefund={onRefund}
+    >
+      <Card
+        className={`bg-muted cursor-pointer hover:shadow-md transition-shadow ${
+          isVesting ? 'border-l-4 border-l-purple-500' : ''
+        }`}
+      >
+        <CardContent className="p-4">
+          <div className="flex justify-between items-start mb-2">
+            <div className="space-y-1 flex-1">
+              <div className="flex items-center gap-2">
+                <div className="text-xs font-mono text-muted-foreground">
+                  ID: {formatId(item.id, 12, 12)}
+                </div>
+                {isVesting && (
+                  <span className="text-xs px-2 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">
+                    Vesting
+                  </span>
+                )}
+                {isHtlc && (
+                  <span className="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">
+                    HTLC
+                  </span>
+                )}
+              </div>
             <div className="text-sm">
               <span className="text-muted-foreground">from:</span>
               <span className="font-mono ml-1">{formatId(item.from)}</span>
@@ -122,37 +161,16 @@ export default function HtlcUtxoItemCard({
               <span className="text-muted-foreground">remaining: </span>
               <span
                 className={`text-sm font-mono ${
-                  isTimeout ? 'text-destructive' : ''
+                  isTimeout && !isVesting ? 'text-destructive' : isTimeout && isVesting ? 'text-green-600' : ''
                 }`}
               >
                 {formatCountdown(item.timeout)}
               </span>
             </div>
           </div>
-          <div className="flex flex-col space-y-1">
-            {isYourAddress(item.from) && canBeRefunded(item.timeout) && (
-              <Button
-                variant="default"
-                size="sm"
-                className="bg-orange-300 hover:bg-orange-400"
-                onClick={() => onRefund?.(item.id)}
-              >
-                Refund
-              </Button>
-            )}
-            {isYourAddress(item.to) && canBeClaimed(item.timeout) && (
-              <Button
-                variant="default"
-                size="sm"
-                className="bg-blue-300 hover:bg-blue-400"
-                onClick={() => onClaim?.(item.id)}
-              >
-                Claim
-              </Button>
-            )}
-          </div>
         </div>
       </CardContent>
     </Card>
+    </UtxoDialog>
   )
 }

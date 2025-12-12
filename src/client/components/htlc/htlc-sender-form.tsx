@@ -1,11 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
   SelectContent,
@@ -15,96 +14,62 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Copy, RefreshCw } from 'lucide-react'
-import { formatId } from '@/lib/utils'
-import { hydraHeads } from '@/lib/config'
-
-type HeadInfo = {
-  name: string
-  route: string
-  headId: string
-  headSeed: string
-  tag: string
-}
+import { Copy } from 'lucide-react'
 
 interface HtlcSenderFormProps {
-  currentHeadId?: string
-  allHeadsInfo?: HeadInfo[]
+  onRecipientChange?: (recipientName: string) => void
 }
 
+const RECIPIENT_OPTIONS = [
+  { name: 'alice', address: 'addr_test1qqhtlccontractplaceholder0000000000000000000' },
+  { name: 'bob', address: 'addr_test1qqhtlccontractplaceholder0000000000000000001' },
+  { name: 'ida', address: 'addr_test1qqhtlccontractplaceholder0000000000000000002' },
+] as const
+
 export default function HtlcSenderForm({
-  currentHeadId,
-  allHeadsInfo = [],
+  onRecipientChange,
 }: HtlcSenderFormProps) {
   const [form, setForm] = useState({
-    recipientAddress: '',
+    recipientName: '',
     amountAda: '',
-    headId: '',
-    preimage: '',
     htlcHash: '',
     timeout: '60', // in minutes
   })
 
-  // Filter out current head from options
-  const headOptions = allHeadsInfo.filter(
-    (head) => head.headId !== currentHeadId
-  )
-
-  // Generate preimage and hash
-  const generatePreimage = () => {
-    const randomText = crypto.randomUUID()
-    const preimage = stringToHex(randomText)
-    setForm((prev) => ({
-      ...prev,
-      preimage,
-      htlcHash: generateHash(preimage),
-    }))
-  }
-
-  const stringToHex = (str: string): string => {
-    return Array.from(str)
-      .map((char) => char.charCodeAt(0).toString(16).padStart(2, '0'))
-      .join('')
-  }
-
-  const generateHash = (preimage: string): string => {
-    // Simple hash simulation - you'll replace this with actual blake2b
-    return preimage.slice(0, 64).padEnd(64, '0')
-  }
-
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text)
-  }
-
-  const pasteFromClipboard = async (field: keyof typeof form) => {
+  const getClipboardContents = async () => {
     try {
       const text = await navigator.clipboard.readText()
-      if (field === 'amountAda') {
-        setForm((prev) => ({ ...prev, [field]: text }))
-      } else {
-        setForm((prev) => ({ ...prev, [field]: text }))
-      }
+      return text
     } catch (error) {
-      console.error('Failed to read clipboard:', error)
+      console.error('Failed to read clipboard contents: ', error)
     }
   }
 
-  useEffect(() => {
-    generatePreimage()
-  }, [])
-
-  useEffect(() => {
-    if (form.preimage) {
-      setForm((prev) => ({
-        ...prev,
-        htlcHash: generateHash(prev.preimage),
-      }))
+  const pasteTo = async (field: 'amountAda' | 'htlcHash') => {
+    const clipboardText = await getClipboardContents()
+    if (clipboardText && field in form) {
+      if (field === 'amountAda') {
+        setForm((prev) => ({
+          ...prev,
+          [field]: isNaN(Number(clipboardText)) ? '' : clipboardText,
+        }))
+      } else {
+        setForm((prev) => ({ ...prev, [field]: clipboardText }))
+      }
     }
-  }, [form.preimage])
+  }
+
+  const handleRecipientChange = (value: string) => {
+    setForm((prev) => ({ ...prev, recipientName: value }))
+    onRecipientChange?.(value)
+  }
+
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     // You'll handle the actual submission logic
+    // form.recipientName will be 'alice', 'bob', or 'ida'
+    // You'll translate this to the actual address internally
     console.log('Submit HTLC:', form)
   }
 
@@ -122,53 +87,34 @@ export default function HtlcSenderForm({
         >
           <div>
             <Label className="text-sm font-medium mb-2 block">
-              Target Head
+              Recipient
             </Label>
             <Select
-              value={form.headId}
-              onValueChange={(value) =>
-                setForm((prev) => ({ ...prev, headId: value }))
-              }
+              value={form.recipientName}
+              onValueChange={handleRecipientChange}
             >
-              <SelectTrigger>
-                <SelectValue placeholder="Select target head" />
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select recipient" />
               </SelectTrigger>
-              <SelectContent align="end" position="popper">
+              <SelectContent className="w-[var(--radix-select-trigger-width)]">
                 <SelectGroup>
-                  <SelectLabel>Hydra heads</SelectLabel>
-                  {headOptions.map((head) => (
-                    <SelectItem key={head.headId} value={head.headId}>
-                      {head.name} - {formatId(head.headId, 8, 8)}
+                  <SelectLabel>Recipients</SelectLabel>
+                  {RECIPIENT_OPTIONS.map((recipient) => (
+                    <SelectItem key={recipient.name} value={recipient.name}>
+                      <span>
+                        <span className="font-medium">
+                          {recipient.name.charAt(0).toUpperCase() +
+                            recipient.name.slice(1)}
+                        </span>
+                        <span className="text-muted-foreground font-mono text-xs ml-1">
+                          - {recipient.address}
+                        </span>
+                      </span>
                     </SelectItem>
                   ))}
                 </SelectGroup>
               </SelectContent>
             </Select>
-          </div>
-
-          <div>
-            <Label className="text-sm font-medium mb-2 block">
-              Recipient Address
-            </Label>
-            <div className="flex gap-2">
-              <Input
-                placeholder="Enter recipient address"
-                value={form.recipientAddress}
-                onChange={(e) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    recipientAddress: e.target.value,
-                  }))
-                }
-              />
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => pasteFromClipboard('recipientAddress')}
-              >
-                Paste
-              </Button>
-            </div>
           </div>
 
           <div>
@@ -187,7 +133,7 @@ export default function HtlcSenderForm({
               <Button
                 type="button"
                 variant="secondary"
-                onClick={() => pasteFromClipboard('amountAda')}
+                onClick={() => pasteTo('amountAda')}
               >
                 Paste
               </Button>
@@ -208,61 +154,28 @@ export default function HtlcSenderForm({
             />
           </div>
 
-          <div className="space-y-2">
-            <div className="flex w-full justify-between items-center">
-              <Label className="text-sm font-medium block">HTLC Hashed</Label>
+          <div>
+            <Label className="text-sm font-medium mb-2 block">
+              HTLC Hash
+            </Label>
+            <div className="flex gap-2">
+              <Input
+                id="htlc-hash-input"
+                placeholder="Enter HTLC hash"
+                type="text"
+                value={form.htlcHash}
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, htlcHash: e.target.value }))
+                }
+                className="font-mono"
+              />
               <Button
                 type="button"
-                variant="ghost"
-                size="sm"
-                className="p-0 px-1 h-auto"
-                onClick={generatePreimage}
+                variant="secondary"
+                onClick={() => pasteTo('htlcHash')}
               >
-                <RefreshCw className="h-4 w-4 mr-1" />
-                Generate
+                Paste
               </Button>
-            </div>
-
-            <div>
-              <Label className="text-xs mb-1 block">Preimage</Label>
-              <div className="flex gap-2">
-                <Textarea
-                  placeholder="HTLC Preimage"
-                  value={form.preimage}
-                  onChange={(e) =>
-                    setForm((prev) => ({ ...prev, preimage: e.target.value }))
-                  }
-                  rows={3}
-                  className="break-all font-mono text-xs"
-                />
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => copyToClipboard(form.preimage)}
-                >
-                  <Copy className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-
-            <div>
-              <Label className="text-xs mb-1 block">HTLC Hash</Label>
-              <div className="flex gap-2">
-                <Input
-                  placeholder="HTLC Hash"
-                  type="text"
-                  value={form.htlcHash}
-                  readOnly
-                  className="font-mono"
-                />
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => copyToClipboard(form.htlcHash)}
-                >
-                  <Copy className="h-4 w-4" />
-                </Button>
-              </div>
             </div>
           </div>
 

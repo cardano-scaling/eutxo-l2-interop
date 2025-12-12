@@ -8,18 +8,22 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Button } from '@/components/ui/button'
 import { User } from 'lucide-react'
+import { useState } from 'react'
 
-// Placeholder user data - you'll handle the actual logic
 const users = [
-  { id: '1', name: 'User 1' },
-  { id: '2', name: 'User 2' },
-]
+  { id: 'alice', name: 'Alice' },
+  { id: 'ida', name: 'Ida' },
+  { id: 'bob', name: 'Bob' },
+] as const
 
 export default function UserSwitcher() {
   // You'll handle the current user and switch logic
-  const currentUser = users[0]
+  const [currentUserId, setCurrentUserId] = useState<string>('alice')
+  const currentUser = users.find((u) => u.id === currentUserId) || users[0]
+
   const handleSwitch = (userId: string) => {
-    // Your switch logic here
+    // Your switch logic here - you'll replace this with your actual logic
+    setCurrentUserId(userId)
     console.log('Switch to user:', userId)
   }
 
