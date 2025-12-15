@@ -1,7 +1,8 @@
-import { Assets, fromUnit } from "@lucid-evolution/lucid";
+import { Assets, fromUnit, LucidEvolution, Network, credentialToAddress, getAddressDetails } from "@lucid-evolution/lucid";
+import { CML } from "@lucid-evolution/lucid";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { MapAssetsT } from "./types";
+import { MapAssetsT, AddressT } from "./types";
 
 // Load plutus.json - In Next.js API routes, process.cwd() is the client directory
 // Go up one level to reach src/onchain from src/client
@@ -67,4 +68,60 @@ export function dataPairsToAssets(mapAssets: MapAssetsT): Assets {
   }
 
   return newAssets
+}
+
+/**
+ * Get network from Lucid instance
+ */
+export function getNetworkFromLucid(lucid: LucidEvolution): Network {
+  const network = lucid.config().network;
+  if (!network) {
+    throw new Error('Lucid network configuration is not set.');
+  }
+  return network;
+}
+
+/**
+ * Converts a data address to a bech32 address, supports only inline staking credential
+ */
+export function dataAddressToBech32(lucid: LucidEvolution, add: AddressT): string {
+  const extractCredential = (cred: any): { type: "Key" | "Script"; hash: string } =>
+    "Verification_key_cred" in cred
+      ? { type: "Key", hash: cred.Verification_key_cred.Key }
+      : { type: "Script", hash: cred.Script_cred.Key };
+
+  const network = getNetworkFromLucid(lucid);
+  const payment = extractCredential(add.payment_credential);
+  const stake = add.stake_credential?.inline
+    ? extractCredential(add.stake_credential.inline)
+    : undefined;
+
+  return credentialToAddress(
+    network,
+    payment,
+    stake
+  );
+}
+
+/**
+ * Converts a bech32 address to a data address, supports only inline staking credential
+ */
+export function bech32ToDataAddress(addr: string): AddressT {
+  const address = getAddressDetails(addr);
+
+  const mapCredential = (cred: { type: "Key" | "Script"; hash: string }) =>
+    cred.type === "Key"
+      ? { Verification_key_cred: { Key: cred.hash } }
+      : { Script_cred: { Key: cred.hash } };
+
+  if (!address.paymentCredential) {
+    throw new Error(`Address ${addr} missing payment credential`)
+  }
+
+  return {
+    payment_credential: mapCredential(address.paymentCredential),
+    stake_credential: address.stakeCredential
+      ? { inline: mapCredential(address.stakeCredential) }
+      : null,
+  };
 }

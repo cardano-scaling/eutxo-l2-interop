@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
+import { usePathname } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -15,6 +16,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { getAllUsers } from '@/lib/users'
+import { useCurrentUser } from '@/lib/use-current-user'
+import { useQueryClient } from '@tanstack/react-query'
 
 interface HtlcSenderFormProps {
   onRecipientChange?: (recipientName: string, recipientAddress: string) => void
@@ -29,6 +32,15 @@ const RECIPIENT_OPTIONS = getAllUsers().map((user) => ({
 export default function HtlcSenderForm({
   onRecipientChange,
 }: HtlcSenderFormProps) {
+  const pathname = usePathname()
+  const { currentUser } = useCurrentUser()
+  const queryClient = useQueryClient()
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
+  const successTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const queryInvalidationTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  
   const [form, setForm] = useState({
     recipientName: '',
     amountAda: '',
@@ -68,12 +80,92 @@ export default function HtlcSenderForm({
   }
 
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Cleanup timeouts on unmount
+  useEffect(() => {
+    return () => {
+      if (successTimeoutRef.current) {
+        clearTimeout(successTimeoutRef.current)
+      }
+      if (queryInvalidationTimeoutRef.current) {
+        clearTimeout(queryInvalidationTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    // You'll handle the actual submission logic
-    // form.recipientName will be 'alice', 'bob', or 'ida'
-    // You'll translate this to the actual address internally
-    console.log('Submit HTLC:', form)
+    setError(null)
+    setSuccess(null)
+    setIsSubmitting(true)
+    
+    // Clear any existing timeouts
+    if (successTimeoutRef.current) {
+      clearTimeout(successTimeoutRef.current)
+    }
+    if (queryInvalidationTimeoutRef.current) {
+      clearTimeout(queryInvalidationTimeoutRef.current)
+    }
+
+    try {
+      // Extract head route from pathname (e.g., "/head-a" -> "head-a")
+      const headRoute = pathname?.replace('/', '') || 'head-a'
+
+      const response = await fetch(`/api/hydra/${headRoute}/htlc/lock`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          senderName: currentUser,
+          recipientName: form.recipientName,
+          amountAda: form.amountAda,
+          htlcHash: form.htlcHash,
+          timeoutMinutes: form.timeout,
+        }),
+      })
+
+      // Check if response is JSON before parsing
+      const contentType = response.headers.get('content-type')
+      let data
+      if (contentType && contentType.includes('application/json')) {
+        data = await response.json()
+      } else {
+        const text = await response.text()
+        throw new Error(`Server error: ${text || response.statusText}`)
+      }
+
+      if (!response.ok) {
+        const errorMsg = data.error || data.details || 'Failed to lock HTLC'
+        const fullErrorMsg = data.details ? `${data.error || 'Failed to lock HTLC'}: ${data.details}` : errorMsg
+        throw new Error(fullErrorMsg)
+      }
+
+      const successMessage = `HTLC locked successfully! TX: ${data.txHash}`
+      setSuccess(successMessage)
+      
+      // Reset form
+      setForm({
+        recipientName: '',
+        amountAda: '',
+        htlcHash: '',
+        timeout: '60',
+      })
+
+      // Delay query invalidation to keep success message visible
+      // Invalidate UTXO query after showing success message for 3 seconds
+      queryInvalidationTimeoutRef.current = setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['utxos', headRoute] })
+      }, 3000)
+
+      // Clear success message after 5 seconds
+      successTimeoutRef.current = setTimeout(() => {
+        setSuccess(null)
+      }, 5000)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to lock HTLC')
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -182,8 +274,23 @@ export default function HtlcSenderForm({
             </div>
           </div>
 
-          <Button className="w-full mt-auto" size="lg" type="submit">
-            SEND
+          {error && (
+            <div className="text-sm text-destructive bg-destructive/10 p-2 rounded">
+              {error}
+            </div>
+          )}
+          {success && (
+            <div className="text-sm text-green-600 bg-green-50 p-2 rounded">
+              {success}
+            </div>
+          )}
+          <Button 
+            className="w-full mt-auto" 
+            size="lg" 
+            type="submit"
+            disabled={isSubmitting || !form.recipientName || !form.amountAda || !form.htlcHash}
+          >
+            {isSubmitting ? 'Sending...' : 'SEND'}
           </Button>
         </form>
       </CardContent>

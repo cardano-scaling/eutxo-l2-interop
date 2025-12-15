@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -25,6 +25,8 @@ export default function GeneratePreimageDialog({
   const [open, setOpen] = useState(false)
   const [preimage, setPreimage] = useState('')
   const [htlcHash, setHtlcHash] = useState('')
+  const [previousPreimage, setPreviousPreimage] = useState('')
+  const [previousHash, setPreviousHash] = useState('')
 
   const stringToHex = (str: string): string => {
     return Array.from(str)
@@ -38,6 +40,12 @@ export default function GeneratePreimageDialog({
   }
 
   const generatePreimage = () => {
+    // Save current values before generating new ones
+    if (preimage && htlcHash) {
+      setPreviousPreimage(preimage)
+      setPreviousHash(htlcHash)
+    }
+    
     const randomText = crypto.randomUUID()
     const newPreimage = stringToHex(randomText)
     const newHash = generateHash(newPreimage)
@@ -52,38 +60,44 @@ export default function GeneratePreimageDialog({
     navigator.clipboard.writeText(text)
   }
 
-  // Generate preimage when dialog opens
-  useEffect(() => {
-    if (open) {
-      const randomText = crypto.randomUUID()
-      const newPreimage = stringToHex(randomText)
-      const newHash = generateHash(newPreimage)
-      setPreimage(newPreimage)
-      setHtlcHash(newHash)
-      
-      // Automatically copy hash to clipboard
-      navigator.clipboard.writeText(newHash)
-    } else {
+  const handleOpenChange = (isOpen: boolean) => {
+    setOpen(isOpen)
+    if (!isOpen) {
       // Reset when dialog closes
       setPreimage('')
       setHtlcHash('')
+      setPreviousPreimage('')
+      setPreviousHash('')
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
+  }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>{children}</DialogTrigger>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Generate Preimage & Hash</DialogTitle>
           <DialogDescription>
-            Generate a preimage and its HTLC hash. The hash has been copied to
-            your clipboard automatically.
+            Click the regenerate button to generate a new preimage and its HTLC hash.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
+          {/* Previous values display */}
+          {previousPreimage && previousHash && (
+            <div className="space-y-2 p-3 bg-muted rounded-md">
+              <Label className="text-xs font-medium text-muted-foreground">Previous (saved)</Label>
+              <div className="space-y-1">
+                <div className="text-xs font-mono break-all text-muted-foreground">
+                  Preimage: {previousPreimage}
+                </div>
+                <div className="text-xs font-mono break-all text-muted-foreground">
+                  Hash: {previousHash}
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="space-y-2">
             <div className="flex w-full justify-between items-center">
               <Label className="text-sm font-medium block">Preimage</Label>
@@ -95,12 +109,12 @@ export default function GeneratePreimageDialog({
                 onClick={generatePreimage}
               >
                 <RefreshCw className="h-4 w-4 mr-1" />
-                Regenerate
+                {preimage ? 'Regenerate' : 'Generate'}
               </Button>
             </div>
             <div className="flex gap-2">
               <Textarea
-                placeholder="Preimage will appear here"
+                placeholder="Click 'Generate' to create a preimage"
                 value={preimage}
                 readOnly
                 rows={3}
@@ -110,6 +124,7 @@ export default function GeneratePreimageDialog({
                 type="button"
                 variant="secondary"
                 onClick={() => copyToClipboard(preimage)}
+                disabled={!preimage}
               >
                 <Copy className="h-4 w-4" />
               </Button>
@@ -120,7 +135,7 @@ export default function GeneratePreimageDialog({
             <Label className="text-sm font-medium block">HTLC Hash</Label>
             <div className="flex gap-2">
               <Textarea
-                placeholder="Hash will appear here"
+                placeholder="Hash will appear here after generation"
                 value={htlcHash}
                 readOnly
                 rows={2}
@@ -130,13 +145,16 @@ export default function GeneratePreimageDialog({
                 type="button"
                 variant="secondary"
                 onClick={() => copyToClipboard(htlcHash)}
+                disabled={!htlcHash}
               >
                 <Copy className="h-4 w-4" />
               </Button>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Hash has been copied to clipboard automatically
-            </p>
+            {htlcHash && (
+              <p className="text-xs text-muted-foreground">
+                Hash has been copied to clipboard automatically
+              </p>
+            )}
           </div>
         </div>
 
