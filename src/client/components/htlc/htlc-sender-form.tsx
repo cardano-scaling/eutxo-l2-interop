@@ -14,17 +14,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Copy } from 'lucide-react'
+import { getAllUsers } from '@/lib/users'
 
 interface HtlcSenderFormProps {
-  onRecipientChange?: (recipientName: string) => void
+  onRecipientChange?: (recipientName: string, recipientAddress: string) => void
 }
 
-const RECIPIENT_OPTIONS = [
-  { name: 'alice', address: 'addr_test1qqhtlccontractplaceholder0000000000000000000' },
-  { name: 'bob', address: 'addr_test1qqhtlccontractplaceholder0000000000000000001' },
-  { name: 'ida', address: 'addr_test1qqhtlccontractplaceholder0000000000000000002' },
-] as const
+// Get recipient options from users config
+const RECIPIENT_OPTIONS = getAllUsers().map((user) => ({
+  name: user.name,
+  address: user.address,
+}))
 
 export default function HtlcSenderForm({
   onRecipientChange,
@@ -61,7 +61,10 @@ export default function HtlcSenderForm({
 
   const handleRecipientChange = (value: string) => {
     setForm((prev) => ({ ...prev, recipientName: value }))
-    onRecipientChange?.(value)
+    const recipient = RECIPIENT_OPTIONS.find((r) => r.name === value)
+    if (recipient) {
+      onRecipientChange?.(recipient.name, recipient.address)
+    }
   }
 
 

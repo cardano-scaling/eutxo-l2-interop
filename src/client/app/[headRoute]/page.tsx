@@ -1,11 +1,12 @@
 'use client'
 
 import { use } from 'react'
-import { hydraHeads, type HydraHeadConfig, htlcContract, vestingContractAddress } from '@/lib/config'
+import { hydraHeads, htlcContract, vestingContractAddress } from '@/lib/config'
 import HtlcSenderForm from '@/components/htlc/htlc-sender-form'
 import HtlcUtxosList from '@/components/htlc/htlc-utxos-list'
 import { HtlcUtxoItem } from '@/components/htlc/htlc-utxo-item'
 import { formatId } from '@/lib/utils'
+import { useCurrentUser } from '@/lib/use-current-user'
 
 interface PageProps {
   params: Promise<{ headRoute: string }>
@@ -14,6 +15,7 @@ interface PageProps {
 export default function HeadDashboardPage({ params }: PageProps) {
   const { headRoute } = use(params)
   const headConfig = hydraHeads.find((head) => head.route === headRoute)
+  const { currentUserVkHash } = useCurrentUser()
 
   if (!headConfig) {
     return (
@@ -85,9 +87,7 @@ export default function HeadDashboardPage({ params }: PageProps) {
     },
   ]
 
-  // Mock current user - set to one of the "to" addresses to see claim buttons
-  // In real app, this will come from your user context
-  const currentUserVkeyHash = 'addr_test1qqreceiver11111111111111111111111111111111111111111111111'
+  // Current user vkHash from context - you'll populate this from your Hydra provider
 
   const handleClaim = (txHash: string, preimage?: string) => {
     console.log('Claim UTXO:', txHash, preimage ? `with preimage: ${preimage}` : '(vesting, no preimage needed)')
@@ -118,16 +118,17 @@ export default function HeadDashboardPage({ params }: PageProps) {
       <div className="flex-1 flex gap-6 p-6 overflow-hidden">
         {/* Left Panel - HTLC Sender Form */}
         <HtlcSenderForm
-          onRecipientChange={(recipientName) => {
-            // You'll handle the recipient name -> address translation here
-            console.log('Recipient selected:', recipientName)
+          onRecipientChange={(recipientName, recipientAddress) => {
+            // Recipient name and address are provided
+            // You'll use this when building the HTLC transaction
+            console.log('Recipient selected:', recipientName, 'Address:', recipientAddress)
           }}
         />
 
         {/* Right Panel - HTLC UTXOs List */}
         <HtlcUtxosList
           utxos={mockUtxos}
-          currentUserVkeyHash={currentUserVkeyHash}
+          currentUserVkeyHash={currentUserVkHash}
           onClaim={handleClaim}
           onRefund={handleRefund}
         />
