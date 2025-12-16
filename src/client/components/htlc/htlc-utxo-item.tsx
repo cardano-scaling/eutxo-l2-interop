@@ -150,16 +150,18 @@ export default function HtlcUtxoItemCard({
               <span className="text-muted-foreground">timeout:</span>
               <span className="font-mono ml-1">{formatDate(item.timeout)}</span>
             </div>
-            <div className="text-sm">
-              <span className="text-muted-foreground">hash:</span>
-              <span className="font-mono ml-1">
-                {formatId(item.hash, 8, 8)}
-                <Copy
-                  className="inline-block cursor-pointer -mb-0.5 ml-1 h-3.5 w-3.5"
-                  onClick={() => copyToClipboard(item.hash)}
-                />
-              </span>
-            </div>
+            {isHtlc && (
+              <div className="text-sm">
+                <span className="text-muted-foreground">hash:</span>
+                <span className="font-mono ml-1">
+                  {formatId(item.hash, 8, 8)}
+                  <Copy
+                    className="inline-block cursor-pointer -mb-0.5 ml-1 h-3.5 w-3.5"
+                    onClick={() => copyToClipboard(item.hash)}
+                  />
+                </span>
+              </div>
+            )}
             <div className="text-sm">
               <span className="text-muted-foreground">remaining: </span>
               <span

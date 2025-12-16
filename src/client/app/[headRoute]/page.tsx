@@ -48,24 +48,30 @@ export default function HeadDashboardPage({ params }: PageProps) {
   }
 
   const handleClaim = async (utxoId: string, preimage?: string) => {
-    if (!preimage) {
-      // Vesting claim - will be implemented separately
-      console.log('Vesting claim not yet implemented:', utxoId)
-      return
-    }
-
     setClaiming(utxoId)
     try {
-      const response = await fetch(`/api/hydra/${headRoute}/htlc/claim`, {
+      // Determine if this is a vesting or HTLC claim based on preimage
+      const isVestingClaim = !preimage
+      const endpoint = isVestingClaim 
+        ? `/api/hydra/${headRoute}/vesting/claim`
+        : `/api/hydra/${headRoute}/htlc/claim`
+
+      const requestBody: any = {
+        utxoId,
+        claimerName: currentUser,
+      }
+
+      // Only add preimage for HTLC claims
+      if (!isVestingClaim) {
+        requestBody.preimage = preimage
+      }
+
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          utxoId,
-          preimage,
-          claimerName: currentUser,
-        }),
+        body: JSON.stringify(requestBody),
       })
 
       const contentType = response.headers.get('content-type')
@@ -78,18 +84,21 @@ export default function HeadDashboardPage({ params }: PageProps) {
       }
 
       if (!response.ok) {
-        const errorMsg = data.error || data.details || 'Failed to claim HTLC'
-        const fullErrorMsg = data.details ? `${data.error || 'Failed to claim HTLC'}: ${data.details}` : errorMsg
+        const errorMsg = data.error || data.details || `Failed to claim ${isVestingClaim ? 'vesting' : 'HTLC'}`
+        const fullErrorMsg = data.details ? `${data.error || `Failed to claim ${isVestingClaim ? 'vesting' : 'HTLC'}`}: ${data.details}` : errorMsg
         throw new Error(fullErrorMsg)
       }
+
+      // Show success message
+      alert(`Successfully claimed ${isVestingClaim ? 'vesting' : 'HTLC'}! TX: ${data.txHash}`)
 
       // Refresh UTXO list after successful claim
       setTimeout(() => {
         queryClient.invalidateQueries({ queryKey: ['utxos', headRoute] })
       }, 2000)
     } catch (err) {
-      console.error('Error claiming HTLC:', err)
-      alert(err instanceof Error ? err.message : 'Failed to claim HTLC')
+      console.error(`Error claiming ${preimage ? 'HTLC' : 'vesting'}:`, err)
+      alert(err instanceof Error ? err.message : `Failed to claim ${preimage ? 'HTLC' : 'vesting'}`)
     } finally {
       setClaiming(null)
     }
