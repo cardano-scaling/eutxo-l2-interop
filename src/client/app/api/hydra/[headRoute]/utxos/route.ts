@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { HydraHandler } from '@/lib/hydra/handler'
 import { HydraProvider } from '@/lib/hydra/provider'
-import { Lucid, Data } from '@lucid-evolution/lucid'
-import { hydraHeads, htlcContract, vestingContractAddress } from '@/lib/config'
+import { Lucid, Data, validatorToAddress } from '@lucid-evolution/lucid'
+import { hydraHeads } from '@/lib/config'
 import { getScriptInfo } from '@/lib/hydra-utils'
 import { HtlcDatum, HtlcDatumT, VestingDatum, VestingDatumT } from '@/lib/types'
 import type { UTxO } from '@lucid-evolution/lucid'
@@ -23,7 +23,7 @@ type HtlcUtxoItem = {
 /**
  * Convert Lucid UTxO to HtlcUtxoItem format (server-side)
  */
-function utxoToHtlcItem(utxo: UTxO, isVesting: boolean): HtlcUtxoItem | null {
+function utxoToHtlcItem(utxo: UTxO, isVesting: boolean, contractAddress: string): HtlcUtxoItem | null {
   try {
     if (!utxo.datum) return null
 
@@ -40,7 +40,7 @@ function utxoToHtlcItem(utxo: UTxO, isVesting: boolean): HtlcUtxoItem | null {
         from: '', // Not in vesting datum
         to: datum.receiver, // vkHash hex
         amountAda,
-        address: vestingContractAddress,
+        address: contractAddress,
       }
     } else {
       const datum = Data.from<HtlcDatumT>(utxo.datum, HtlcDatum)
@@ -52,7 +52,7 @@ function utxoToHtlcItem(utxo: UTxO, isVesting: boolean): HtlcUtxoItem | null {
         from: datum.sender, // vkHash hex
         to: datum.receiver, // vkHash hex
         amountAda,
-        address: htlcContract.address,
+        address: contractAddress,
       }
     }
   } catch (error) {
@@ -85,21 +85,25 @@ export async function GET(
     const provider = new HydraProvider(handler)
     const lucid = await Lucid(provider, 'Custom')
 
-    // Get HTLC and Vesting script hashes
-    const [, htlcScriptHash] = getScriptInfo('htlc')
-    const [, vestingScriptHash] = getScriptInfo('vesting')
+    // Get HTLC and Vesting script info
+    const [htlcScript] = getScriptInfo('htlc')
+    const [vestingScript] = getScriptInfo('vesting')
+    
+    // Get contract addresses from scripts
+    const htlcAddress = validatorToAddress('Custom', { type: 'PlutusV3', script: htlcScript })
+    const vestingAddress = validatorToAddress('Custom', { type: 'PlutusV3', script: vestingScript })
 
     // Fetch UTXOs at contract addresses
-    const htlcUtxos = await lucid.utxosAt({ type: 'Script', hash: htlcScriptHash })
-    const vestingUtxos = await lucid.utxosAt({ type: 'Script', hash: vestingScriptHash })
+    const htlcUtxos = await lucid.utxosAt(htlcAddress)
+    const vestingUtxos = await lucid.utxosAt(vestingAddress)
 
     // Convert to client format
     const htlcItems = htlcUtxos
-      .map((utxo) => utxoToHtlcItem(utxo, false))
+      .map((utxo) => utxoToHtlcItem(utxo, false, htlcAddress))
       .filter((item): item is HtlcUtxoItem => item !== null)
 
     const vestingItems = vestingUtxos
-      .map((utxo) => utxoToHtlcItem(utxo, true))
+      .map((utxo) => utxoToHtlcItem(utxo, true, vestingAddress))
       .filter((item): item is HtlcUtxoItem => item !== null)
 
     // Return clean JSON array

@@ -248,7 +248,7 @@ export async function POST(
       success: true,
       txHash: submittedTx,
       message: 'HTLC lock transaction submitted successfully',
-    })
+    }, { status: 200 })
   } catch (error) {
     console.error('Error locking HTLC:', error)
     return NextResponse.json(

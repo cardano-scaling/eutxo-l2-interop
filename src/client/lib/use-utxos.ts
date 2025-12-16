@@ -24,14 +24,14 @@ async function fetchUtxos(headRoute: string): Promise<UtxosResponse> {
  * Hook to fetch and manage UTXOs for a Hydra head
  * Follows staffing-marketplace pattern: simple fetch + React Query
  */
-export function useUtxos(headRoute: string | undefined) {
+export function useUtxos(headRoute: string | undefined, pauseRefetch: boolean = false) {
   return useQuery({
     queryKey: ['utxos', headRoute],
     queryFn: () => fetchUtxos(headRoute!),
     enabled: !!headRoute,
-    refetchInterval: 5000, // Poll every 5 seconds
+    refetchInterval: pauseRefetch ? false : 5000, // Poll every 5 seconds, or pause if requested
     staleTime: 2000, // Consider stale after 2 seconds
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: !pauseRefetch, // Don't refetch on focus if paused
     select: (data) => data.utxos, // API already returns clean array
   })
 }

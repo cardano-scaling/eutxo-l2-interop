@@ -1,6 +1,6 @@
 'use client'
 
-import { use, useState } from 'react'
+import { use, useState, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { hydraHeads } from '@/lib/config'
 import HtlcSenderForm from '@/components/htlc/htlc-sender-form'
@@ -8,6 +8,7 @@ import HtlcUtxosList from '@/components/htlc/htlc-utxos-list'
 import { formatId } from '@/lib/utils'
 import { useCurrentUser } from '@/lib/use-current-user'
 import { useUtxos } from '@/lib/use-utxos'
+import type { HtlcUtxoItem } from '@/components/htlc/htlc-utxo-item'
 
 interface PageProps {
   params: Promise<{ headRoute: string }>
@@ -17,9 +18,13 @@ export default function HeadDashboardPage({ params }: PageProps) {
   const { headRoute } = use(params)
   const headConfig = hydraHeads.find((head) => head.route === headRoute)
   const { currentUserVkHash, currentUser } = useCurrentUser()
-  const { data: utxos = [], isLoading, error } = useUtxos(headRoute)
+  const [pauseRefetch, setPauseRefetch] = useState(false)
+  const { data: utxos = [], isLoading, error } = useUtxos(headRoute, pauseRefetch)
   const queryClient = useQueryClient()
   const [claiming, setClaiming] = useState<string | null>(null)
+  const [claimedUtxoIds, setClaimedUtxoIds] = useState<Set<string>>(new Set())
+  const [claimedUtxoCache, setClaimedUtxoCache] = useState<Record<string, HtlcUtxoItem>>({})
+  const refreshTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   if (!headConfig) {
     return (
@@ -33,7 +38,7 @@ export default function HeadDashboardPage({ params }: PageProps) {
   if (isLoading) {
     return (
       <div className="p-6">
-        <p>Loading UTXOs...</p>
+        <p>Loading...</p>
       </div>
     )
   }
@@ -42,7 +47,7 @@ export default function HeadDashboardPage({ params }: PageProps) {
     return (
       <div className="p-6">
         <h1 className="text-2xl font-semibold mb-4 text-red-600">Error</h1>
-        <p>Failed to load UTXOs: {error instanceof Error ? error.message : String(error)}</p>
+        <p>Failed to load: {error instanceof Error ? error.message : String(error)}</p>
       </div>
     )
   }
@@ -89,16 +94,47 @@ export default function HeadDashboardPage({ params }: PageProps) {
         throw new Error(fullErrorMsg)
       }
 
-      // Show success message
-      alert(`Successfully claimed ${isVestingClaim ? 'vesting' : 'HTLC'}! TX: ${data.txHash}`)
+      // Mark this UTXO as claimed to keep it in the list even after refresh
+      setClaimedUtxoIds((prev) => new Set(prev).add(utxoId))
+      // Cache the claimed UTXO so the dialog/component stays mounted even if it disappears from the next fetch
+      const currentItem = utxos.find((u) => u.id === utxoId)
+      if (currentItem) {
+        setClaimedUtxoCache((prev) => ({ ...prev, [utxoId]: currentItem }))
+      }
 
-      // Refresh UTXO list after successful claim
-      setTimeout(() => {
+      // Pause automatic refetching to prevent dialog from closing
+      setPauseRefetch(true)
+
+      // Clear any existing timeout
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current)
+      }
+
+      // Delay query invalidation significantly to allow dialog to show success state
+      // The dialog will stay open showing "Success" before the UTXO disappears
+      // User has plenty of time to see the success and close the dialog manually
+      // If user closes dialog, onDialogClose will refresh immediately and cancel this timeout
+      refreshTimeoutRef.current = setTimeout(() => {
         queryClient.invalidateQueries({ queryKey: ['utxos', headRoute] })
-      }, 2000)
+        // Resume refetching after a delay
+        setTimeout(() => {
+          setPauseRefetch(false)
+          // Remove from claimed set after dialog would have closed naturally
+          setClaimedUtxoIds((prev) => {
+            const next = new Set(prev)
+            next.delete(utxoId)
+            return next
+          })
+          setClaimedUtxoCache((prev) => {
+            const { [utxoId]: _, ...rest } = prev
+            return rest
+          })
+        }, 5000)
+      }, 10000) // 10 seconds delay - gives user time to see success and close dialog
     } catch (err) {
       console.error(`Error claiming ${preimage ? 'HTLC' : 'vesting'}:`, err)
-      alert(err instanceof Error ? err.message : `Failed to claim ${preimage ? 'HTLC' : 'vesting'}`)
+      // Re-throw error so dialog can display it
+      throw err
     } finally {
       setClaiming(null)
     }
@@ -107,6 +143,20 @@ export default function HeadDashboardPage({ params }: PageProps) {
   const handleRefund = (txHash: string) => {
     console.log('Refund HTLC:', txHash)
     // Your refund logic
+  }
+
+  const handleDialogClose = () => {
+    // Cancel the delayed refresh timeout since user closed dialog manually
+    if (refreshTimeoutRef.current) {
+      clearTimeout(refreshTimeoutRef.current)
+      refreshTimeoutRef.current = null
+    }
+    // When dialog closes after a successful claim, refresh immediately
+    queryClient.invalidateQueries({ queryKey: ['utxos', headRoute] })
+    setPauseRefetch(false) // Resume automatic refetching
+    // Clear claimed UTXO IDs
+    setClaimedUtxoIds(new Set())
+    setClaimedUtxoCache({})
   }
 
   return (
@@ -118,7 +168,6 @@ export default function HeadDashboardPage({ params }: PageProps) {
             <div className="text-sm text-muted-foreground">
               <p>{headConfig.name}</p>
               <p className="font-mono">ID: {formatId(headConfig.headId)}</p>
-              <p className="font-mono">Seed: {formatId(headConfig.headSeed)}</p>
             </div>
           </div>
         </div>
@@ -142,6 +191,9 @@ export default function HeadDashboardPage({ params }: PageProps) {
           onClaim={handleClaim}
           onRefund={handleRefund}
           claimingUtxoId={claiming}
+          claimedUtxoIds={claimedUtxoIds}
+          claimedUtxoCache={claimedUtxoCache}
+          onDialogClose={handleDialogClose}
         />
       </div>
     </div>

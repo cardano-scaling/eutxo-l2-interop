@@ -6,7 +6,7 @@ import { formatId } from '@/lib/utils'
 import { Copy } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import UtxoDialog from './utxo-dialog'
-import { htlcContract, vestingContractAddress } from '@/lib/config'
+import { useContractAddresses } from '@/lib/use-contract-addresses'
 
 export type HtlcUtxoItem = {
   id: string
@@ -21,9 +21,10 @@ export type HtlcUtxoItem = {
 interface HtlcUtxoItemProps {
   item: HtlcUtxoItem
   currentUserVkeyHash?: string
-  onClaim?: (txHash: string, preimage?: string) => void
+  onClaim?: (utxoId: string, preimage?: string) => Promise<void>
   onRefund?: (txHash: string) => void
   isClaiming?: boolean
+  onDialogClose?: () => void
 }
 
 export default function HtlcUtxoItemCard({
@@ -32,8 +33,10 @@ export default function HtlcUtxoItemCard({
   onClaim,
   onRefund,
   isClaiming = false,
+  onDialogClose,
 }: HtlcUtxoItemProps) {
   const [currentTime, setCurrentTime] = useState(Date.now())
+  const { data: contractAddresses } = useContractAddresses()
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -43,8 +46,8 @@ export default function HtlcUtxoItemCard({
   }, [])
 
   const isTimeout = currentTime >= item.timeout
-  const isVesting = item.address === vestingContractAddress
-  const isHtlc = item.address === htlcContract.address
+  const isVesting = contractAddresses ? item.address === contractAddresses.vestingContractAddress : false
+  const isHtlc = contractAddresses ? item.address === contractAddresses.htlcContract.address : false
 
   const isYourAddress = (vkeyhash: string) => {
     return currentUserVkeyHash === vkeyhash
@@ -104,6 +107,7 @@ export default function HtlcUtxoItemCard({
       onClaim={onClaim}
       onRefund={onRefund}
       isClaiming={isClaiming}
+      onClose={onDialogClose}
     >
       <Card
         className={`bg-muted cursor-pointer hover:shadow-md transition-shadow ${
@@ -128,13 +132,15 @@ export default function HtlcUtxoItemCard({
                   </span>
                 )}
               </div>
-            <div className="text-sm">
-              <span className="text-muted-foreground">from:</span>
-              <span className="font-mono ml-1">{formatId(item.from)}</span>
-              {isYourAddress(item.from) && (
-                <span className="text-sm text-gray-400 ml-1">(you)</span>
-              )}
-            </div>
+            {isHtlc && (
+              <div className="text-sm">
+                <span className="text-muted-foreground">from:</span>
+                <span className="font-mono ml-1">{formatId(item.from)}</span>
+                {isYourAddress(item.from) && (
+                  <span className="text-sm text-gray-400 ml-1">(you)</span>
+                )}
+              </div>
+            )}
             <div className="text-sm">
               <span className="text-muted-foreground">to:</span>
               <span className="font-mono ml-1">{formatId(item.to)}</span>

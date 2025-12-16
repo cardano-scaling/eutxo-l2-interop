@@ -2,16 +2,19 @@
 
 import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Search } from 'lucide-react'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Label } from '@/components/ui/label'
 import HtlcUtxoItemCard, { type HtlcUtxoItem } from './htlc-utxo-item'
 
 interface HtlcUtxosListProps {
   utxos: HtlcUtxoItem[]
   currentUserVkeyHash?: string
-  onClaim?: (txHash: string, preimage?: string) => void
+  onClaim?: (utxoId: string, preimage?: string) => Promise<void>
   onRefund?: (txHash: string) => void
   claimingUtxoId?: string | null
+  claimedUtxoIds?: Set<string>
+  claimedUtxoCache?: Record<string, HtlcUtxoItem>
+  onDialogClose?: () => void
 }
 
 export default function HtlcUtxosList({
@@ -20,13 +23,25 @@ export default function HtlcUtxosList({
   onClaim,
   onRefund,
   claimingUtxoId,
+  claimedUtxoIds = new Set(),
+  claimedUtxoCache = {},
+  onDialogClose,
 }: HtlcUtxosListProps) {
-  const [searchQuery, setSearchQuery] = useState('')
+  const [showOnlyMine, setShowOnlyMine] = useState(false)
 
-  const filteredUtxos = utxos.filter((utxo) => {
-    if (!searchQuery) return true
-    const query = searchQuery.toLowerCase()
-    return utxo.hash.toLowerCase().includes(query)
+  // Keep claimed UTXOs in the list even if they disappear from the API response
+  // Use cached copy to prevent dialog unmounting after a successful claim
+  const utxosWithClaimed = [...utxos]
+  claimedUtxoIds.forEach((claimedId) => {
+    if (!utxosWithClaimed.find((u) => u.id === claimedId) && claimedUtxoCache[claimedId]) {
+      utxosWithClaimed.push(claimedUtxoCache[claimedId])
+    }
+  })
+
+  const filteredUtxos = utxosWithClaimed.filter((utxo) => {
+    if (!showOnlyMine) return true
+    // Show only UTXOs where current user is the receiver
+    return currentUserVkeyHash && utxo.to === currentUserVkeyHash
   })
 
   // Sort by timeout descending
@@ -35,22 +50,26 @@ export default function HtlcUtxosList({
   )
 
   return (
-    <Card className="flex flex-col overflow-hidden min-w-[480px]">
-      <CardHeader className="p-0">
+    <Card className="flex flex-col overflow-hidden min-w-[480px] h-full">
+      <CardHeader className="p-0 flex-shrink-0">
         <CardTitle className="text-center bg-primary text-primary-foreground rounded-t-lg p-4">
           HTLC & Vesting UTXOs ({filteredUtxos.length})
         </CardTitle>
       </CardHeader>
-      <CardContent className="flex-1 overflow-y-auto p-4 max-h-[630px]">
+      <CardContent className="flex-1 overflow-y-auto p-4 min-h-0">
         <div className="mb-4">
-          <div className="relative">
-            <Input
-              placeholder="Search by hash"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pr-10"
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="filter-mine"
+              checked={showOnlyMine}
+              onCheckedChange={(checked) => setShowOnlyMine(checked === true)}
             />
-            <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Label
+              htmlFor="filter-mine"
+              className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+            >
+              Show only the UTxOs where I'm the receiver
+            </Label>
           </div>
         </div>
         <div className="space-y-4">
@@ -63,11 +82,12 @@ export default function HtlcUtxosList({
                 onClaim={onClaim}
                 onRefund={onRefund}
                 isClaiming={claimingUtxoId === item.id}
+                onDialogClose={onDialogClose}
               />
             ))
           ) : (
             <div className="text-center text-muted-foreground">
-              No UTXOs found.
+              No UTxOs found.
             </div>
           )}
         </div>

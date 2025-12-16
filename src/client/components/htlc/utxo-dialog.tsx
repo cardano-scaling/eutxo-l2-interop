@@ -17,15 +17,16 @@ import { Label } from '@/components/ui/label'
 import { formatId } from '@/lib/utils'
 import { Copy } from 'lucide-react'
 import { HtlcUtxoItem } from './htlc-utxo-item'
-import { htlcContract, vestingContractAddress } from '@/lib/config'
+import { useContractAddresses } from '@/lib/use-contract-addresses'
 
 interface UtxoDialogProps {
   item: HtlcUtxoItem
   currentUserVkeyHash?: string
-  onClaim?: (txHash: string, preimage?: string) => void
+  onClaim?: (utxoId: string, preimage?: string) => Promise<void>
   onRefund?: (txHash: string) => void
   children: React.ReactNode
   isClaiming?: boolean
+  onClose?: () => void
 }
 
 export default function UtxoDialog({
@@ -35,26 +36,55 @@ export default function UtxoDialog({
   onRefund,
   children,
   isClaiming = false,
+  onClose,
 }: UtxoDialogProps) {
   const [open, setOpen] = useState(false)
   const [preimage, setPreimage] = useState('')
   const [currentTime, setCurrentTime] = useState(Date.now())
+  const [claimError, setClaimError] = useState<string | null>(null)
+  const [claimSuccess, setClaimSuccess] = useState(false)
+  const { data: contractAddresses } = useContractAddresses()
+  const wasExplicitlyClosedRef = React.useRef(false)
 
   // Update current time every second when dialog is open
   React.useEffect(() => {
     if (!open) {
-      // Reset preimage when dialog closes
+      // If dialog was explicitly closed by user and we had a successful claim, notify parent to refresh
+      if (wasExplicitlyClosedRef.current && claimSuccess && onClose) {
+        onClose()
+        wasExplicitlyClosedRef.current = false // Reset flag
+      }
+      // Reset preimage, error, and success when dialog closes
       setPreimage('')
+      setClaimError(null)
+      setClaimSuccess(false)
       return
     }
     const interval = setInterval(() => {
       setCurrentTime(Date.now())
     }, 1000)
     return () => clearInterval(interval)
-  }, [open])
+  }, [open, claimSuccess, onClose])
 
-  const isVesting = item.address === vestingContractAddress
-  const isHtlc = item.address === htlcContract.address
+  // Prevent dialog from closing automatically when claim succeeds
+  // Only allow manual close via Close button
+  const handleOpenChange = (newOpen: boolean) => {
+    // If trying to close but claim just succeeded, prevent closing
+    // User must explicitly click the Close button
+    if (!newOpen && claimSuccess) {
+      return // Don't close if success state is showing
+    }
+    
+    // Mark as explicitly closed if user is closing it
+    if (!newOpen) {
+      wasExplicitlyClosedRef.current = true
+    }
+    
+    setOpen(newOpen)
+  }
+
+  const isVesting = contractAddresses ? item.address === contractAddresses.vestingContractAddress : false
+  const isHtlc = contractAddresses ? item.address === contractAddresses.htlcContract.address : false
 
   const isYourAddress = (vkeyhash: string) => {
     return currentUserVkeyHash === vkeyhash
@@ -105,16 +135,27 @@ export default function UtxoDialog({
   }
 
 
-  const handleClaim = () => {
-    if (isHtlc && preimage.trim()) {
-      // HTLC requires preimage
-      onClaim?.(item.id, preimage.trim())
-    } else if (isVesting) {
-      // Vesting doesn't need preimage
-      onClaim?.(item.id)
+  const handleClaim = async () => {
+    if (!onClaim) return
+    
+    setClaimError(null)
+    setClaimSuccess(false)
+    
+    try {
+      if (isHtlc && preimage.trim()) {
+        // HTLC requires preimage
+        await onClaim(item.id, preimage.trim())
+      } else if (isVesting) {
+        // Vesting doesn't need preimage
+        await onClaim(item.id)
+      }
+      // On success, show success state but keep dialog open
+      setClaimSuccess(true)
+    } catch (error) {
+      // On error, keep dialog open and show error
+      setClaimError(error instanceof Error ? error.message : 'Failed to claim')
+      setClaimSuccess(false)
     }
-    setPreimage('')
-    setOpen(false)
   }
 
   const handleRefund = () => {
@@ -128,9 +169,19 @@ export default function UtxoDialog({
     isYourAddress(item.from) && canBeRefunded(item.timeout)
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange} modal={true}>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-lg" onInteractOutside={(e) => {
+        // Prevent closing by clicking outside when claim succeeded
+        if (claimSuccess) {
+          e.preventDefault()
+        }
+      }} onEscapeKeyDown={(e) => {
+        // Prevent closing with ESC when claim succeeded
+        if (claimSuccess) {
+          e.preventDefault()
+        }
+      }}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             UTXO Details
@@ -241,13 +292,32 @@ export default function UtxoDialog({
               </Button>
             </div>
           )}
+
+          {/* Error message */}
+          {claimError && (
+            <div className="text-sm text-destructive bg-destructive/10 p-2 rounded">
+              {claimError}
+            </div>
+          )}
+          
+          {/* Success message */}
+          {claimSuccess && (
+            <div className="text-sm text-green-600 bg-green-50 p-2 rounded">
+              Successfully claimed! Transaction submitted.
+            </div>
+          )}
         </div>
 
         <DialogFooter>
           <Button
             type="button"
             variant="outline"
-            onClick={() => setOpen(false)}
+            onClick={() => {
+              wasExplicitlyClosedRef.current = true
+              setOpen(false)
+              // Success state and onClose will be handled in the useEffect when open becomes false
+            }}
+            disabled={isClaiming}
           >
             Close
           </Button>
@@ -257,6 +327,7 @@ export default function UtxoDialog({
               variant="default"
               className="bg-orange-300 hover:bg-orange-400"
               onClick={handleRefund}
+              disabled={isClaiming}
             >
               Refund
             </Button>
@@ -265,11 +336,11 @@ export default function UtxoDialog({
             <Button
               type="button"
               variant="default"
-              className="bg-blue-300 hover:bg-blue-400"
+              className={claimSuccess ? "bg-green-300 hover:bg-green-400" : "bg-blue-300 hover:bg-blue-400"}
               onClick={handleClaim}
-              disabled={(isHtlc && !preimage.trim()) || isClaiming}
+              disabled={(isHtlc && !preimage.trim()) || isClaiming || claimSuccess}
             >
-              {isClaiming ? 'Claiming...' : 'Claim'}
+              {isClaiming ? 'Loading...' : claimSuccess ? 'Success' : 'Claim'}
             </Button>
           )}
         </DialogFooter>

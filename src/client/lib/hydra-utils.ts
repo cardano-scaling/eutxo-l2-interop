@@ -1,5 +1,4 @@
-import { Assets, fromUnit, LucidEvolution, Network, credentialToAddress, getAddressDetails } from "@lucid-evolution/lucid";
-import { CML } from "@lucid-evolution/lucid";
+import { Assets, fromUnit, LucidEvolution, Network, credentialToAddress, getAddressDetails, validatorToAddress } from "@lucid-evolution/lucid";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { MapAssetsT, AddressT } from "./types";
@@ -124,5 +123,20 @@ export function bech32ToDataAddress(addr: string): AddressT {
       ? { inline: mapCredential(address.stakeCredential) }
       : null,
   };
+}
+
+/**
+ * Get contract address from plutus.json validator
+ * @param scriptName - Name of the script (e.g., 'htlc', 'vesting')
+ * @param network - Network to use for address generation
+ * @returns Contract address as bech32 string
+ */
+export function getContractAddress(scriptName: string, network: Network = 'Custom'): string {
+  const [scriptBytes] = getScriptInfo(scriptName, 'spend');
+  const script: { type: "PlutusV3"; script: string } = {
+    type: "PlutusV3",
+    script: scriptBytes,
+  };
+  return validatorToAddress(network, script);
 }
 

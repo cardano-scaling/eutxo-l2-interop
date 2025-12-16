@@ -13,7 +13,7 @@ export default function Home() {
             HTLC + Vesting Demo
           </h1>
           <p className="text-muted-foreground">
-            Select a Hydra head to open its dashboard and interact with HTLCs.
+            Select a Hydra head to open its dashboard.
           </p>
         </div>
 
@@ -25,9 +25,6 @@ export default function Home() {
                 <div className="text-center space-y-1">
                   <div className="text-base text-muted-foreground">
                     Head ID: {formatId(head.headId)}
-                  </div>
-                  <div className="text-base text-muted-foreground">
-                    Head Seed: {formatId(head.headSeed)}
                   </div>
                   <div className="text-base text-muted-foreground">
                     Status:{" "}

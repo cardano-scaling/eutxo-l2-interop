@@ -140,20 +140,39 @@ export default function HtlcSenderForm({
         body: JSON.stringify(requestBody),
       })
 
-      // Check if response is JSON before parsing
+      // Check response status first
+      if (!response.ok) {
+        // Try to parse error response
+        const contentType = response.headers.get('content-type')
+        let errorData
+        try {
+          if (contentType && contentType.includes('application/json')) {
+            errorData = await response.json()
+          } else {
+            const text = await response.text()
+            throw new Error(`Server error: ${text || response.statusText}`)
+          }
+        } catch (parseError) {
+          throw new Error(`Server error: ${response.statusText}`)
+        }
+        const errorMsg = errorData?.error || errorData?.details || 'Failed to lock HTLC'
+        const fullErrorMsg = errorData?.details ? `${errorData.error || 'Failed to lock HTLC'}: ${errorData.details}` : errorMsg
+        throw new Error(fullErrorMsg)
+      }
+
+      // Parse successful response
       const contentType = response.headers.get('content-type')
       let data
       if (contentType && contentType.includes('application/json')) {
         data = await response.json()
       } else {
         const text = await response.text()
-        throw new Error(`Server error: ${text || response.statusText}`)
+        throw new Error(`Invalid response format: ${text || response.statusText}`)
       }
 
-      if (!response.ok) {
-        const errorMsg = data.error || data.details || 'Failed to lock HTLC'
-        const fullErrorMsg = data.details ? `${data.error || 'Failed to lock HTLC'}: ${data.details}` : errorMsg
-        throw new Error(fullErrorMsg)
+      // Validate response has txHash
+      if (!data.txHash) {
+        throw new Error('Response missing transaction hash')
       }
 
       const successMessage = `HTLC locked successfully! TX: ${data.txHash}`
@@ -191,7 +210,7 @@ export default function HtlcSenderForm({
     <Card className="flex flex-col w-[600px]">
       <CardHeader className="p-0 -m-[1px]">
         <CardTitle className="text-center bg-primary text-primary-foreground py-8 rounded-t-lg">
-          SENDER
+          HTLC SENDER
         </CardTitle>
       </CardHeader>
       <CardContent className="p-0">
@@ -244,13 +263,6 @@ export default function HtlcSenderForm({
                   setForm((prev) => ({ ...prev, amountAda: e.target.value }))
                 }
               />
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => pasteTo('amountAda')}
-              >
-                Paste
-              </Button>
             </div>
           </div>
 
