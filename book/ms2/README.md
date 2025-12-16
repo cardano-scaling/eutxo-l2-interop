@@ -14,7 +14,7 @@ The canonical use case for HTLCs, explained in MS1, require two parties interest
 
 We'll list the changes made from the HTLC desing in MS1, anything not mentioned in this document is the same as the previous version, which you can read more here (TODO: Add link)
 
-The first change was to add a new data type called `HTLCOutput`, this type represents everything we want to specify as the desired output when claiming the HTLC, including a non-opaque representation of a Value and an optional datum (if a datum is included, we force it to be Inline).
+The first change was to add a new data type called `DesiredOutput`, this type represents everything we want to specify as the desired output when claiming the HTLC, including a non-opaque representation of a Value and an optional datum (if a datum is included, we force it to be Inline).
 
 #### UTxO Specification
 
@@ -24,9 +24,9 @@ The first change was to add a new data type called `HTLCOutput`, this type repre
 > - timeout: PosixTime
 > - sender: VerificationKeyHash
 > - receiver: VerificationKeyHash
-> - desired_output: HtlcOutput
+> - desired_output: DesiredOutput
 >
-> **HTLCOutput**
+> **DesiredOutput**
 >
 > - address: Address
 > - value: Pairs<PolicyId, Pairs<AssetName, Int>>

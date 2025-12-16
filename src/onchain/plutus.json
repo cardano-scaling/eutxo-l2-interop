@@ -502,6 +502,30 @@
       "title": "TransactionId",
       "dataType": "bytes"
     },
+    "htlc/DesiredOutput": {
+      "title": "DesiredOutput",
+      "anyOf": [
+        {
+          "title": "DesiredOutput",
+          "dataType": "constructor",
+          "index": 0,
+          "fields": [
+            {
+              "title": "address",
+              "$ref": "#/definitions/cardano~1address~1Address"
+            },
+            {
+              "title": "value",
+              "$ref": "#/definitions/Pairs$cardano~1assets~1PolicyId_Pairs$cardano~1assets~1AssetName_Int"
+            },
+            {
+              "title": "datum",
+              "$ref": "#/definitions/Option$Data"
+            }
+          ]
+        }
+      ]
+    },
     "htlc/HtlcDatum": {
       "title": "HtlcDatum",
       "anyOf": [
@@ -528,31 +552,7 @@
             },
             {
               "title": "desired_output",
-              "$ref": "#/definitions/htlc~1HtlcOutput"
-            }
-          ]
-        }
-      ]
-    },
-    "htlc/HtlcOutput": {
-      "title": "HtlcOutput",
-      "anyOf": [
-        {
-          "title": "HtlcOutput",
-          "dataType": "constructor",
-          "index": 0,
-          "fields": [
-            {
-              "title": "address",
-              "$ref": "#/definitions/cardano~1address~1Address"
-            },
-            {
-              "title": "value",
-              "$ref": "#/definitions/Pairs$cardano~1assets~1PolicyId_Pairs$cardano~1assets~1AssetName_Int"
-            },
-            {
-              "title": "datum",
-              "$ref": "#/definitions/Option$Data"
+              "$ref": "#/definitions/htlc~1DesiredOutput"
             }
           ]
         }
