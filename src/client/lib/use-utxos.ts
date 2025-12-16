@@ -1,10 +1,10 @@
 'use client'
 
 import { useQuery } from '@tanstack/react-query'
-import { HtlcUtxoItem } from '@/components/htlc/htlc-utxo-item'
+import { UtxoItem } from '@/components/htlc/utxo-item'
 
 type UtxosResponse = {
-  utxos: HtlcUtxoItem[]
+  utxos: UtxoItem[]
 }
 
 /**

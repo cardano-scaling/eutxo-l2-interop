@@ -16,11 +16,11 @@ import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { formatId } from '@/lib/utils'
 import { Copy } from 'lucide-react'
-import { HtlcUtxoItem } from './htlc-utxo-item'
+import { UtxoItem } from './utxo-item'
 import { useContractAddresses } from '@/lib/use-contract-addresses'
 
 interface UtxoDialogProps {
-  item: HtlcUtxoItem
+  item: UtxoItem
   currentUserVkeyHash?: string
   onClaim?: (utxoId: string, preimage?: string) => Promise<void>
   onRefund?: (txHash: string) => void
@@ -83,19 +83,21 @@ export default function UtxoDialog({
     setOpen(newOpen)
   }
 
-  const isVesting = contractAddresses ? item.address === contractAddresses.vestingContractAddress : false
-  const isHtlc = contractAddresses ? item.address === contractAddresses.htlcContract.address : false
+  const isVesting = item.type === 'vesting'
+  const isHtlc = item.type === 'htlc'
+  const isUser = item.type === 'user'
 
   const isYourAddress = (vkeyhash: string) => {
     return currentUserVkeyHash === vkeyhash
   }
 
-  const canBeRefunded = (timeout: number) => {
-    if (isVesting) return false
+  const canBeRefunded = (timeout?: number) => {
+    if (isVesting || isUser || !timeout) return false
     return currentTime >= timeout + 1 * 60 * 1000
   }
 
-  const canBeClaimed = (timeout: number) => {
+  const canBeClaimed = (timeout?: number) => {
+    if (isUser || !timeout) return false
     if (isVesting) {
       return currentTime >= timeout
     } else {
@@ -114,7 +116,8 @@ export default function UtxoDialog({
     })
   }
 
-  const formatCountdown = (targetTime: number) => {
+  const formatCountdown = (targetTime?: number) => {
+    if (!targetTime) return 'N/A'
     const diff = targetTime - currentTime
     if (diff <= 0) {
       // For vesting, timeout means it's claimable (not expired)
@@ -164,9 +167,9 @@ export default function UtxoDialog({
   }
 
   const showClaimButton =
-    isYourAddress(item.to) && canBeClaimed(item.timeout)
+    !isUser && item.to && isYourAddress(item.to) && canBeClaimed(item.timeout)
   const showRefundButton =
-    isYourAddress(item.from) && canBeRefunded(item.timeout)
+    !isUser && item.from && isYourAddress(item.from) && canBeRefunded(item.timeout)
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange} modal={true}>
@@ -195,6 +198,11 @@ export default function UtxoDialog({
                 HTLC
               </span>
             )}
+            {isUser && (
+              <span className="text-xs px-2 py-1 rounded bg-green-100 text-green-700 font-medium">
+                User
+              </span>
+            )}
           </DialogTitle>
           <DialogDescription>
             View details and manage this UTXO
@@ -208,52 +216,75 @@ export default function UtxoDialog({
               <span className="text-muted-foreground">ID: </span>
               <span className="font-mono">{formatId(item.id, 12, 12)}</span>
             </div>
-            <div>
-              <span className="text-muted-foreground">From: </span>
-              <span className="font-mono">{formatId(item.from)}</span>
-              {isYourAddress(item.from) && (
-                <span className="text-muted-foreground ml-1">(you)</span>
-              )}
-            </div>
-            <div>
-              <span className="text-muted-foreground">To: </span>
-              <span className="font-mono">{formatId(item.to)}</span>
-              {isYourAddress(item.to) && (
-                <span className="text-muted-foreground ml-1">(you)</span>
-              )}
-            </div>
-            <div>
-              <span className="text-muted-foreground">Amount: </span>
-              <span className="font-mono">{item.amountAda} ADA</span>
-            </div>
-            <div>
-              <span className="text-muted-foreground">Timeout: </span>
-              <span className="font-mono">{formatDate(item.timeout)}</span>
-            </div>
-            {isHtlc && (
-              <div>
-                <span className="text-muted-foreground">Hash: </span>
-                <span className="font-mono">{formatId(item.hash, 8, 8)}</span>
-                <Copy
-                  className="inline-block cursor-pointer ml-1 h-3.5 w-3.5"
-                  onClick={() => copyToClipboard(item.hash)}
-                />
-              </div>
+            {isUser ? (
+              <>
+                <div>
+                  <span className="text-muted-foreground">Owner: </span>
+                  <span className="font-mono capitalize">{item.owner}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Amount: </span>
+                  <span className="font-mono">{item.amountAda} ADA</span>
+                </div>
+              </>
+            ) : (
+              <>
+                {isHtlc && item.from && (
+                  <div>
+                    <span className="text-muted-foreground">From: </span>
+                    <span className="font-mono">{formatId(item.from)}</span>
+                    {isYourAddress(item.from) && (
+                      <span className="text-muted-foreground ml-1">(you)</span>
+                    )}
+                  </div>
+                )}
+                {item.to && (
+                  <div>
+                    <span className="text-muted-foreground">To: </span>
+                    <span className="font-mono">{formatId(item.to)}</span>
+                    {isYourAddress(item.to) && (
+                      <span className="text-muted-foreground ml-1">(you)</span>
+                    )}
+                  </div>
+                )}
+                <div>
+                  <span className="text-muted-foreground">Amount: </span>
+                  <span className="font-mono">{item.amountAda} ADA</span>
+                </div>
+                {item.timeout && (
+                  <div>
+                    <span className="text-muted-foreground">Timeout: </span>
+                    <span className="font-mono">{formatDate(item.timeout)}</span>
+                  </div>
+                )}
+                {isHtlc && item.hash && (
+                  <div>
+                    <span className="text-muted-foreground">Hash: </span>
+                    <span className="font-mono">{formatId(item.hash, 8, 8)}</span>
+                    <Copy
+                      className="inline-block cursor-pointer ml-1 h-3.5 w-3.5"
+                      onClick={() => copyToClipboard(item.hash!)}
+                    />
+                  </div>
+                )}
+                {item.timeout && (
+                  <div>
+                    <span className="text-muted-foreground">Remaining: </span>
+                    <span
+                      className={`font-mono ${
+                        currentTime >= item.timeout && !isVesting
+                          ? 'text-destructive'
+                          : currentTime >= item.timeout && isVesting
+                          ? 'text-green-600'
+                          : ''
+                      }`}
+                    >
+                      {formatCountdown(item.timeout)}
+                    </span>
+                  </div>
+                )}
+              </>
             )}
-            <div>
-              <span className="text-muted-foreground">Remaining: </span>
-              <span
-                className={`font-mono ${
-                  currentTime >= item.timeout && !isVesting
-                    ? 'text-destructive'
-                    : currentTime >= item.timeout && isVesting
-                    ? 'text-green-600'
-                    : ''
-                }`}
-              >
-                {formatCountdown(item.timeout)}
-              </span>
-            </div>
           </div>
 
           {/* Preimage input for HTLC claims only */}
@@ -272,7 +303,7 @@ export default function UtxoDialog({
                     setPreimage(pastedText)
                   }}
                   rows={3}
-                  className="font-mono text-xs"
+                  className="font-mono text-xs overflow-x-auto whitespace-pre-wrap break-all"
                 />
               </div>
               <Button

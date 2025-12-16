@@ -4,11 +4,11 @@ import { use, useState, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { hydraHeads } from '@/lib/config'
 import HtlcSenderForm from '@/components/htlc/htlc-sender-form'
-import HtlcUtxosList from '@/components/htlc/htlc-utxos-list'
+import UtxosList from '@/components/htlc/utxos-list'
 import { formatId } from '@/lib/utils'
 import { useCurrentUser } from '@/lib/use-current-user'
 import { useUtxos } from '@/lib/use-utxos'
-import type { HtlcUtxoItem } from '@/components/htlc/htlc-utxo-item'
+import type { UtxoItem } from '@/components/htlc/utxo-item'
 
 interface PageProps {
   params: Promise<{ headRoute: string }>
@@ -23,7 +23,7 @@ export default function HeadDashboardPage({ params }: PageProps) {
   const queryClient = useQueryClient()
   const [claiming, setClaiming] = useState<string | null>(null)
   const [claimedUtxoIds, setClaimedUtxoIds] = useState<Set<string>>(new Set())
-  const [claimedUtxoCache, setClaimedUtxoCache] = useState<Record<string, HtlcUtxoItem>>({})
+  const [claimedUtxoCache, setClaimedUtxoCache] = useState<Record<string, UtxoItem>>({})
   const refreshTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   if (!headConfig) {
@@ -184,10 +184,11 @@ export default function HeadDashboardPage({ params }: PageProps) {
           }}
         />
 
-        {/* Right Panel - HTLC UTXOs List */}
-        <HtlcUtxosList
+        {/* Right Panel - UTXOs List */}
+        <UtxosList
           utxos={utxos}
           currentUserVkeyHash={currentUserVkHash}
+          currentUserName={currentUser}
           onClaim={handleClaim}
           onRefund={handleRefund}
           claimingUtxoId={claiming}

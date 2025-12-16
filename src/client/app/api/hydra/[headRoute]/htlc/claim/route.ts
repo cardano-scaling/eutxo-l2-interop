@@ -117,9 +117,9 @@ export async function POST(
     }
 
     // Convert timeout BigInt to number safely
-    // 5 minutes before timeout to account for block and slot rounding
+    // 10 minutes before timeout to account for block and slot rounding
     const timeoutNumber = Number(timeout)
-    const validToTime = timeoutNumber - 5 * 60 * 1000
+    const validToTime = timeoutNumber - 20 * 60 * 1000
     
     // Validate validTo is a valid number
     if (!Number.isFinite(validToTime) || validToTime <= 0) {

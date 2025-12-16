@@ -207,16 +207,16 @@ export default function HtlcSenderForm({
   }
 
   return (
-    <Card className="flex flex-col w-[600px]">
-      <CardHeader className="p-0 -m-[1px]">
+    <Card className="flex flex-col w-[600px] h-full overflow-hidden">
+      <CardHeader className="p-0 -m-[1px] flex-shrink-0">
         <CardTitle className="text-center bg-primary text-primary-foreground py-8 rounded-t-lg">
           HTLC SENDER
         </CardTitle>
       </CardHeader>
-      <CardContent className="p-0">
+      <CardContent className="p-0 flex-1 overflow-y-auto min-h-0">
         <form
           onSubmit={handleSubmit}
-          className="flex-1 flex flex-col gap-4 p-4"
+          className="flex flex-col gap-4 p-4"
         >
           <div>
             <Label className="text-sm font-medium mb-2 block">

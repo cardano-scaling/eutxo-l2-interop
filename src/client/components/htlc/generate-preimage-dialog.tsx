@@ -125,7 +125,7 @@ export default function GeneratePreimageDialog({
                 value={preimage}
                 readOnly
                 rows={3}
-                className="break-all font-mono text-xs"
+                className="font-mono text-xs overflow-x-auto whitespace-pre-wrap break-all"
               />
               <Button
                 type="button"
@@ -146,7 +146,7 @@ export default function GeneratePreimageDialog({
                 value={htlcHash}
                 readOnly
                 rows={2}
-                className="font-mono text-xs"
+                className="font-mono text-xs overflow-x-auto whitespace-pre-wrap break-all"
               />
               <Button
                 type="button"
