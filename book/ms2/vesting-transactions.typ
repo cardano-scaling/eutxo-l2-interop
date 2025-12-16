@@ -22,7 +22,7 @@
     ),
   ),
   signatures: ("receiver",),
-  validRange: (("upper": "timeout")),
+  validRange: (("lower": "timeout")),
 )
 
 #let tx_lock_vesting = transaction(
