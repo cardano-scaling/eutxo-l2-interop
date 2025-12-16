@@ -342,3 +342,4 @@ function hydraUtxoToLucidUtxo(hash: string, idx: number, output: any): UTxO {
 }
 
 export { HydraHandler, lucidUtxoToHydraUtxo };
+

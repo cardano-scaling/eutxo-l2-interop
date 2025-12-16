@@ -31,3 +31,4 @@ export function loadUserPublicKey(name: UserName): CML.PublicKey {
   const vkBytes = Buffer.from(vk.cborHex, 'hex')
   return CML.PublicKey.from_bytes(vkBytes.subarray(2))
 }
+

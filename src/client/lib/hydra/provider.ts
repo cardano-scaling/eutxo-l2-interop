@@ -63,10 +63,8 @@ class HydraProvider implements Provider {
   }
 
   async getUtxosWithUnit(addressOrCredential: Address | Credential, unit: Unit): Promise<UTxO[]> {
-    const result: UTxO[] = [];
     const utxos = await this.getUtxos(addressOrCredential);
-    utxos.filter((utxo) => utxo.assets[unit] > 0n);
-    return result;
+    return utxos.filter((utxo) => utxo.assets[unit] > 0n);
   }
 
   async getUtxoByUnit(unit: Unit): Promise<UTxO> {
@@ -123,3 +121,4 @@ class HydraProvider implements Provider {
 }
 
 export { HydraProvider };
+

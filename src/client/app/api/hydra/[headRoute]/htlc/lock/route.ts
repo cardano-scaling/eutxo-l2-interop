@@ -1,26 +1,15 @@
+// Import slot config FIRST to ensure it's set before any other imports
+import '@/lib/slot-config'
+
 import { NextRequest, NextResponse } from 'next/server'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { HydraHandler } from '@/lib/hydra/handler'
 import { HydraProvider } from '@/lib/hydra/provider'
 import { Lucid, Assets, Data, credentialToAddress, SpendingValidator, validatorToAddress } from '@lucid-evolution/lucid'
-import { SLOT_CONFIG_NETWORK } from '@lucid-evolution/plutus'
 import { hydraHeads } from '@/lib/config'
 import { getScriptInfo, assetsToDataPairs, bech32ToDataAddress, getNetworkFromLucid } from '@/lib/hydra-utils'
 import { HtlcDatum, HtlcDatumT, HtlcOutputT, VestingDatum, VestingDatumT } from '@/lib/types'
 import { loadUserPrivateKey, loadUserPublicKey } from '@/lib/user-credentials'
 import { getUser, UserName } from '@/lib/users'
-
-// Setup slot config for Custom network
-// In Next.js API routes, process.cwd() is the client directory (src/client)
-// Go up one level to src/, then into infra/
-const startupTime = readFileSync(join(process.cwd(), '../infra/startup_time.txt'), 'utf8')
-const startupTimeMs = parseInt(startupTime)
-SLOT_CONFIG_NETWORK['Custom'] = {
-  zeroTime: startupTimeMs,
-  zeroSlot: 0,
-  slotLength: 1000,
-}
 
 /**
  * POST /api/hydra/[headRoute]/htlc/lock
@@ -45,12 +34,27 @@ export async function POST(
     // Parse request body
     const body = await request.json()
     
-    const { senderName, recipientName, amountAda, htlcHash, timeoutMinutes } = body
+    const { senderName, recipientName, amountAda, htlcHash, timeoutMinutes, desiredOutput: desiredOutputConfig } = body
 
     // Validate input
     if (!senderName || !recipientName || !amountAda || !htlcHash || !timeoutMinutes) {
       return NextResponse.json(
         { error: 'Missing required fields: senderName, recipientName, amountAda, htlcHash, timeoutMinutes' },
+        { status: 400 }
+      )
+    }
+
+    // Validate desiredOutput
+    if (!desiredOutputConfig || !desiredOutputConfig.type || !desiredOutputConfig.receiver) {
+      return NextResponse.json(
+        { error: 'Missing required fields: desiredOutput.type, desiredOutput.receiver' },
+        { status: 400 }
+      )
+    }
+    
+    if (desiredOutputConfig.type === 'vesting' && !desiredOutputConfig.datumTimeoutMinutes) {
+      return NextResponse.json(
+        { error: 'Missing required field: desiredOutput.datumTimeoutMinutes (required for vesting type)' },
         { status: 400 }
       )
     }
@@ -73,16 +77,9 @@ export async function POST(
       )
     }
 
-    // Get sender's node URL (determined by head)
-    const headNumber = hydraHeads.findIndex((h) => h.headId === headConfig.headId) + 1
-    const senderNodeUrl = getUser(sender).nodeUrl
-    // For ida, node URL depends on head number
-    const actualSenderNodeUrl = sender === 'ida' 
-      ? (headNumber === 1 ? 'http://127.0.0.1:4003' : 'http://127.0.0.1:4004')
-      : senderNodeUrl
-
-    // Connect to Hydra node
-    const handler = new HydraHandler(actualSenderNodeUrl)
+    // Connect to the head's Hydra node (not the sender's node)
+    // All users connect to the same head node when operating on that head
+    const handler = new HydraHandler(headConfig.httpUrl)
     const provider = new HydraProvider(handler)
     const lucid = await Lucid(provider, 'Custom')
     const network = getNetworkFromLucid(lucid)
@@ -98,31 +95,62 @@ export async function POST(
     // Parse inputs
     const amount = BigInt(Math.floor(parseFloat(amountAda) * 1_000_000)) // Convert ADA to lovelace
     const htlcTimeout = BigInt(Date.now() + parseInt(timeoutMinutes) * 60 * 1000)
-    
-    // Vesting timeout: for now, set to HTLC timeout + 1 hour
-    // In a real scenario, this would be configured separately
-    const vestingTimeout = htlcTimeout + BigInt(60 * 60 * 1000)
 
     const payAmount: Assets = { ['lovelace']: amount }
 
-    // Build vesting datum
-    const desiredDatum: VestingDatumT = {
-      receiver: recipientVk.hash().to_hex(),
-      timeout: vestingTimeout,
+    // Validate desired output receiver
+    const desiredOutputReceiver = desiredOutputConfig.receiver as UserName
+    if (!['alice', 'bob', 'ida'].includes(desiredOutputReceiver)) {
+      return NextResponse.json(
+        { error: 'Invalid desired output receiver name' },
+        { status: 400 }
+      )
     }
 
-    // Get vesting script address
-    const [, vestingScriptHash] = getScriptInfo('vesting')
-    const vestingAddress = credentialToAddress(network, {
-      type: 'Script',
-      hash: vestingScriptHash,
-    })
+    // Build desired output based on type
+    let desiredOutputBuilt: HtlcOutputT
 
-    // Build HTLC desired output
-    const desiredOutput: HtlcOutputT = {
-      address: bech32ToDataAddress(vestingAddress),
-      value: assetsToDataPairs(payAmount),
-      datum: Data.from(Data.to<VestingDatumT>(desiredDatum, VestingDatum)),
+    if (desiredOutputConfig.type === 'user') {
+      // Send to user address directly (no datum)
+      const desiredReceiverVk = loadUserPublicKey(desiredOutputReceiver)
+      const desiredAddress = credentialToAddress(network, {
+        type: 'Key',
+        hash: desiredReceiverVk.hash().to_hex(),
+      })
+
+      desiredOutputBuilt = {
+        address: bech32ToDataAddress(desiredAddress),
+        value: assetsToDataPairs(payAmount),
+        datum: null,
+      }
+    } else if (desiredOutputConfig.type === 'vesting') {
+      // Send to vesting contract (with datum)
+      const desiredReceiverVk = loadUserPublicKey(desiredOutputReceiver)
+      const vestingTimeout = BigInt(Date.now() + parseInt(desiredOutputConfig.datumTimeoutMinutes) * 60 * 1000)
+
+      // Build vesting datum
+      const desiredDatum: VestingDatumT = {
+        receiver: desiredReceiverVk.hash().to_hex(),
+        timeout: vestingTimeout,
+      }
+
+      // Get vesting script address
+      const [, vestingScriptHash] = getScriptInfo('vesting')
+      const vestingAddress = credentialToAddress(network, {
+        type: 'Script',
+        hash: vestingScriptHash,
+      })
+
+      desiredOutputBuilt = {
+        address: bech32ToDataAddress(vestingAddress),
+        value: assetsToDataPairs(payAmount),
+        datum: Data.from(Data.to<VestingDatumT>(desiredDatum, VestingDatum)),
+      }
+    } else {
+      return NextResponse.json(
+        { error: 'Invalid desired output type' },
+        { status: 400 }
+      )
     }
 
     // Build HTLC datum
@@ -141,7 +169,7 @@ export async function POST(
       timeout: htlcTimeout,
       sender: senderVk.hash().to_hex(),
       receiver: recipientVk.hash().to_hex(),
-      desired_output: desiredOutput,
+      desired_output: desiredOutputBuilt,
     }
 
     let datum
@@ -232,3 +260,4 @@ export async function POST(
     )
   }
 }
+

@@ -9,8 +9,9 @@ import HtlcUtxoItemCard, { type HtlcUtxoItem } from './htlc-utxo-item'
 interface HtlcUtxosListProps {
   utxos: HtlcUtxoItem[]
   currentUserVkeyHash?: string
-  onClaim?: (txHash: string) => void
+  onClaim?: (txHash: string, preimage?: string) => void
   onRefund?: (txHash: string) => void
+  claimingUtxoId?: string | null
 }
 
 export default function HtlcUtxosList({
@@ -18,6 +19,7 @@ export default function HtlcUtxosList({
   currentUserVkeyHash,
   onClaim,
   onRefund,
+  claimingUtxoId,
 }: HtlcUtxosListProps) {
   const [searchQuery, setSearchQuery] = useState('')
 
@@ -60,6 +62,7 @@ export default function HtlcUtxosList({
                 currentUserVkeyHash={currentUserVkeyHash}
                 onClaim={onClaim}
                 onRefund={onRefund}
+                isClaiming={claimingUtxoId === item.id}
               />
             ))
           ) : (

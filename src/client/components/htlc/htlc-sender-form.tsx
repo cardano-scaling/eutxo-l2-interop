@@ -46,6 +46,10 @@ export default function HtlcSenderForm({
     amountAda: '',
     htlcHash: '',
     timeout: '60', // in minutes
+    // Desired output configuration
+    desiredOutputType: 'vesting' as 'user' | 'vesting', // 'user' = user address, 'vesting' = vesting contract
+    desiredOutputReceiver: '', // User name for desired output (if type is user or vesting)
+    desiredOutputDatumTimeout: '120', // Vesting timeout in minutes (only if type is vesting)
   })
 
   const getClipboardContents = async () => {
@@ -110,18 +114,30 @@ export default function HtlcSenderForm({
       // Extract head route from pathname (e.g., "/head-a" -> "head-a")
       const headRoute = pathname?.replace('/', '') || 'head-a'
 
+      // Build request body
+      const requestBody: any = {
+        senderName: currentUser,
+        recipientName: form.recipientName,
+        amountAda: form.amountAda,
+        htlcHash: form.htlcHash,
+        timeoutMinutes: form.timeout,
+        desiredOutput: {
+          type: form.desiredOutputType,
+          receiver: form.desiredOutputReceiver,
+        },
+      }
+
+      // Only add datumTimeoutMinutes if type is vesting
+      if (form.desiredOutputType === 'vesting') {
+        requestBody.desiredOutput.datumTimeoutMinutes = form.desiredOutputDatumTimeout
+      }
+
       const response = await fetch(`/api/hydra/${headRoute}/htlc/lock`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          senderName: currentUser,
-          recipientName: form.recipientName,
-          amountAda: form.amountAda,
-          htlcHash: form.htlcHash,
-          timeoutMinutes: form.timeout,
-        }),
+        body: JSON.stringify(requestBody),
       })
 
       // Check if response is JSON before parsing
@@ -143,12 +159,15 @@ export default function HtlcSenderForm({
       const successMessage = `HTLC locked successfully! TX: ${data.txHash}`
       setSuccess(successMessage)
       
-      // Reset form
+      // Reset form but keep desired output defaults
       setForm({
         recipientName: '',
         amountAda: '',
         htlcHash: '',
         timeout: '60',
+        desiredOutputType: 'vesting',
+        desiredOutputReceiver: form.desiredOutputReceiver || '', // Keep current or reset
+        desiredOutputDatumTimeout: '120',
       })
 
       // Delay query invalidation to keep success message visible
@@ -274,6 +293,86 @@ export default function HtlcSenderForm({
             </div>
           </div>
 
+          {/* Desired Output Configuration */}
+          <div className="space-y-4 pt-2 border-t">
+            <Label className="text-sm font-semibold block">
+              Desired Output Configuration
+            </Label>
+            
+            <div>
+              <Label className="text-sm font-medium mb-2 block">
+                Output Type
+              </Label>
+              <Select
+                value={form.desiredOutputType}
+                onValueChange={(value: 'user' | 'vesting') =>
+                  setForm((prev) => ({ ...prev, desiredOutputType: value }))
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="user">User Address (no datum)</SelectItem>
+                  <SelectItem value="vesting">Vesting Contract (with datum)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label className="text-sm font-medium mb-2 block">
+                Output Receiver
+              </Label>
+              <Select
+                value={form.desiredOutputReceiver}
+                onValueChange={(value) =>
+                  setForm((prev) => ({ ...prev, desiredOutputReceiver: value }))
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select receiver for output" />
+                </SelectTrigger>
+                <SelectContent className="w-[var(--radix-select-trigger-width)]">
+                  <SelectGroup>
+                    <SelectLabel>Receivers</SelectLabel>
+                    {RECIPIENT_OPTIONS.map((recipient) => (
+                      <SelectItem key={recipient.name} value={recipient.name}>
+                        <span>
+                          <span className="font-medium">
+                            {recipient.name.charAt(0).toUpperCase() +
+                              recipient.name.slice(1)}
+                          </span>
+                          <span className="text-muted-foreground font-mono text-xs ml-1">
+                            - {recipient.address}
+                          </span>
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {form.desiredOutputType === 'vesting' && (
+              <div>
+                <Label className="text-sm font-medium mb-2 block">
+                  Vesting Timeout (minutes from now)
+                </Label>
+                <Input
+                  placeholder="Vesting timeout (minutes)"
+                  type="number"
+                  value={form.desiredOutputDatumTimeout}
+                  onChange={(e) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      desiredOutputDatumTimeout: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+            )}
+          </div>
+
           {error && (
             <div className="text-sm text-destructive bg-destructive/10 p-2 rounded">
               {error}
@@ -288,7 +387,13 @@ export default function HtlcSenderForm({
             className="w-full mt-auto" 
             size="lg" 
             type="submit"
-            disabled={isSubmitting || !form.recipientName || !form.amountAda || !form.htlcHash}
+            disabled={
+              isSubmitting ||
+              !form.recipientName ||
+              !form.amountAda ||
+              !form.htlcHash ||
+              !form.desiredOutputReceiver
+            }
           >
             {isSubmitting ? 'Sending...' : 'SEND'}
           </Button>

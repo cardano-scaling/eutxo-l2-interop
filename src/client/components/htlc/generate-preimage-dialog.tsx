@@ -14,6 +14,8 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Copy, RefreshCw } from 'lucide-react'
+// @ts-ignore - blake2b doesn't have types but works in browser via WASM
+import blake2b from 'blake2b'
 
 interface GeneratePreimageDialogProps {
   children: React.ReactNode
@@ -34,9 +36,14 @@ export default function GeneratePreimageDialog({
       .join('')
   }
 
-  const generateHash = (preimage: string): string => {
-    // Simple hash simulation - you'll replace this with actual blake2b
-    return preimage.slice(0, 64).padEnd(64, '0')
+  const generateHash = (preimageHex: string): string => {
+    // Convert hex string to bytes
+    const preimageBytes = Buffer.from(preimageHex, 'hex')
+    // Calculate blake2b-256 hash
+    const hash = blake2b(32)
+      .update(preimageBytes)
+      .digest('hex')
+    return hash
   }
 
   const generatePreimage = () => {

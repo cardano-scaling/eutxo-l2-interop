@@ -125,3 +125,4 @@ export function bech32ToDataAddress(addr: string): AddressT {
       : null,
   };
 }
+

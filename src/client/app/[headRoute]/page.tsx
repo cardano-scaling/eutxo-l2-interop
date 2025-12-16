@@ -1,6 +1,7 @@
 'use client'
 
-import { use } from 'react'
+import { use, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { hydraHeads } from '@/lib/config'
 import HtlcSenderForm from '@/components/htlc/htlc-sender-form'
 import HtlcUtxosList from '@/components/htlc/htlc-utxos-list'
@@ -15,8 +16,10 @@ interface PageProps {
 export default function HeadDashboardPage({ params }: PageProps) {
   const { headRoute } = use(params)
   const headConfig = hydraHeads.find((head) => head.route === headRoute)
-  const { currentUserVkHash } = useCurrentUser()
+  const { currentUserVkHash, currentUser } = useCurrentUser()
   const { data: utxos = [], isLoading, error } = useUtxos(headRoute)
+  const queryClient = useQueryClient()
+  const [claiming, setClaiming] = useState<string | null>(null)
 
   if (!headConfig) {
     return (
@@ -44,9 +47,52 @@ export default function HeadDashboardPage({ params }: PageProps) {
     )
   }
 
-  const handleClaim = (txHash: string, preimage?: string) => {
-    console.log('Claim UTXO:', txHash, preimage ? `with preimage: ${preimage}` : '(vesting, no preimage needed)')
-    // Your claim logic - preimage will be provided for HTLC, undefined for vesting
+  const handleClaim = async (utxoId: string, preimage?: string) => {
+    if (!preimage) {
+      // Vesting claim - will be implemented separately
+      console.log('Vesting claim not yet implemented:', utxoId)
+      return
+    }
+
+    setClaiming(utxoId)
+    try {
+      const response = await fetch(`/api/hydra/${headRoute}/htlc/claim`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          utxoId,
+          preimage,
+          claimerName: currentUser,
+        }),
+      })
+
+      const contentType = response.headers.get('content-type')
+      let data
+      if (contentType && contentType.includes('application/json')) {
+        data = await response.json()
+      } else {
+        const text = await response.text()
+        throw new Error(`Server error: ${text || response.statusText}`)
+      }
+
+      if (!response.ok) {
+        const errorMsg = data.error || data.details || 'Failed to claim HTLC'
+        const fullErrorMsg = data.details ? `${data.error || 'Failed to claim HTLC'}: ${data.details}` : errorMsg
+        throw new Error(fullErrorMsg)
+      }
+
+      // Refresh UTXO list after successful claim
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['utxos', headRoute] })
+      }, 2000)
+    } catch (err) {
+      console.error('Error claiming HTLC:', err)
+      alert(err instanceof Error ? err.message : 'Failed to claim HTLC')
+    } finally {
+      setClaiming(null)
+    }
   }
 
   const handleRefund = (txHash: string) => {
@@ -86,6 +132,7 @@ export default function HeadDashboardPage({ params }: PageProps) {
           currentUserVkeyHash={currentUserVkHash}
           onClaim={handleClaim}
           onRefund={handleRefund}
+          claimingUtxoId={claiming}
         />
       </div>
     </div>

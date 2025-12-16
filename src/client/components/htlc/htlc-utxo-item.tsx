@@ -23,6 +23,7 @@ interface HtlcUtxoItemProps {
   currentUserVkeyHash?: string
   onClaim?: (txHash: string, preimage?: string) => void
   onRefund?: (txHash: string) => void
+  isClaiming?: boolean
 }
 
 export default function HtlcUtxoItemCard({
@@ -30,6 +31,7 @@ export default function HtlcUtxoItemCard({
   currentUserVkeyHash,
   onClaim,
   onRefund,
+  isClaiming = false,
 }: HtlcUtxoItemProps) {
   const [currentTime, setCurrentTime] = useState(Date.now())
 
@@ -101,6 +103,7 @@ export default function HtlcUtxoItemCard({
       currentUserVkeyHash={currentUserVkeyHash}
       onClaim={onClaim}
       onRefund={onRefund}
+      isClaiming={isClaiming}
     >
       <Card
         className={`bg-muted cursor-pointer hover:shadow-md transition-shadow ${

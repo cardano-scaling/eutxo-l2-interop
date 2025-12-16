@@ -25,6 +25,7 @@ interface UtxoDialogProps {
   onClaim?: (txHash: string, preimage?: string) => void
   onRefund?: (txHash: string) => void
   children: React.ReactNode
+  isClaiming?: boolean
 }
 
 export default function UtxoDialog({
@@ -33,6 +34,7 @@ export default function UtxoDialog({
   onClaim,
   onRefund,
   children,
+  isClaiming = false,
 }: UtxoDialogProps) {
   const [open, setOpen] = useState(false)
   const [preimage, setPreimage] = useState('')
@@ -265,9 +267,9 @@ export default function UtxoDialog({
               variant="default"
               className="bg-blue-300 hover:bg-blue-400"
               onClick={handleClaim}
-              disabled={isHtlc && !preimage.trim()}
+              disabled={(isHtlc && !preimage.trim()) || isClaiming}
             >
-              Claim
+              {isClaiming ? 'Claiming...' : 'Claim'}
             </Button>
           )}
         </DialogFooter>
