@@ -48,7 +48,7 @@ const [vestingUTxO,] = vestingUTxOs.filter(async (utxo) => {;
   return receiver === receiverVk.hash().to_hex()
 });
 
-const { timeout } = Data.from<VestingDatumT>(
+const { vest_after } = Data.from<VestingDatumT>(
   vestingUTxO.datum ?? Data.void(),
   VestingDatum
 );
@@ -57,7 +57,7 @@ const { timeout } = Data.from<VestingDatumT>(
 const tx = await lucid
   .newTx()
   .collectFrom([vestingUTxO], Data.void())
-  .validFrom(Number(timeout) + 1 * 60 * 1000)
+  .validFrom(Number(vest_after) + 1 * 60 * 1000)
   .addSigner(receiverAddress)
   .attach.Script({ type: "PlutusV3", script: vestingScriptBytes })
   .complete();

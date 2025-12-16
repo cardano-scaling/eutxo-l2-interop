@@ -588,7 +588,7 @@
           "index": 0,
           "fields": [
             {
-              "title": "timeout",
+              "title": "vest_after",
               "$ref": "#/definitions/Int"
             },
             {

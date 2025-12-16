@@ -54,7 +54,7 @@ The vesting contract is a single validator with a single operation, "Claim".
 
 > - **Datum**
 >
-> - timeout: PosixTime
+> - vest_after: PosixTime
 > - receiver: ByteArray
 
 > **Value**
@@ -66,7 +66,7 @@ The vesting contract is a single validator with a single operation, "Claim".
 
 ##### Lock Funds
 
-Creates a `VestingUTxO` containing the offered tokens. The datum specifies the timeout in posix time from when the tokens become available to claim and the receiver that can claim them. This transaction has no validation, so the fields of the datum must be carefully considered. An invalid pubkeyhash or a timeout on the far future might make the UTxO unspendable.
+Creates a `VestingUTxO` containing the offered tokens. The datum specifies the "vest after" timeout in posix time from when the tokens become available to claim and the receiver that can claim them. This transaction has no validation, so the fields of the datum must be carefully considered. An invalid pubkeyhash or a timeout on the far future might make the UTxO unspendable.
 
 ![Lock funds into vesting UTxO](tx_lock_vesting.svg)
 

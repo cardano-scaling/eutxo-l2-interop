@@ -3,7 +3,7 @@ use aiken/interval.{is_entirely_after}
 use cardano/transaction.{OutputReference, Transaction}
 
 pub type VestingDatum {
-  timeout: Int,
+  vest_after: Int,
   receiver: ByteArray,
 }
 
@@ -20,7 +20,7 @@ validator vesting {
   ) {
     expect Some(datum) = datum_opt
     and {
-      is_entirely_after(tx.validity_range, datum.timeout)?,
+      is_entirely_after(tx.validity_range, datum.vest_after)?,
       signed_by(tx, datum.receiver)?,
     }
   }

@@ -39,7 +39,7 @@ const pay_amount: Assets = {['lovelace']: amount}
 
 const desired_datum: VestingDatumT = {
   receiver: receiverDetails.vk.hash().to_hex(),
-  timeout: vestingTimeout
+  vest_after: vestingTimeout
 }
 
 const [, vestingScriptHash] = getScriptInfo("vesting")
