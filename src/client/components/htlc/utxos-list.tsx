@@ -77,7 +77,7 @@ export default function UtxosList({
     <Card className="flex flex-col overflow-hidden min-w-[480px] h-full">
       <CardHeader className="p-0 flex-shrink-0">
         <CardTitle className="text-center bg-primary text-primary-foreground rounded-t-lg p-4">
-          UTXOs ({filteredUtxos.length})
+          UTxOs ({filteredUtxos.length})
         </CardTitle>
       </CardHeader>
       <CardContent className="flex-1 overflow-y-auto p-4 min-h-0">
@@ -112,6 +112,7 @@ export default function UtxosList({
                 key={item.id}
                 item={item}
                 currentUserVkeyHash={currentUserVkeyHash}
+                currentUserName={currentUserName}
                 onClaim={onClaim}
                 onRefund={onRefund}
                 isClaiming={claimingUtxoId === item.id}

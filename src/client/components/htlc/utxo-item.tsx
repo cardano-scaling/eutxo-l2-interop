@@ -31,15 +31,31 @@ export type HtlcUtxoItem = UtxoItem
 interface UtxoItemProps {
   item: UtxoItem
   currentUserVkeyHash?: string
+  currentUserName?: string
   onClaim?: (utxoId: string, preimage?: string) => Promise<void>
   onRefund?: (txHash: string) => void
   isClaiming?: boolean
   onDialogClose?: () => void
 }
 
+// User color mapping for badges and borders
+const getUserColor = (userName?: string) => {
+  switch (userName) {
+    case 'alice':
+      return { border: 'border-l-red-500', badge: 'bg-red-100 text-red-700' }
+    case 'bob':
+      return { border: 'border-l-orange-500', badge: 'bg-orange-100 text-orange-700' }
+    case 'ida':
+      return { border: 'border-l-teal-500', badge: 'bg-teal-100 text-teal-700' }
+    default:
+      return { border: 'border-l-green-500', badge: 'bg-green-100 text-green-700' }
+  }
+}
+
 export default function UtxoItemCard({
   item,
   currentUserVkeyHash,
+  currentUserName,
   onClaim,
   onRefund,
   isClaiming = false,
@@ -59,6 +75,9 @@ export default function UtxoItemCard({
   const isVesting = item.type === 'vesting'
   const isHtlc = item.type === 'htlc'
   const isUser = item.type === 'user'
+  
+  // Get user color based on the owner of the UTXO (for user UTXOs)
+  const userColor = isUser ? getUserColor(item.owner) : getUserColor()
 
   const isYourAddress = (vkeyhash: string) => {
     return currentUserVkeyHash === vkeyhash
@@ -126,7 +145,13 @@ export default function UtxoItemCard({
     >
       <Card
         className={`bg-muted cursor-pointer hover:shadow-md transition-shadow ${
-          isVesting ? 'border-l-4 border-l-purple-500' : isUser ? 'border-l-4 border-l-green-500' : ''
+          isVesting 
+            ? 'border-l-4 border-l-purple-500' 
+            : isUser 
+            ? `border-l-4 ${userColor.border}` 
+            : isHtlc 
+            ? 'border-l-4 border-l-blue-500' 
+            : ''
         }`}
       >
         <CardContent className="p-4">
@@ -147,7 +172,7 @@ export default function UtxoItemCard({
                   </span>
                 )}
                 {isUser && (
-                  <span className="text-xs px-2 py-0.5 rounded bg-green-100 text-green-700 font-medium">
+                  <span className={`text-xs px-2 py-0.5 rounded font-medium ${userColor.badge}`}>
                     User
                   </span>
                 )}
