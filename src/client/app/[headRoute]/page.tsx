@@ -19,7 +19,8 @@ export default function HeadDashboardPage({ params }: PageProps) {
   const headConfig = hydraHeads.find((head) => head.route === headRoute)
   const { currentUserVkHash, currentUser } = useCurrentUser()
   const [pauseRefetch, setPauseRefetch] = useState(false)
-  const { data: utxos = [], isLoading, error } = useUtxos(headRoute, pauseRefetch)
+  const [pauseRefetchForTx, setPauseRefetchForTx] = useState(false)
+  const { data: utxos = [], isLoading, error } = useUtxos(headRoute, pauseRefetch || pauseRefetchForTx)
   const queryClient = useQueryClient()
   const [claiming, setClaiming] = useState<string | null>(null)
   const [claimedUtxoIds, setClaimedUtxoIds] = useState<Set<string>>(new Set())
@@ -110,12 +111,14 @@ export default function HeadDashboardPage({ params }: PageProps) {
         clearTimeout(refreshTimeoutRef.current)
       }
 
-      // Delay query invalidation significantly to allow dialog to show success state
-      // The dialog will stay open showing "Success" before the UTXO disappears
-      // User has plenty of time to see the success and close the dialog manually
-      // If user closes dialog, onDialogClose will refresh immediately and cancel this timeout
+      // Invalidate queries immediately to update the list (like lock does)
+      // The dialog will stay open showing "Success" message
+      // If user closes dialog, onDialogClose will refresh again and cancel this timeout
+      queryClient.invalidateQueries({ queryKey: ['utxos', headRoute] })
+      
+      // Set timeout to clean up claimed state after dialog would have closed naturally
+      // This ensures the claimed UTXO is removed from cache if user doesn't close dialog
       refreshTimeoutRef.current = setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ['utxos', headRoute] })
         // Resume refetching after a delay
         setTimeout(() => {
           setPauseRefetch(false)
@@ -182,6 +185,8 @@ export default function HeadDashboardPage({ params }: PageProps) {
             // You'll use this when building the HTLC transaction
             console.log('Recipient selected:', recipientName, 'Address:', recipientAddress)
           }}
+          onSubmissionStart={() => setPauseRefetchForTx(true)}
+          onSubmissionEnd={() => setPauseRefetchForTx(false)}
         />
 
         {/* Right Panel - UTXOs List */}

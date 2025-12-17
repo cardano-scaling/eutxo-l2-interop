@@ -21,6 +21,8 @@ import { useQueryClient } from '@tanstack/react-query'
 
 interface HtlcSenderFormProps {
   onRecipientChange?: (recipientName: string, recipientAddress: string) => void
+  onSubmissionStart?: () => void
+  onSubmissionEnd?: () => void
 }
 
 // Get recipient options from users config
@@ -31,6 +33,8 @@ const RECIPIENT_OPTIONS = getAllUsers().map((user) => ({
 
 export default function HtlcSenderForm({
   onRecipientChange,
+  onSubmissionStart,
+  onSubmissionEnd,
 }: HtlcSenderFormProps) {
   const pathname = usePathname()
   const { currentUser } = useCurrentUser()
@@ -101,6 +105,9 @@ export default function HtlcSenderForm({
     setError(null)
     setSuccess(null)
     setIsSubmitting(true)
+    
+    // Pause UTXO list refreshing during submission
+    onSubmissionStart?.()
     
     // Clear any existing timeouts
     if (successTimeoutRef.current) {
@@ -189,17 +196,17 @@ export default function HtlcSenderForm({
         desiredOutputDatumTimeout: '120',
       })
 
-      // Delay query invalidation to keep success message visible
-      // Invalidate UTXO query after showing success message for 3 seconds
-      queryInvalidationTimeoutRef.current = setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ['utxos', headRoute] })
-      }, 3000)
+      // Resume UTXO list refreshing and invalidate to show the new HTLC
+      onSubmissionEnd?.()
+      queryClient.invalidateQueries({ queryKey: ['utxos', headRoute] })
 
       // Clear success message after 5 seconds
       successTimeoutRef.current = setTimeout(() => {
         setSuccess(null)
       }, 5000)
     } catch (err) {
+      // Resume UTXO list refreshing even on error
+      onSubmissionEnd?.()
       setError(err instanceof Error ? err.message : 'Failed to lock HTLC')
     } finally {
       setIsSubmitting(false)
