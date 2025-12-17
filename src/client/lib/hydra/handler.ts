@@ -161,7 +161,7 @@ class HydraHandler {
   /**
    * Sends a raw transaction to the Hydra node.
    * @param tx - The CBOR-encoded transaction to send.
-   * @returns  the tag "TxValid" when the transaction is valid and "SnapshotConfirmed" when the snapshot is confirmed.
+   * @returns  the tag "TxValid" when the transaction is valid, or rejects with error if invalid.
    */
   async sendTx(tx: CBORHex): Promise<string> {
     await this.ensureConnectionReady();
@@ -172,7 +172,40 @@ class HydraHandler {
         transaction: { cborHex: tx, description: '', type: 'Tx BabbageEra' },
       })
     );
-    return this.listen('TxValid');
+    
+    // Wait for either TxValid or an error tag
+    return new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        // Restore original handler if it existed
+        this.connection.onmessage = null;
+        reject(new Error('Timeout waiting for transaction response'));
+      }, 10000);
+
+      // Store original handler if it exists
+      const originalHandler = this.connection.onmessage;
+
+      this.connection.onmessage = (msg: Websocket.MessageEvent) => {
+        const data = JSON.parse(msg.data.toString());
+        const tag = data.tag;
+        
+        if (tag === 'TxValid') {
+          console.debug('Received TxValid');
+          clearTimeout(timeoutId);
+          // Restore original handler
+          this.connection.onmessage = originalHandler;
+          resolve('TxValid');
+        } else if (ERROR_TAGS.includes(tag)) {
+          console.error(`Received error tag: ${tag}`);
+          clearTimeout(timeoutId);
+          // Restore original handler
+          this.connection.onmessage = originalHandler;
+          reject(new Error(`Transaction invalid: ${tag}`));
+        } else {
+          // Ignore other messages like "Greetings", "SnapshotConfirmed", etc.
+          console.debug(`Received ${tag} while waiting for TxValid or error`);
+        }
+      };
+    });
   }
 
   /**
