@@ -23,9 +23,10 @@ interface UtxoDialogProps {
   item: UtxoItem
   currentUserVkeyHash?: string
   onClaim?: (utxoId: string, preimage?: string) => Promise<void>
-  onRefund?: (txHash: string) => void
+  onRefund?: (utxoId: string) => Promise<void>
   children: React.ReactNode
   isClaiming?: boolean
+  isRefunding?: boolean
   onClose?: () => void
 }
 
@@ -36,6 +37,7 @@ export default function UtxoDialog({
   onRefund,
   children,
   isClaiming = false,
+  isRefunding = false,
   onClose,
 }: UtxoDialogProps) {
   const [open, setOpen] = useState(false)
@@ -43,14 +45,16 @@ export default function UtxoDialog({
   const [currentTime, setCurrentTime] = useState(Date.now())
   const [claimError, setClaimError] = useState<string | null>(null)
   const [claimSuccess, setClaimSuccess] = useState(false)
+  const [refundError, setRefundError] = useState<string | null>(null)
+  const [refundSuccess, setRefundSuccess] = useState(false)
   const { data: contractAddresses } = useContractAddresses()
   const wasExplicitlyClosedRef = React.useRef(false)
 
   // Update current time every second when dialog is open
   React.useEffect(() => {
     if (!open) {
-      // If dialog was explicitly closed by user and we had a successful claim, notify parent to refresh
-      if (wasExplicitlyClosedRef.current && claimSuccess && onClose) {
+      // If dialog was explicitly closed by user and we had a successful claim/refund, notify parent to refresh
+      if (wasExplicitlyClosedRef.current && (claimSuccess || refundSuccess) && onClose) {
         onClose()
         wasExplicitlyClosedRef.current = false // Reset flag
       }
@@ -58,20 +62,22 @@ export default function UtxoDialog({
       setPreimage('')
       setClaimError(null)
       setClaimSuccess(false)
+      setRefundError(null)
+      setRefundSuccess(false)
       return
     }
     const interval = setInterval(() => {
       setCurrentTime(Date.now())
     }, 1000)
     return () => clearInterval(interval)
-  }, [open, claimSuccess, onClose])
+  }, [open, claimSuccess, refundSuccess, onClose])
 
-  // Prevent dialog from closing automatically when claim succeeds
+  // Prevent dialog from closing automatically when claim/refund succeeds
   // Only allow manual close via Close button
   const handleOpenChange = (newOpen: boolean) => {
-    // If trying to close but claim just succeeded, prevent closing
+    // If trying to close but claim/refund just succeeded, prevent closing
     // User must explicitly click the Close button
-    if (!newOpen && claimSuccess) {
+    if (!newOpen && (claimSuccess || refundSuccess)) {
       return // Don't close if success state is showing
     }
     
@@ -93,7 +99,7 @@ export default function UtxoDialog({
 
   const canBeRefunded = (timeout?: number) => {
     if (isVesting || isUser || !timeout) return false
-    return currentTime >= timeout + 1 * 60 * 1000
+    return currentTime >= timeout
   }
 
   const canBeClaimed = (timeout?: number) => {
@@ -161,9 +167,21 @@ export default function UtxoDialog({
     }
   }
 
-  const handleRefund = () => {
-    onRefund?.(item.id)
-    setOpen(false)
+  const handleRefund = async () => {
+    if (!onRefund) return
+    
+    setRefundError(null)
+    setRefundSuccess(false)
+    
+    try {
+      await onRefund(item.id)
+      // On success, show success state but keep dialog open
+      setRefundSuccess(true)
+    } catch (error) {
+      // On error, keep dialog open and show error
+      setRefundError(error instanceof Error ? error.message : 'Failed to refund')
+      setRefundSuccess(false)
+    }
   }
 
   const showClaimButton =
@@ -175,13 +193,13 @@ export default function UtxoDialog({
     <Dialog open={open} onOpenChange={handleOpenChange} modal={true}>
       <DialogTrigger asChild>{children}</DialogTrigger>
       <DialogContent className="sm:max-w-lg" onInteractOutside={(e) => {
-        // Prevent closing by clicking outside when claim succeeded
-        if (claimSuccess) {
+        // Prevent closing by clicking outside when claim/refund succeeded
+        if (claimSuccess || refundSuccess) {
           e.preventDefault()
         }
       }} onEscapeKeyDown={(e) => {
-        // Prevent closing with ESC when claim succeeded
-        if (claimSuccess) {
+        // Prevent closing with ESC when claim/refund succeeded
+        if (claimSuccess || refundSuccess) {
           e.preventDefault()
         }
       }}>
@@ -324,17 +342,27 @@ export default function UtxoDialog({
             </div>
           )}
 
-          {/* Error message */}
+          {/* Error messages */}
           {claimError && (
             <div className="text-sm text-destructive bg-destructive/10 p-2 rounded">
               {claimError}
             </div>
           )}
+          {refundError && (
+            <div className="text-sm text-destructive bg-destructive/10 p-2 rounded">
+              {refundError}
+            </div>
+          )}
           
-          {/* Success message */}
+          {/* Success messages */}
           {claimSuccess && (
             <div className="text-sm text-green-600 bg-green-50 p-2 rounded">
               Successfully claimed! Transaction submitted.
+            </div>
+          )}
+          {refundSuccess && (
+            <div className="text-sm text-green-600 bg-green-50 p-2 rounded">
+              Successfully refunded! Transaction submitted.
             </div>
           )}
         </div>
@@ -348,7 +376,7 @@ export default function UtxoDialog({
               setOpen(false)
               // Success state and onClose will be handled in the useEffect when open becomes false
             }}
-            disabled={isClaiming}
+            disabled={isClaiming || isRefunding}
           >
             Close
           </Button>
@@ -356,11 +384,11 @@ export default function UtxoDialog({
             <Button
               type="button"
               variant="default"
-              className="bg-orange-300 hover:bg-orange-400"
+              className={refundSuccess ? "bg-green-300 hover:bg-green-400" : "bg-orange-300 hover:bg-orange-400"}
               onClick={handleRefund}
-              disabled={isClaiming}
+              disabled={isRefunding || refundSuccess}
             >
-              Refund
+              {isRefunding ? 'Loading...' : refundSuccess ? 'Success' : 'Refund'}
             </Button>
           )}
           {showClaimButton && (

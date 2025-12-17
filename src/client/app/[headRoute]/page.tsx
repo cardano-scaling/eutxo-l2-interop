@@ -143,9 +143,80 @@ export default function HeadDashboardPage({ params }: PageProps) {
     }
   }
 
-  const handleRefund = (txHash: string) => {
-    console.log('Refund HTLC:', txHash)
-    // Your refund logic
+  const handleRefund = async (utxoId: string) => {
+    setClaiming(utxoId)
+    try {
+      const response = await fetch(`/api/hydra/${headRoute}/htlc/refund`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          utxoId,
+          senderName: currentUser,
+        }),
+      })
+
+      const contentType = response.headers.get('content-type')
+      let data
+      if (contentType && contentType.includes('application/json')) {
+        data = await response.json()
+      } else {
+        const text = await response.text()
+        throw new Error(`Server error: ${text || response.statusText}`)
+      }
+
+      if (!response.ok) {
+        const errorMsg = data.error || data.details || 'Failed to refund HTLC'
+        const fullErrorMsg = data.details ? `${data.error || 'Failed to refund HTLC'}: ${data.details}` : errorMsg
+        throw new Error(fullErrorMsg)
+      }
+
+      // Mark this UTXO as refunded to keep it in the list even after refresh
+      setClaimedUtxoIds((prev) => new Set(prev).add(utxoId))
+      // Cache the refunded UTXO so the dialog/component stays mounted even if it disappears from the next fetch
+      const currentItem = utxos.find((u) => u.id === utxoId)
+      if (currentItem) {
+        setClaimedUtxoCache((prev) => ({ ...prev, [utxoId]: currentItem }))
+      }
+
+      // Pause automatic refetching to prevent dialog from closing
+      setPauseRefetch(true)
+
+      // Clear any existing timeout
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current)
+      }
+
+      // Invalidate queries immediately to update the list (like lock does)
+      // The dialog will stay open showing "Success" message
+      // If user closes dialog, onDialogClose will refresh again and cancel this timeout
+      queryClient.invalidateQueries({ queryKey: ['utxos', headRoute] })
+      
+      // Set timeout to clean up refunded state after dialog would have closed naturally
+      refreshTimeoutRef.current = setTimeout(() => {
+        // Resume refetching after a delay
+        setTimeout(() => {
+          setPauseRefetch(false)
+          // Remove from claimed set after dialog would have closed naturally
+          setClaimedUtxoIds((prev) => {
+            const next = new Set(prev)
+            next.delete(utxoId)
+            return next
+          })
+          setClaimedUtxoCache((prev) => {
+            const { [utxoId]: _, ...rest } = prev
+            return rest
+          })
+        }, 5000)
+      }, 10000) // 10 seconds delay - gives user time to see success and close dialog
+    } catch (err) {
+      console.error('Error refunding HTLC:', err)
+      // Re-throw error so dialog can display it
+      throw err
+    } finally {
+      setClaiming(null)
+    }
   }
 
   const handleDialogClose = () => {
@@ -197,6 +268,7 @@ export default function HeadDashboardPage({ params }: PageProps) {
           onClaim={handleClaim}
           onRefund={handleRefund}
           claimingUtxoId={claiming}
+          refundingUtxoId={claiming}
           claimedUtxoIds={claimedUtxoIds}
           claimedUtxoCache={claimedUtxoCache}
           onDialogClose={handleDialogClose}

@@ -33,8 +33,9 @@ interface UtxoItemProps {
   currentUserVkeyHash?: string
   currentUserName?: string
   onClaim?: (utxoId: string, preimage?: string) => Promise<void>
-  onRefund?: (txHash: string) => void
+  onRefund?: (utxoId: string) => Promise<void>
   isClaiming?: boolean
+  isRefunding?: boolean
   onDialogClose?: () => void
 }
 
@@ -59,6 +60,7 @@ export default function UtxoItemCard({
   onClaim,
   onRefund,
   isClaiming = false,
+  isRefunding = false,
   onDialogClose,
 }: UtxoItemProps) {
   const [currentTime, setCurrentTime] = useState(Date.now())
@@ -141,6 +143,7 @@ export default function UtxoItemCard({
       onClaim={onClaim}
       onRefund={onRefund}
       isClaiming={isClaiming}
+      isRefunding={isRefunding}
       onClose={onDialogClose}
     >
       <Card

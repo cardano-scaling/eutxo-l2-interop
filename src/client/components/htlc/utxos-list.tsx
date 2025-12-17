@@ -17,8 +17,9 @@ interface UtxosListProps {
   currentUserVkeyHash?: string
   currentUserName?: string
   onClaim?: (utxoId: string, preimage?: string) => Promise<void>
-  onRefund?: (txHash: string) => void
+  onRefund?: (utxoId: string) => Promise<void>
   claimingUtxoId?: string | null
+  refundingUtxoId?: string | null
   claimedUtxoIds?: Set<string>
   claimedUtxoCache?: Record<string, UtxoItem>
   onDialogClose?: () => void
@@ -31,6 +32,7 @@ export default function UtxosList({
   onClaim,
   onRefund,
   claimingUtxoId,
+  refundingUtxoId,
   claimedUtxoIds = new Set(),
   claimedUtxoCache = {},
   onDialogClose,
@@ -116,6 +118,7 @@ export default function UtxosList({
                 onClaim={onClaim}
                 onRefund={onRefund}
                 isClaiming={claimingUtxoId === item.id}
+                isRefunding={refundingUtxoId === item.id}
                 onDialogClose={onDialogClose}
               />
             ))
