@@ -130,11 +130,11 @@ The state UTxO used to store the reserved wrapped UTxOs. Its NFT will be minted 
 
 The `verify` operation will mark some specific UTxOs as **reserved** for a `perform` transaction, while disallowing the usage for other `verify` operations. The marked UTxOs list will be stored in the datum of a unique "state UTxO" for the ad-hoc ledger. By off-chain mechanisms, the UTxOs will be tagged with the `perform` transaction hash, and a set of privileged participants will cosign the transaction as a way to guarantee some level of security.
 
-![Verify](tx_verify.svg)
+![Verify](tx_verify_v1.svg)
 
 The `perform` operation will consume their reserved wrapped UTxOs, and validate its hash against the tag of those UTxOs.
 
-![Perform](tx_perform.svg)
+![Perform](tx_perform_v1.svg)
 
 As stated in the `verify-perform` mechanism description for ms1 deliverable, each L2s replica of the ad-hoc ledger must be semantically equivallent i.e. same UTxO set except their addresses, for ensuring no liquidity traps. This consistency, along with the correct ordering of the operations for atomicity, is ensured by the intermediaries cosigning the `verify` and `perform` transactions in each L2 replica.
 
