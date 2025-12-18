@@ -8,13 +8,13 @@ Consists of two parts:
 
 For this second milestone, we extended the HTLC contract implemented in MS1. By adding output validation, we allow the HTLC to enforce the creation of smart contract UTxOs during the claim operation. We also implemented a very simple vesting contact to use as an example of inter-head smart contract interaction.
 
-The canonical use case for HTLCs, explained in MS1, require two parties interested in executing a transaction (Alice and Bob in our case). This way, the party that will receive the funds is in charge of generating the preimage and sharing the hash, the other party creates the HTLC. This dinamic is important, if there's only a single party interested in making the transaction, the flow breaks, so, in order to maintain it, the example we choose is a vesting contract, where Alice is sending funds to Bob, but they will be unlocked at a future time. Bob can share the preimage once the funds are guaranteed by the HTLC 2.0 contract to be sent to the vesting address with the appropiate timeout.
+The canonical use case for HTLCs, explained in MS1, require two parties interested in executing a transaction (Alice and Bob in our case). This way, the party that will receive the funds is in charge of generating the preimage and sharing the hash, the other party creates the HTLC. This dynamic is important, if there's only a single party interested in making the transaction, the flow breaks, so, in order to maintain it, the example we choose is a vesting contract, where Alice is sending funds to Bob, but they will be unlocked at a future time. Bob can share the preimage once the funds are guaranteed by the HTLC 2.0 contract to be sent to the vesting address with the appropiate timeout.
 
 ### HTLC 2.0 Improvements
 
-We'll list the changes made from the HTLC desing in MS1, anything not mentioned in this document is the same as the previous version, which you can read more here (TODO: Add link)
+We'll list the changes made from the HTLC desing in MS1, anything not mentioned in this document is the same as the previous version, which you can read more in the [corresponding section of the ms1 document](../ms1/index.html#htlc-design).
 
-The first change was to add a new data type called `HTLCOutput`, this type represents everything we want to specify as the desired output when claiming the HTLC, including a non-opaque representation of a Value and an optional datum (if a datum is included, we force it to be Inline).
+The first change was to add a new data type called `DesiredOutput`, this type represents everything we want to specify as the desired output when claiming the HTLC, including a non-opaque representation of a Value and an optional datum (if a datum is included, we force it to be Inline).
 
 #### UTxO Specification
 
@@ -24,9 +24,9 @@ The first change was to add a new data type called `HTLCOutput`, this type repre
 > - timeout: PosixTime
 > - sender: VerificationKeyHash
 > - receiver: VerificationKeyHash
-> - desired_output: HtlcOutput
+> - desired_output: DesiredOutput
 >
-> **HTLCOutput**
+> **DesiredOutput**
 >
 > - address: Address
 > - value: Pairs<PolicyId, Pairs<AssetName, Int>>
@@ -54,7 +54,7 @@ The vesting contract is a single validator with a single operation, "Claim".
 
 > - **Datum**
 >
-> - timeout: PosixTime
+> - vest_after: PosixTime
 > - receiver: ByteArray
 
 > **Value**
@@ -66,11 +66,11 @@ The vesting contract is a single validator with a single operation, "Claim".
 
 ##### Lock Funds
 
-Creates a `VestingUTxO` containing the offered tokens. The datum specifies the timeout in posix time from when the tokens become available to claim and the receiver that can claim them. This transaction has no validation, so the fields of the datum must be carefully considered. An invalid pubkeyhash or a timeout on the far future might make the UTxO unspendable.
+Creates a `VestingUTxO` containing the offered tokens. The datum specifies the "vest after" timeout in posix time from when the tokens become available to claim and the receiver that can claim them. This transaction has no validation, so the fields of the datum must be carefully considered. An invalid pubkeyhash or a timeout on the far future might make the UTxO unspendable.
 
 ![Lock funds into vesting UTxO](tx_lock_vesting.svg)
 
-##### Claim Funds
+##### Claim Vesting
 
 Consumes a `VestingUTxO`. This transaction should be submitted after the deadline and signed by the receiver.
 
@@ -130,11 +130,11 @@ The state UTxO used to store the reserved wrapped UTxOs. Its NFT will be minted 
 
 The `verify` operation will mark some specific UTxOs as **reserved** for a `perform` transaction, while disallowing the usage for other `verify` operations. The marked UTxOs list will be stored in the datum of a unique "state UTxO" for the ad-hoc ledger. By off-chain mechanisms, the UTxOs will be tagged with the `perform` transaction hash, and a set of privileged participants will cosign the transaction as a way to guarantee some level of security.
 
-![Verify](tx_verify.svg)
+![Verify](tx_verify_v1.svg)
 
 The `perform` operation will consume their reserved wrapped UTxOs, and validate its hash against the tag of those UTxOs.
 
-![Perform](tx_perform.svg)
+![Perform](tx_perform_v1.svg)
 
 As stated in the `verify-perform` mechanism description for ms1 deliverable, each L2s replica of the ad-hoc ledger must be semantically equivallent i.e. same UTxO set except their addresses, for ensuring no liquidity traps. This consistency, along with the correct ordering of the operations for atomicity, is ensured by the intermediaries cosigning the `verify` and `perform` transactions in each L2 replica.
 

@@ -33,20 +33,20 @@ type MapAssetsT = Data.Static<typeof MapAssetsSchema>;
  * HTLC Types
  */
 
-const HtlcOutputSchema = Data.Object({
+const DesiredOutputSchema = Data.Object({
   address: AddressSchema,
   value: MapAssetsSchema,
   datum: Data.Nullable(Data.Any())
 });
-type HtlcOutputT = Data.Static<typeof HtlcOutputSchema>
-const HtlcOutput = HtlcOutputSchema as unknown as HtlcOutputT
+type DesiredOutputT = Data.Static<typeof DesiredOutputSchema>
+const DesiredOutput = DesiredOutputSchema as unknown as DesiredOutputT
 
 const HtlcDatumSchema = Data.Object({
     hash: Data.Bytes(),
     timeout: Data.Integer(),
     sender: Data.Bytes(),
     receiver: Data.Bytes(),
-    desired_output: HtlcOutputSchema,
+    desired_output: DesiredOutputSchema,
 })
 type HtlcDatumT = Data.Static<typeof HtlcDatumSchema>
 const HtlcDatum = HtlcDatumSchema as unknown as HtlcDatumT
@@ -73,7 +73,7 @@ namespace Spend {
 */
 
 const VestingDatumSchema = Data.Object({
-  timeout: Data.Integer(),
+  vest_after: Data.Integer(),
   receiver: Data.Bytes()
 })
 type VestingDatumT = Data.Static<typeof VestingDatumSchema>
@@ -88,9 +88,9 @@ export {
   Address,
   MapAssetsSchema,
   MapAssetsT,
-  HtlcOutputSchema,
-  HtlcOutputT,
-  HtlcOutput,
+  DesiredOutputSchema,
+  DesiredOutputT,
+  DesiredOutput,
   HtlcDatumSchema,
   HtlcDatumT,
   HtlcDatum,

@@ -7,7 +7,7 @@ use cardano/transaction.{
   InlineDatum, NoDatum, Output, OutputReference, Transaction,
 }
 
-pub type HtlcOutput {
+pub type DesiredOutput {
   address: Address,
   value: Pairs<PolicyId, Pairs<AssetName, Int>>,
   datum: Option<Data>,
@@ -18,7 +18,7 @@ pub type HtlcDatum {
   timeout: Int,
   sender: ByteArray,
   receiver: ByteArray,
-  desired_output: HtlcOutput,
+  desired_output: DesiredOutput,
 }
 
 pub type Redeemer {
@@ -27,7 +27,7 @@ pub type Redeemer {
 }
 
 pub fn check_desired_output(
-  desired_htlc_output: HtlcOutput,
+  desired_htlc_output: DesiredOutput,
   outputs: List<Output>,
 ) {
   list.any(

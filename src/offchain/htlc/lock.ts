@@ -7,7 +7,7 @@ import { HydraProvider } from "../lib/hydra/provider";
 import { Assets, credentialToAddress, Data, Lucid, SpendingValidator, validatorToAddress } from "@lucid-evolution/lucid";
 import { logger } from "../lib/logger";
 import { assetsToDataPairs, bech32ToDataAddress, getNetworkFromLucid, getScriptInfo, getUserDetails } from "../lib/utils"
-import { HtlcDatum, HtlcDatumT, HtlcOutputT, VestingDatum, VestingDatumT } from "../lib/types";
+import { HtlcDatum, HtlcDatumT, DesiredOutputT, VestingDatum, VestingDatumT } from "../lib/types";
 import { createInterface} from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 
@@ -39,7 +39,7 @@ const pay_amount: Assets = {['lovelace']: amount}
 
 const desired_datum: VestingDatumT = {
   receiver: receiverDetails.vk.hash().to_hex(),
-  timeout: vestingTimeout
+  vest_after: vestingTimeout
 }
 
 const [, vestingScriptHash] = getScriptInfo("vesting")
@@ -48,7 +48,7 @@ const vestingAddress = credentialToAddress(network, {
   hash: vestingScriptHash
 })
 
-const desired_output: HtlcOutputT = {
+const desired_output: DesiredOutputT = {
   address: bech32ToDataAddress(vestingAddress),
   value: assetsToDataPairs(pay_amount),
   datum: Data.from(Data.to<VestingDatumT>(desired_datum, VestingDatum))
