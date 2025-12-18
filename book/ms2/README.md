@@ -86,15 +86,20 @@ This design constraints will be discussed in more detail once we start to compar
 
 ## Ah-hoc ledger `verify-perform` mechanism PoC
 
-The main challenge is to assess the feasibility of the mechanism by implementing a first version.
+The main goal is to atomically execute a transaction `original_transaction` across two ledgers `L₀` and `L₁`, resulting in spending UTxOs in `L₀` and producing outputs in `L₁` as if they were in the same logical ledger `Lₚ`, the ad-hoc ledger.
 
-We'll implement the mechanism as part of a script that UTxOs from the involved L2s will interact with. The script will be used to `verify` and `perform` the transactions across the L2s.
+The requirements for the mechanism are:
+- intermediaries need to verify that `original_transaction` can be executed, before the actual effects are performed on both ledgers
+- intermediaries shall be able to check wheter `original_transaction` could be applied on source ledger and target ledger (via collateralization).
+- the end result of the mechanism is either that the `original_transactions` is fully applied on both ledgers, or in none of them.
 
-The mechanism is comprised of the following operations:
-- `verify`: verify a future `perform` transaction in this ledger, using wrapped UTxOs.
-- `perform`: perform the already-verified transaction.
+We'll start with implementation ideas, with explanation of their respective limitations, challenges and future improvements.
 
 ### Contract Design - Version 1
+
+The mechanism is comprised of the following operations:
+- `verify`: verify a future `perform` transaction in this ledger.
+- `perform`: perform the already-verified transaction.
 
 #### Wrapped UTxOs
 
@@ -207,13 +212,13 @@ Then, `perform` consumes the User Wrapped UTxO and burns the validity token, mea
 A middle-ground between Version 1 and Version 2.
 
 For solving the problem posed by Version 1 of circularity happening by relating a verify-perform pair with the `perform` transaction hash, we must break it. This can be achieved by
-  - labeling the reserved inputs with a token, as in Version 2. This avoids `verify` double-spending as well.
-  - create a spec for the expected `perform` transaction outputs.
+  - labeling the reserved inputs with a token, or with some other mechanism as in Version 2. This avoids `verify` double-spending as well. Another option is to trust the intermediaries on not verifying more transactions than the ones they're cappable of performing with the available inputs.
+  - create a spec for the expected `perform` transaction outputs: spec for the original transaction outputs.
 
 The outputs spec definition and usage is challenging, but we can think of using the transaction redeemers to pass that information.
 
 - pass by redeemer the expected `perform` outputs spec to `verify`. `verify` collects inputs, validates that is possible to produce the `perform` outputs from them, and reserves those inputs by attaching a token (as in Version 2).
-- `perform` just collects those reserved inputs, burn their marker tokens and produces the outputs.
+- `perform` just collects those reserved inputs, burn their marker tokens (in case of using tokens) and produces the outputs.
 
 Then, there's still an issue to resolve: how do we ensure that perform actually consumes the `verify`-marked inputs and produces the expected outputs?
 
