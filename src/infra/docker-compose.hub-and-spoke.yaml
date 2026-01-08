@@ -1,0 +1,360 @@
+# Hub-and-spoke topology
+
+# Hub
+# # Head D: ida-4, dave-4
+# Spokes
+# # Head A: alice, ida-1, dave-1
+# # Head B: bob, ida-2, dave-2
+# # Head C: charlie, ida-3, dave-3
+
+x-hydra-node-base: &hydra-node-base
+  image: ghcr.io/cardano-scaling/hydra-node:1.0.0
+  networks:
+    hydra_net:
+  restart: always
+
+services:
+  # Head A: alice, ida-1, dave-1
+  hydra-node-alice:
+    <<: *hydra-node-base
+    volumes:
+      - .:/devnet
+      - ./persistence/alice-hs:/devnet/persistence/alice-hs
+    ports:
+      - "4021:4021"
+      - "5021:5021"
+    command:
+      [
+        "--node-id", "1",
+        "--api-host", "0.0.0.0",
+        "--listen", "172.16.238.10:5021",
+        "--monitoring-port", "6021",
+        "--api-port", "4021",
+        "--peer", "172.16.238.20:5022",
+        "--peer", "172.16.238.30:5023",
+        "--hydra-signing-key", "/devnet/credentials/alice/alice-hydra.sk",
+        "--hydra-verification-key", "/devnet/credentials/ida/ida-hydra.vk",
+        "--hydra-verification-key", "/devnet/credentials/dave/dave-hydra.vk",
+        "--persistence-dir", "/devnet/persistence/alice-hs",
+        "--offline-head-seed", "0000000000000000000000000000000000000000000000000000000000000001",
+        "--ledger-protocol-parameters", "/devnet/protocol-parameters.json",
+        "--initial-utxo", "/devnet/initial-utxos/hub-and-spoke/utxo-1.json"
+      ]
+    networks:
+      hydra_net:
+        ipv4_address: 172.16.238.10
+
+  hydra-node-ida-1:
+    <<: *hydra-node-base
+    volumes:
+      - .:/devnet
+      - ./persistence/ida-1-hs:/devnet/persistence/ida-1-hs
+    ports:
+      - "4022:4022"
+      - "5022:5022"
+    command:
+      [
+        "--node-id", "2",
+        "--api-host", "0.0.0.0",
+        "--listen", "172.16.238.20:5022",
+        "--monitoring-port", "6022",
+        "--api-port", "4022",
+        "--peer", "172.16.238.10:5021",
+        "--peer", "172.16.238.30:5023",
+        "--hydra-signing-key", "/devnet/credentials/ida/ida-hydra.sk",
+        "--hydra-verification-key", "/devnet/credentials/alice/alice-hydra.vk",
+        "--hydra-verification-key", "/devnet/credentials/dave/dave-hydra.vk",
+        "--persistence-dir", "/devnet/persistence/ida-1-hs",
+        "--offline-head-seed", "0000000000000000000000000000000000000000000000000000000000000001",
+        "--ledger-protocol-parameters", "/devnet/protocol-parameters.json",
+        "--initial-utxo", "/devnet/initial-utxos/hub-and-spoke/utxo-1.json"
+      ]
+    networks:
+      hydra_net:
+        ipv4_address: 172.16.238.20
+
+  hydra-node-dave-1:
+    <<: *hydra-node-base
+    volumes:
+      - .:/devnet
+      - ./persistence/dave-1-hs:/devnet/persistence/dave-1-hs
+    ports:
+      - "4023:4023"
+      - "5023:5023"
+    command:
+      [
+        "--node-id", "3",
+        "--api-host", "0.0.0.0",
+        "--listen", "172.16.238.30:5023",
+        "--monitoring-port", "6023",
+        "--api-port", "4023",
+        "--peer", "172.16.238.10:5021",
+        "--peer", "172.16.238.20:5022",
+        "--hydra-signing-key", "/devnet/credentials/dave/dave-hydra.sk",
+        "--hydra-verification-key", "/devnet/credentials/alice/alice-hydra.vk",
+        "--hydra-verification-key", "/devnet/credentials/ida/ida-hydra.vk",
+        "--persistence-dir", "/devnet/persistence/dave-1-hs",
+        "--offline-head-seed", "0000000000000000000000000000000000000000000000000000000000000001",
+        "--ledger-protocol-parameters", "/devnet/protocol-parameters.json",
+        "--initial-utxo", "/devnet/initial-utxos/hub-and-spoke/utxo-1.json"
+      ]
+    networks:
+      hydra_net:
+        ipv4_address: 172.16.238.30
+
+  # Head B: bob, ida-2, dave-2
+  hydra-node-bob:
+    <<: *hydra-node-base
+    volumes:
+      - .:/devnet
+      - ./persistence/bob-hs:/devnet/persistence/bob-hs
+    ports:
+      - "4024:4024"
+      - "5024:5024"
+    command:
+      [
+        "--node-id", "4",
+        "--api-host", "0.0.0.0",
+        "--listen", "172.16.238.40:5024",
+        "--monitoring-port", "6024",
+        "--api-port", "4024",
+        "--peer", "172.16.238.50:5025",
+        "--peer", "172.16.238.60:5026",
+        "--hydra-signing-key", "/devnet/credentials/bob/bob-hydra.sk",
+        "--hydra-verification-key", "/devnet/credentials/ida/ida-hydra.vk",
+        "--hydra-verification-key", "/devnet/credentials/dave/dave-hydra.vk",
+        "--persistence-dir", "/devnet/persistence/bob-hs",
+        "--offline-head-seed", "0000000000000000000000000000000000000000000000000000000000000002",
+        "--ledger-protocol-parameters", "/devnet/protocol-parameters.json",
+        "--initial-utxo", "/devnet/initial-utxos/hub-and-spoke/utxo-2.json"
+      ]
+    networks:
+      hydra_net:
+        ipv4_address: 172.16.238.40
+
+  hydra-node-ida-2:
+    <<: *hydra-node-base
+    volumes:
+      - .:/devnet
+      - ./persistence/ida-2-hs:/devnet/persistence/ida-2-hs
+    ports:
+      - "4025:4025"
+      - "5025:5025"
+    command:
+      [
+        "--node-id", "5",
+        "--api-host", "0.0.0.0",
+        "--listen", "172.16.238.50:5025",
+        "--monitoring-port", "6025",
+        "--api-port", "4025",
+        "--peer", "172.16.238.40:5024",
+        "--peer", "172.16.238.60:5026",
+        "--hydra-signing-key", "/devnet/credentials/ida/ida-hydra.sk",
+        "--hydra-verification-key", "/devnet/credentials/bob/bob-hydra.vk",
+        "--hydra-verification-key", "/devnet/credentials/dave/dave-hydra.vk",
+        "--persistence-dir", "/devnet/persistence/ida-2-hs",
+        "--offline-head-seed", "0000000000000000000000000000000000000000000000000000000000000002",
+        "--ledger-protocol-parameters", "/devnet/protocol-parameters.json",
+        "--initial-utxo", "/devnet/initial-utxos/hub-and-spoke/utxo-2.json"
+      ]
+    networks:
+      hydra_net:
+        ipv4_address: 172.16.238.50
+
+  hydra-node-dave-2:
+    <<: *hydra-node-base
+    volumes:
+      - .:/devnet
+      - ./persistence/dave-2-hs:/devnet/persistence/dave-2-hs
+    ports:
+      - "4026:4026"
+      - "5026:5026"
+    command:
+      [
+        "--node-id", "6",
+        "--api-host", "0.0.0.0",
+        "--listen", "172.16.238.60:5026",
+        "--monitoring-port", "6026",
+        "--api-port", "4026",
+        "--peer", "172.16.238.40:5024",
+        "--peer", "172.16.238.50:5025",
+        "--hydra-signing-key", "/devnet/credentials/dave/dave-hydra.sk",
+        "--hydra-verification-key", "/devnet/credentials/bob/bob-hydra.vk",
+        "--hydra-verification-key", "/devnet/credentials/ida/ida-hydra.vk",
+        "--persistence-dir", "/devnet/persistence/dave-2-hs",
+        "--offline-head-seed", "0000000000000000000000000000000000000000000000000000000000000002",
+        "--ledger-protocol-parameters", "/devnet/protocol-parameters.json",
+        "--initial-utxo", "/devnet/initial-utxos/hub-and-spoke/utxo-2.json"
+      ]
+    networks:
+      hydra_net:
+        ipv4_address: 172.16.238.60
+
+  # Head C: charlie, ida-3, dave-3
+  hydra-node-charlie:
+    <<: *hydra-node-base
+    volumes:
+      - .:/devnet
+      - ./persistence/charlie-hs:/devnet/persistence/charlie-hs
+    ports:
+      - "4027:4027"
+      - "5027:5027"
+    command:
+      [
+        "--node-id", "7",
+        "--api-host", "0.0.0.0",
+        "--listen", "172.16.238.70:5027",
+        "--monitoring-port", "6027",
+        "--api-port", "4027",
+        "--peer", "172.16.238.80:5028",
+        "--peer", "172.16.238.90:5029",
+        "--hydra-signing-key", "/devnet/credentials/charlie/charlie-hydra.sk",
+        "--hydra-verification-key", "/devnet/credentials/ida/ida-hydra.vk",
+        "--hydra-verification-key", "/devnet/credentials/dave/dave-hydra.vk",
+        "--persistence-dir", "/devnet/persistence/charlie-hs",
+        "--offline-head-seed", "0000000000000000000000000000000000000000000000000000000000000003",
+        "--ledger-protocol-parameters", "/devnet/protocol-parameters.json",
+        "--initial-utxo", "/devnet/initial-utxos/hub-and-spoke/utxo-3.json"
+      ]
+    networks:
+      hydra_net:
+        ipv4_address: 172.16.238.70
+
+  hydra-node-ida-3:
+    <<: *hydra-node-base
+    volumes:
+      - .:/devnet
+      - ./persistence/ida-3-hs:/devnet/persistence/ida-3-hs
+    ports:
+      - "4028:4028"
+      - "5028:5028"
+    command:
+      [
+        "--node-id", "8",
+        "--api-host", "0.0.0.0",
+        "--listen", "172.16.238.80:5028",
+        "--monitoring-port", "6028",
+        "--api-port", "4028",
+        "--peer", "172.16.238.70:5027",
+        "--peer", "172.16.238.90:5029",
+        "--hydra-signing-key", "/devnet/credentials/ida/ida-hydra.sk",
+        "--hydra-verification-key", "/devnet/credentials/charlie/charlie-hydra.vk",
+        "--hydra-verification-key", "/devnet/credentials/dave/dave-hydra.vk",
+        "--persistence-dir", "/devnet/persistence/ida-3-hs",
+        "--offline-head-seed", "0000000000000000000000000000000000000000000000000000000000000003",
+        "--ledger-protocol-parameters", "/devnet/protocol-parameters.json",
+        "--initial-utxo", "/devnet/initial-utxos/hub-and-spoke/utxo-3.json"
+      ]
+    networks:
+      hydra_net:
+        ipv4_address: 172.16.238.80
+
+  hydra-node-dave-3:
+    <<: *hydra-node-base
+    volumes:
+      - .:/devnet
+      - ./persistence/dave-3-hs:/devnet/persistence/dave-3-hs
+    ports:
+      - "4029:4029"
+      - "5029:5029"
+    command:
+      [
+        "--node-id", "9",
+        "--api-host", "0.0.0.0",
+        "--listen", "172.16.238.90:5029",
+        "--monitoring-port", "6029",
+        "--api-port", "4029",
+        "--peer", "172.16.238.70:5027",
+        "--peer", "172.16.238.80:5028",
+        "--hydra-signing-key", "/devnet/credentials/dave/dave-hydra.sk",
+        "--hydra-verification-key", "/devnet/credentials/charlie/charlie-hydra.vk",
+        "--hydra-verification-key", "/devnet/credentials/ida/ida-hydra.vk",
+        "--persistence-dir", "/devnet/persistence/dave-3-hs",
+        "--offline-head-seed", "0000000000000000000000000000000000000000000000000000000000000003",
+        "--ledger-protocol-parameters", "/devnet/protocol-parameters.json",
+        "--initial-utxo", "/devnet/initial-utxos/hub-and-spoke/utxo-3.json"
+      ]
+    networks:
+      hydra_net:
+        ipv4_address: 172.16.238.90
+
+  # Head D (Hub): ida-4, dave-4
+  hydra-node-ida-4:
+    <<: *hydra-node-base
+    volumes:
+      - .:/devnet
+      - ./persistence/ida-4-hs:/devnet/persistence/ida-4-hs
+    ports:
+      - "4030:4030"
+      - "5030:5030"
+    command:
+      [
+        "--node-id", "10",
+        "--api-host", "0.0.0.0",
+        "--listen", "172.16.238.100:5030",
+        "--monitoring-port", "6030",
+        "--api-port", "4030",
+        "--peer", "172.16.238.110:5031",
+        "--hydra-signing-key", "/devnet/credentials/ida/ida-hydra.sk",
+        "--hydra-verification-key", "/devnet/credentials/dave/dave-hydra.vk",
+        "--persistence-dir", "/devnet/persistence/ida-4-hs",
+        "--offline-head-seed", "0000000000000000000000000000000000000000000000000000000000000004",
+        "--ledger-protocol-parameters", "/devnet/protocol-parameters.json",
+        "--initial-utxo", "/devnet/initial-utxos/hub-and-spoke/utxo-4.json"
+      ]
+    networks:
+      hydra_net:
+        ipv4_address: 172.16.238.100
+
+  hydra-node-dave-4:
+    <<: *hydra-node-base
+    volumes:
+      - .:/devnet
+      - ./persistence/dave-4-hs:/devnet/persistence/dave-4-hs
+    ports:
+      - "4031:4031"
+      - "5031:5031"
+    command:
+      [
+        "--node-id", "11",
+        "--api-host", "0.0.0.0",
+        "--listen", "172.16.238.110:5031",
+        "--monitoring-port", "6031",
+        "--api-port", "4031",
+        "--peer", "172.16.238.100:5030",
+        "--hydra-signing-key", "/devnet/credentials/dave/dave-hydra.sk",
+        "--hydra-verification-key", "/devnet/credentials/ida/ida-hydra.vk",
+        "--persistence-dir", "/devnet/persistence/dave-4-hs",
+        "--offline-head-seed", "0000000000000000000000000000000000000000000000000000000000000004",
+        "--ledger-protocol-parameters", "/devnet/protocol-parameters.json",
+        "--initial-utxo", "/devnet/initial-utxos/hub-and-spoke/utxo-4.json"
+      ]
+    networks:
+      hydra_net:
+        ipv4_address: 172.16.238.110
+
+  startup-time-logger:
+    image: alpine
+    depends_on:
+      - hydra-node-alice
+      - hydra-node-bob
+      - hydra-node-charlie
+      - hydra-node-ida-1
+      - hydra-node-ida-2
+      - hydra-node-ida-3
+      - hydra-node-ida-4
+      - hydra-node-dave-1
+      - hydra-node-dave-2
+      - hydra-node-dave-3
+      - hydra-node-dave-4
+    command: sh -c "echo $$(( $$(date +%s) * 1000 )) > /shared/startup_time.txt && echo 'Timestamp written:' $$(cat /shared/startup_time.txt)"
+    volumes:
+      - .:/shared
+
+networks:
+  hydra_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.16.238.0/24
+          gateway: 172.16.238.1
