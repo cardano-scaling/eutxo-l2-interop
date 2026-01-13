@@ -12,7 +12,7 @@ docker compose -f docker-compose.two-heads.yaml up
 
 ![Two-heads topology](./two_heads.png)
 
-To start the infrastructure with the single-path topology: 4 heads in a chain, run:
+To start the infrastructure with the single-path topology: 3 heads in a chain, run:
 
 ```bash
 docker compose -f docker-compose.single-path.yaml up
@@ -20,7 +20,7 @@ docker compose -f docker-compose.single-path.yaml up
 
 ![Single-path topology](./single_path.png)
 
-To start the infrastructure with the hub-and-spoke topology: 4 heads, with the hub (head D) conneted to the other three spokes, run:
+To start the infrastructure with the hub-and-spoke topology: 3 heads, with Ida acting as hub for the other nodes, run:
 
 ```bash
 docker compose -f docker-compose.hub-and-spoke.yaml up
@@ -38,12 +38,12 @@ The use case for this topology is HTLC-based payments between two parties from d
 
 ### Single-path topology
 
-The single-path topology is a topology where four heads are connected in a chain, two participants each.
+The single-path topology is a topology where three heads are connected in a chain, two participants each.
 
 The use case for this topology is HTLC-based payments between two parties from different heads, by potentially needing multiple hops.
 
 ### Hub-and-spoke topology
 
-The hub-and-spoke topology is a topology where the heads are connected in a hub and spoke pattern, with the hub (head D) conneted to the other three spokes (heads A, B and C).
+The hub-and-spoke topology is a topology where the heads are connected in a hub and spoke pattern, with Ida acting as hub for the other nodes.
 
-The use case for this topology is HTLC-based payments between two parties from different heads using two hops, with the hub (head D) acting as intermediary (whose participants are present in all heads).
+The use case for this topology is HTLC-based payments between two parties from different heads using two hops, with Ida acting as intermediary by being present in all heads.
