@@ -47,3 +47,59 @@ The use case for this topology is HTLC-based payments between two parties from d
 The hub-and-spoke topology is a topology where the heads are connected in a hub and spoke pattern, with Ida acting as hub for the other nodes.
 
 The use case for this topology is HTLC-based payments between two parties from different heads using two hops, with Ida acting as intermediary by being present in all heads.
+
+## Port numbering schema
+
+To maintain certain order and avoid clashes, the port number and ipv4 of each hydra node is defined as per the following schema:
+
+* api-port: `4XYZ`
+* ws-port: `5XYZ`
+* monitoring-port: `6XYZ`
+* ipv4 address: `171.16.238.XYZ` (`171.16.238.YZ` if X = 0)
+
+where
+
+```md
+X = TopologyId (zero indexed)
+Y = HeadId (A1Z26 encoded)
+Z = UserId (A1Z26 encoded)
+```
+
+---
+
+### Topology IDs
+
+| Two-heads | Single-path | Hub-and-spoke |
+|-----------|-------------|---------------|
+| 0         | 1           | 2             |
+
+---
+
+### Head IDs (A1Z26)
+
+| A | B | C |
+|---|---|---|
+| 1 | 2 | 3 |
+
+---
+
+### User IDs (A1Z26)
+
+| Alice | Bob | Charli | Ida |
+|-------|-----|--------|-----|
+| 1     | 2   | 3      | 9   |
+
+---
+
+### Example
+
+```ascii
+Two-heads topology────┐
+                      │ ┌───User Bob
+                      │ │
+                      ▼ ▼
+                     4022
+                     ▲ ▲
+                     │ │
+            API-port─┘ └───Head B
+```
