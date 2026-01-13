@@ -1,4 +1,4 @@
-# Two-heads topology
+# Two-heads topology (ID 0)
 
 # Head A: alice, ida-1
 # Head B: bob, ida-2
@@ -17,16 +17,16 @@ services:
       - .:/devnet
       - ./persistence/alice-2h:/devnet/persistence/alice-2h
     ports:
-      - "4001:4001"
-      - "5001:5001"
+      - "4011:4011"
+      - "5011:5011"
     command:
       [
         "--node-id", "1",
         "--api-host", "0.0.0.0",
-        "--listen", "172.16.238.10:5001",
-        "--monitoring-port", "6001",
-        "--api-port", "4001",
-        "--peer", "172.16.238.30:5003",
+        "--listen", "172.16.238.11:5011",
+        "--monitoring-port", "6011",
+        "--api-port", "4011",
+        "--peer", "172.16.238.19:5019",
         "--hydra-signing-key", "/devnet/credentials/alice/alice-hydra.sk",
         "--hydra-verification-key", "/devnet/credentials/ida/ida-hydra.vk",
         "--persistence-dir", "/devnet/persistence/alice-2h",
@@ -36,7 +36,7 @@ services:
       ]
     networks:
       hydra_net:
-        ipv4_address: 172.16.238.10
+        ipv4_address: 172.16.238.11
 
   hydra-node-ida-1:
     <<: *hydra-node-base
@@ -44,16 +44,16 @@ services:
       - .:/devnet
       - ./persistence/ida-1-2h:/devnet/persistence/ida-1-2h
     ports:
-      - "4003:4003"
-      - "5003:5003"
+      - "4019:4019"
+      - "5019:5019"
     command:
       [
         "--node-id", "3",
         "--api-host", "0.0.0.0",
-        "--listen", "172.16.238.30:5003",
-        "--monitoring-port", "6003",
-        "--api-port", "4003",
-        "--peer", "172.16.238.10:5001",
+        "--listen", "172.16.238.19:5019",
+        "--monitoring-port", "6019",
+        "--api-port", "4019",
+        "--peer", "172.16.238.011:5011",
         "--hydra-signing-key", "/devnet/credentials/ida/ida-hydra.sk",
         "--hydra-verification-key", "/devnet/credentials/alice/alice-hydra.vk",
         "--persistence-dir", "/devnet/persistence/ida-1-2h",
@@ -63,7 +63,7 @@ services:
       ]
     networks:
       hydra_net:
-        ipv4_address: 172.16.238.30
+        ipv4_address: 172.16.238.19
 
   # Head B: bob, ida-2
   hydra-node-bob:
@@ -72,16 +72,16 @@ services:
       - .:/devnet
       - ./persistence/bob-2h:/devnet/persistence/bob-2h
     ports:
-      - "4002:4002"
-      - "5002:5002"
+      - "4022:4022"
+      - "5022:5022"
     command:
       [
         "--node-id", "2",
         "--api-host", "0.0.0.0",
-        "--listen", "172.16.238.20:5002",
-        "--monitoring-port", "6002",
-        "--api-port", "4002",
-        "--peer", "172.16.238.40:5004",
+        "--listen", "172.16.238.22:5022",
+        "--monitoring-port", "6022",
+        "--api-port", "4022",
+        "--peer", "172.16.238.29:5029",
         "--hydra-signing-key", "/devnet/credentials/bob/bob-hydra.sk",
         "--hydra-verification-key", "/devnet/credentials/ida/ida-hydra.vk",
         "--persistence-dir", "/devnet/persistence/bob-2h",
@@ -91,7 +91,7 @@ services:
       ]
     networks:
       hydra_net:
-        ipv4_address: 172.16.238.20
+        ipv4_address: 172.16.238.22
 
   hydra-node-ida-2:
     <<: *hydra-node-base
@@ -99,16 +99,16 @@ services:
       - .:/devnet
       - ./persistence/ida-2-2h:/devnet/persistence/ida-2-2h
     ports:
-      - "4004:4004"
-      - "5004:5004"
+      - "4029:4029"
+      - "5029:5029"
     command:
       [
         "--node-id", "4",
         "--api-host", "0.0.0.0",
-        "--listen", "172.16.238.40:5004",
-        "--monitoring-port", "6004",
-        "--peer", "172.16.238.20:5002",
-        "--api-port", "4004",
+        "--listen", "172.16.238.29:5029",
+        "--monitoring-port", "6029",
+        "--peer", "172.16.238.22:5022",
+        "--api-port", "4029",
         "--hydra-signing-key", "/devnet/credentials/ida/ida-hydra.sk",
         "--hydra-verification-key", "/devnet/credentials/bob/bob-hydra.vk",
         "--persistence-dir", "/devnet/persistence/ida-2-2h",
@@ -118,7 +118,7 @@ services:
       ]
     networks:
       hydra_net:
-        ipv4_address: 172.16.238.40
+        ipv4_address: 172.16.238.29
 
   startup-time-logger:
     image: alpine

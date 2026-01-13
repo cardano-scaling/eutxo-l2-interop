@@ -1,9 +1,5 @@
-# Hub-and-spoke topology
+# Hub-and-spoke topology (ID 2)
 
-# Hub
-
-# Ida will work as "Spoke"
-#
 # # Head A: alice, ida-1
 # # Head B: bob, ida-2
 # # Head C: charlie, ida-3
@@ -22,16 +18,16 @@ services:
       - .:/devnet
       - ./persistence/alice-hs:/devnet/persistence/alice-hs
     ports:
-      - "4021:4021"
-      - "5021:5021"
+      - "4211:4211"
+      - "5211:5211"
     command:
       [
         "--node-id", "1",
         "--api-host", "0.0.0.0",
-        "--listen", "172.16.238.10:5021",
-        "--monitoring-port", "6021",
-        "--api-port", "4021",
-        "--peer", "172.16.238.20:5022",
+        "--listen", "172.16.238.211:5211",
+        "--monitoring-port", "6211",
+        "--api-port", "4211",
+        "--peer", "172.16.238.219:5219",
         "--hydra-signing-key", "/devnet/credentials/alice/alice-hydra.sk",
         "--hydra-verification-key", "/devnet/credentials/ida/ida-hydra.vk",
         "--persistence-dir", "/devnet/persistence/alice-hs",
@@ -41,7 +37,7 @@ services:
       ]
     networks:
       hydra_net:
-        ipv4_address: 172.16.238.10
+        ipv4_address: 172.16.238.211
 
   hydra-node-ida-1:
     <<: *hydra-node-base
@@ -49,16 +45,16 @@ services:
       - .:/devnet
       - ./persistence/ida-1-hs:/devnet/persistence/ida-1-hs
     ports:
-      - "4022:4022"
-      - "5022:5022"
+      - "4219:4219"
+      - "5219:5219"
     command:
       [
         "--node-id", "2",
         "--api-host", "0.0.0.0",
-        "--listen", "172.16.238.20:5022",
-        "--monitoring-port", "6022",
-        "--api-port", "4022",
-        "--peer", "172.16.238.10:5021",
+        "--listen", "172.16.238.219:5219",
+        "--monitoring-port", "6219",
+        "--api-port", "4219",
+        "--peer", "172.16.238.211:5211",
         "--hydra-signing-key", "/devnet/credentials/ida/ida-hydra.sk",
         "--hydra-verification-key", "/devnet/credentials/alice/alice-hydra.vk",
         "--persistence-dir", "/devnet/persistence/ida-1-hs",
@@ -68,7 +64,7 @@ services:
       ]
     networks:
       hydra_net:
-        ipv4_address: 172.16.238.20
+        ipv4_address: 172.16.238.219
 
   # Head B: bob, ida-2
   hydra-node-bob:
@@ -77,16 +73,16 @@ services:
       - .:/devnet
       - ./persistence/bob-hs:/devnet/persistence/bob-hs
     ports:
-      - "4024:4024"
-      - "5024:5024"
+      - "4222:4222"
+      - "5222:5222"
     command:
       [
         "--node-id", "4",
         "--api-host", "0.0.0.0",
-        "--listen", "172.16.238.40:5024",
-        "--monitoring-port", "6024",
-        "--api-port", "4024",
-        "--peer", "172.16.238.50:5025",
+        "--listen", "172.16.238.222:5222",
+        "--monitoring-port", "6222",
+        "--api-port", "4222",
+        "--peer", "172.16.238.229:5229",
         "--hydra-signing-key", "/devnet/credentials/bob/bob-hydra.sk",
         "--hydra-verification-key", "/devnet/credentials/ida/ida-hydra.vk",
         "--persistence-dir", "/devnet/persistence/bob-hs",
@@ -96,7 +92,7 @@ services:
       ]
     networks:
       hydra_net:
-        ipv4_address: 172.16.238.40
+        ipv4_address: 172.16.238.222
 
   hydra-node-ida-2:
     <<: *hydra-node-base
@@ -104,16 +100,16 @@ services:
       - .:/devnet
       - ./persistence/ida-2-hs:/devnet/persistence/ida-2-hs
     ports:
-      - "4025:4025"
-      - "5025:5025"
+      - "4229:4229"
+      - "5229:5229"
     command:
       [
         "--node-id", "5",
         "--api-host", "0.0.0.0",
-        "--listen", "172.16.238.50:5025",
-        "--monitoring-port", "6025",
-        "--api-port", "4025",
-        "--peer", "172.16.238.40:5024",
+        "--listen", "172.16.238.229:5229",
+        "--monitoring-port", "6229",
+        "--api-port", "4229",
+        "--peer", "172.16.238.222:5222",
         "--hydra-signing-key", "/devnet/credentials/ida/ida-hydra.sk",
         "--hydra-verification-key", "/devnet/credentials/bob/bob-hydra.vk",
         "--persistence-dir", "/devnet/persistence/ida-2-hs",
@@ -123,7 +119,7 @@ services:
       ]
     networks:
       hydra_net:
-        ipv4_address: 172.16.238.50
+        ipv4_address: 172.16.238.229
 
   # Head C: charlie, ida-3
   hydra-node-charlie:
@@ -132,16 +128,16 @@ services:
       - .:/devnet
       - ./persistence/charlie-hs:/devnet/persistence/charlie-hs
     ports:
-      - "4027:4027"
-      - "5027:5027"
+      - "4233:4233"
+      - "5233:5233"
     command:
       [
         "--node-id", "7",
         "--api-host", "0.0.0.0",
-        "--listen", "172.16.238.70:5027",
-        "--monitoring-port", "6027",
-        "--api-port", "4027",
-        "--peer", "172.16.238.80:5028",
+        "--listen", "172.16.238.233:5233",
+        "--monitoring-port", "6233",
+        "--api-port", "4233",
+        "--peer", "172.16.238.239:5239",
         "--hydra-signing-key", "/devnet/credentials/charlie/charlie-hydra.sk",
         "--hydra-verification-key", "/devnet/credentials/ida/ida-hydra.vk",
         "--persistence-dir", "/devnet/persistence/charlie-hs",
@@ -151,7 +147,7 @@ services:
       ]
     networks:
       hydra_net:
-        ipv4_address: 172.16.238.70
+        ipv4_address: 172.16.238.233
 
   hydra-node-ida-3:
     <<: *hydra-node-base
@@ -159,16 +155,16 @@ services:
       - .:/devnet
       - ./persistence/ida-3-hs:/devnet/persistence/ida-3-hs
     ports:
-      - "4028:4028"
-      - "5028:5028"
+      - "4239:4239"
+      - "5239:5239"
     command:
       [
         "--node-id", "8",
         "--api-host", "0.0.0.0",
-        "--listen", "172.16.238.80:5028",
-        "--monitoring-port", "6028",
-        "--api-port", "4028",
-        "--peer", "172.16.238.70:5027",
+        "--listen", "172.16.238.239:5239",
+        "--monitoring-port", "6239",
+        "--api-port", "4239",
+        "--peer", "172.16.238.233:5233",
         "--hydra-signing-key", "/devnet/credentials/ida/ida-hydra.sk",
         "--hydra-verification-key", "/devnet/credentials/charlie/charlie-hydra.vk",
         "--persistence-dir", "/devnet/persistence/ida-3-hs",
@@ -178,7 +174,7 @@ services:
       ]
     networks:
       hydra_net:
-        ipv4_address: 172.16.238.80
+        ipv4_address: 172.16.238.239
 
   startup-time-logger:
     image: alpine

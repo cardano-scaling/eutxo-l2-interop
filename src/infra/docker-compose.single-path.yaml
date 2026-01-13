@@ -1,4 +1,4 @@
-# Single-path topology
+# Single-path topology (ID 1)
 
 # Head A: alice, ida-1
 # Head B: ida-2, bob-1
@@ -18,16 +18,16 @@ services:
       - .:/devnet
       - ./persistence/alice-sp:/devnet/persistence/alice-sp
     ports:
-      - "4011:4011"
-      - "5011:5011"
+      - "4111:4111"
+      - "5111:5111"
     command:
       [
         "--node-id", "1",
         "--api-host", "0.0.0.0",
-        "--listen", "172.16.238.10:5011",
-        "--monitoring-port", "6011",
-        "--api-port", "4011",
-        "--peer", "172.16.238.20:5012",
+        "--listen", "172.16.238.111:5111",
+        "--monitoring-port", "6111",
+        "--api-port", "4111",
+        "--peer", "172.16.238.119:5119",
         "--hydra-signing-key", "/devnet/credentials/alice/alice-hydra.sk",
         "--hydra-verification-key", "/devnet/credentials/ida/ida-hydra.vk",
         "--persistence-dir", "/devnet/persistence/alice-sp",
@@ -37,7 +37,7 @@ services:
       ]
     networks:
       hydra_net:
-        ipv4_address: 172.16.238.10
+        ipv4_address: 172.16.238.111
 
   hydra-node-ida-1:
     <<: *hydra-node-base
@@ -45,16 +45,16 @@ services:
       - .:/devnet
       - ./persistence/ida-1-sp:/devnet/persistence/ida-1-sp
     ports:
-      - "4012:4012"
-      - "5012:5012"
+      - "4119:4119"
+      - "5119:5119"
     command:
       [
         "--node-id", "2",
         "--api-host", "0.0.0.0",
-        "--listen", "172.16.238.20:5012",
-        "--monitoring-port", "6012",
-        "--api-port", "4012",
-        "--peer", "172.16.238.10:5011",
+        "--listen", "172.16.238.119:5119",
+        "--monitoring-port", "6119",
+        "--api-port", "4119",
+        "--peer", "172.16.238.111:5111",
         "--hydra-signing-key", "/devnet/credentials/ida/ida-hydra.sk",
         "--hydra-verification-key", "/devnet/credentials/alice/alice-hydra.vk",
         "--persistence-dir", "/devnet/persistence/ida-1-sp",
@@ -64,7 +64,7 @@ services:
       ]
     networks:
       hydra_net:
-        ipv4_address: 172.16.238.20
+        ipv4_address: 172.16.238.119
 
   # Head B: ida-2, bob-1
   hydra-node-ida-2:
@@ -73,16 +73,16 @@ services:
       - .:/devnet
       - ./persistence/ida-2-sp:/devnet/persistence/ida-2-sp
     ports:
-      - "4013:4013"
-      - "5013:5013"
+      - "4129:4129"
+      - "5129:5129"
     command:
       [
         "--node-id", "3",
         "--api-host", "0.0.0.0",
-        "--listen", "172.16.238.30:5013",
-        "--monitoring-port", "6013",
-        "--api-port", "4013",
-        "--peer", "172.16.238.40:5014",
+        "--listen", "172.16.238.129:5129",
+        "--monitoring-port", "6129",
+        "--api-port", "4129",
+        "--peer", "172.16.238.122:5122",
         "--hydra-signing-key", "/devnet/credentials/ida/ida-hydra.sk",
         "--hydra-verification-key", "/devnet/credentials/bob/bob-hydra.vk",
         "--persistence-dir", "/devnet/persistence/ida-2-sp",
@@ -92,25 +92,24 @@ services:
       ]
     networks:
       hydra_net:
-        ipv4_address: 172.16.238.30
+        ipv4_address: 172.16.238.129
 
-  # Head C: bob-2, charlie-1
   hydra-node-bob-1:
     <<: *hydra-node-base
     volumes:
       - .:/devnet
       - ./persistence/bob-1-sp:/devnet/persistence/bob-1-sp
     ports:
-      - "4014:4014"
-      - "5014:5014"
+      - "4122:4122"
+      - "5122:5122"
     command:
       [
         "--node-id", "4",
         "--api-host", "0.0.0.0",
-        "--listen", "172.16.238.40:5014",
-        "--monitoring-port", "6014",
-        "--api-port", "4014",
-        "--peer", "172.16.238.30:5013",
+        "--listen", "172.16.238.122:5122",
+        "--monitoring-port", "6122",
+        "--api-port", "4122",
+        "--peer", "172.16.238.129:5129",
         "--hydra-signing-key", "/devnet/credentials/bob/bob-hydra.sk",
         "--hydra-verification-key", "/devnet/credentials/ida/ida-hydra.vk",
         "--persistence-dir", "/devnet/persistence/bob-1-sp",
@@ -120,25 +119,25 @@ services:
       ]
     networks:
       hydra_net:
-        ipv4_address: 172.16.238.40
+        ipv4_address: 172.16.238.122
 
-  # Head C: bob-2, charlie-1
+  # Head C: bob-2, charlie
   hydra-node-bob-2:
     <<: *hydra-node-base
     volumes:
       - .:/devnet
       - ./persistence/bob-2-sp:/devnet/persistence/bob-2-sp
     ports:
-      - "4015:4015"
-      - "5015:5015"
+      - "4132:4132"
+      - "5132:5132"
     command:
       [
         "--node-id", "5",
         "--api-host", "0.0.0.0",
-        "--listen", "172.16.238.50:5015",
-        "--monitoring-port", "6015",
-        "--api-port", "4015",
-        "--peer", "172.16.238.60:5016",
+        "--listen", "172.16.238.132:5132",
+        "--monitoring-port", "6132",
+        "--api-port", "4132",
+        "--peer", "172.16.238.133:5133",
         "--hydra-signing-key", "/devnet/credentials/bob/bob-hydra.sk",
         "--hydra-verification-key", "/devnet/credentials/charlie/charlie-hydra.vk",
         "--persistence-dir", "/devnet/persistence/bob-2-sp",
@@ -148,34 +147,34 @@ services:
       ]
     networks:
       hydra_net:
-        ipv4_address: 172.16.238.50
+        ipv4_address: 172.16.238.132
 
-  hydra-node-charlie-1:
+  hydra-node-charlie:
     <<: *hydra-node-base
     volumes:
       - .:/devnet
-      - ./persistence/charlie-1-sp:/devnet/persistence/charlie-1-sp
+      - ./persistence/charlie-sp:/devnet/persistence/charlie-sp
     ports:
-      - "4016:4016"
-      - "5016:5016"
+      - "4133:4133"
+      - "5133:5133"
     command:
       [
         "--node-id", "6",
         "--api-host", "0.0.0.0",
-        "--listen", "172.16.238.60:5016",
-        "--monitoring-port", "6016",
-        "--api-port", "4016",
-        "--peer", "172.16.238.50:5015",
+        "--listen", "172.16.238.133:5133",
+        "--monitoring-port", "6133",
+        "--api-port", "4133",
+        "--peer", "172.16.238.132:5132",
         "--hydra-signing-key", "/devnet/credentials/charlie/charlie-hydra.sk",
         "--hydra-verification-key", "/devnet/credentials/bob/bob-hydra.vk",
-        "--persistence-dir", "/devnet/persistence/charlie-1-sp",
+        "--persistence-dir", "/devnet/persistence/charlie-sp",
         "--offline-head-seed", "0000000000000000000000000000000000000000000000000000000000000003",
         "--ledger-protocol-parameters", "/devnet/protocol-parameters.json",
         "--initial-utxo", "/devnet/initial-utxos/single-path/utxo-3.json"
       ]
     networks:
       hydra_net:
-        ipv4_address: 172.16.238.60
+        ipv4_address: 172.16.238.133
 
 
   startup-time-logger:
@@ -186,7 +185,7 @@ services:
       - hydra-node-ida-2
       - hydra-node-bob-1
       - hydra-node-bob-2
-      - hydra-node-charlie-1
+      - hydra-node-charlie
     command: sh -c "echo $$(( $$(date +%s) * 1000 )) > /shared/startup_time.txt && echo 'Timestamp written:' $$(cat /shared/startup_time.txt)"
     volumes:
       - .:/shared
