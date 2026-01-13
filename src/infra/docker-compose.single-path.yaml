@@ -2,8 +2,7 @@
 
 # Head A: alice, ida-1
 # Head B: ida-2, bob-1
-# Head C: bob-2, charlie-1
-# Head D: charlie-2, dave
+# Head C: bob-2, charlie
 
 x-hydra-node-base: &hydra-node-base
   image: ghcr.io/cardano-scaling/hydra-node:1.0.0
@@ -178,60 +177,6 @@ services:
       hydra_net:
         ipv4_address: 172.16.238.60
 
-  # Head D: charlie-2, dave
-  hydra-node-charlie-2:
-    <<: *hydra-node-base
-    volumes:
-      - .:/devnet
-      - ./persistence/charlie-2-sp:/devnet/persistence/charlie-2-sp
-    ports:
-      - "4017:4017"
-      - "5017:5017"
-    command:
-      [
-        "--node-id", "7",
-        "--api-host", "0.0.0.0",
-        "--listen", "172.16.238.70:5017",
-        "--monitoring-port", "6017",
-        "--api-port", "4017",
-        "--peer", "172.16.238.80:5018",
-        "--hydra-signing-key", "/devnet/credentials/charlie/charlie-hydra.sk",
-        "--hydra-verification-key", "/devnet/credentials/dave/dave-hydra.vk",
-        "--persistence-dir", "/devnet/persistence/charlie-2-sp",
-        "--offline-head-seed", "0000000000000000000000000000000000000000000000000000000000000004",
-        "--ledger-protocol-parameters", "/devnet/protocol-parameters.json",
-        "--initial-utxo", "/devnet/initial-utxos/single-path/utxo-4.json"
-      ]
-    networks:
-      hydra_net:
-        ipv4_address: 172.16.238.70
-
-  hydra-node-dave:
-    <<: *hydra-node-base
-    volumes:
-      - .:/devnet
-      - ./persistence/dave-sp:/devnet/persistence/dave-sp
-    ports:
-      - "4018:4018"
-      - "5018:5018"
-    command:
-      [
-        "--node-id", "8",
-        "--api-host", "0.0.0.0",
-        "--listen", "172.16.238.80:5018",
-        "--monitoring-port", "6018",
-        "--api-port", "4018",
-        "--peer", "172.16.238.70:5017",
-        "--hydra-signing-key", "/devnet/credentials/dave/dave-hydra.sk",
-        "--hydra-verification-key", "/devnet/credentials/charlie/charlie-hydra.vk",
-        "--persistence-dir", "/devnet/persistence/dave-sp",
-        "--offline-head-seed", "0000000000000000000000000000000000000000000000000000000000000004",
-        "--ledger-protocol-parameters", "/devnet/protocol-parameters.json",
-        "--initial-utxo", "/devnet/initial-utxos/single-path/utxo-4.json"
-      ]
-    networks:
-      hydra_net:
-        ipv4_address: 172.16.238.80
 
   startup-time-logger:
     image: alpine
@@ -242,8 +187,6 @@ services:
       - hydra-node-bob-1
       - hydra-node-bob-2
       - hydra-node-charlie-1
-      - hydra-node-charlie-2
-      - hydra-node-dave
     command: sh -c "echo $$(( $$(date +%s) * 1000 )) > /shared/startup_time.txt && echo 'Timestamp written:' $$(cat /shared/startup_time.txt)"
     volumes:
       - .:/shared
