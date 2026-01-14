@@ -10,6 +10,7 @@ type UtxosResponse = {
 /**
  * Fetch UTXOs from Hydra head API
  * API route handles all parsing and conversion server-side
+ * Topology is read from cookie, no need to pass it
  */
 async function fetchUtxos(headRoute: string): Promise<UtxosResponse> {
   const res = await fetch(`/api/hydra/${headRoute}/utxos`, { cache: 'no-store' })
@@ -23,6 +24,7 @@ async function fetchUtxos(headRoute: string): Promise<UtxosResponse> {
 /**
  * Hook to fetch and manage UTXOs for a Hydra head
  * Follows staffing-marketplace pattern: simple fetch + React Query
+ * Topology is read from cookie on server, no need to pass it
  */
 export function useUtxos(headRoute: string | undefined, pauseRefetch: boolean = false) {
   return useQuery({

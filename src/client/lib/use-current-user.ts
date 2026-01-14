@@ -3,7 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { usePathname } from 'next/navigation'
 import { UserName, getUser, getUserNodeUrl, type User } from '@/lib/users'
-import { hydraHeads, type HydraHeadConfig } from '@/lib/config'
+import { getHydraHeads, type HydraHeadConfig } from '@/lib/config'
 
 const CURRENT_USER_KEY = 'currentUser'
 
@@ -47,6 +47,7 @@ export function useCurrentUser() {
   const currentUser = userQuery.data ?? 'alice'
 
   // Derive current head from route pathname
+  const hydraHeads = getHydraHeads()
   const currentHead: HydraHeadConfig | undefined = pathname
     ? hydraHeads.find((head) => pathname === `/${head.route}`)
     : undefined
