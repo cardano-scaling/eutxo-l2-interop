@@ -114,7 +114,6 @@ export default function UtxosList({
                 key={item.id}
                 item={item}
                 currentUserVkeyHash={currentUserVkeyHash}
-                currentUserName={currentUserName}
                 onClaim={onClaim}
                 onRefund={onRefund}
                 isClaiming={claimingUtxoId === item.id}

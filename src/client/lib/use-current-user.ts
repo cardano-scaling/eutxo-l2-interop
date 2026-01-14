@@ -1,9 +1,7 @@
 'use client'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { usePathname } from 'next/navigation'
-import { UserName, getUser, getUserNodeUrl, type User } from '@/lib/users'
-import { getHydraHeads, type HydraHeadConfig } from '@/lib/config'
+import { UserName, getUser } from '@/lib/users'
 
 const CURRENT_USER_KEY = 'currentUser'
 
@@ -13,7 +11,7 @@ const CURRENT_USER_KEY = 'currentUser'
 function getCurrentUserFromStorage(): UserName {
   if (typeof window === 'undefined') return 'alice'
   const saved = sessionStorage.getItem(CURRENT_USER_KEY) as UserName | null
-  return saved && ['alice', 'bob', 'ida'].includes(saved) ? saved : 'alice'
+  return saved && ['alice', 'bob', 'ida', 'charlie'].includes(saved) ? saved : 'alice'
 }
 
 /**
@@ -21,7 +19,6 @@ function getCurrentUserFromStorage(): UserName {
  */
 export function useCurrentUser() {
   const queryClient = useQueryClient()
-  const pathname = usePathname()
 
   // Query for current user
   const userQuery = useQuery({
@@ -45,32 +42,11 @@ export function useCurrentUser() {
   })
 
   const currentUser = userQuery.data ?? 'alice'
-
-  // Derive current head from route pathname
-  const hydraHeads = getHydraHeads()
-  const currentHead: HydraHeadConfig | undefined = pathname
-    ? hydraHeads.find((head) => pathname === `/${head.route}`)
-    : undefined
-
-  // Determine head number from current head config
-  const headNumber: 1 | 2 = currentHead
-    ? hydraHeads.findIndex((h) => h.headId === currentHead.headId) + 1
-    : 1
-
-  const currentUserNodeUrl = getUserNodeUrl(currentUser, headNumber as 1 | 2)
   const userData = getUser(currentUser)
-  const currentUserData: User = {
-    ...userData,
-    nodeUrl: currentUserNodeUrl,
-  }
 
   return {
     currentUser,
-    currentUserData,
-    currentHead,
-    currentUserVkHash: userData.vkHash,
-    currentUserSkHash: userData.skHash,
-    currentUserNodeUrl,
+    currentUserData: userData,
     setCurrentUser: (user: UserName) => setUserMutation.mutate(user),
   }
 }

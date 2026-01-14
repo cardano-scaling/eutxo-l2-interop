@@ -39,3 +39,18 @@ export async function getHeadConfigFromCookie(headRoute: string): Promise<{ topo
   
   return { topologyId, headConfig }
 }
+
+/**
+ * Get the first available node URL from a head config
+ * Since all nodes in a head share the same state, any node can be used
+ */
+export function getHeadNodeUrl(headConfig: HydraHeadConfig): string {
+  const nodeEntries = Object.entries(headConfig.nodes)
+  const firstNode = nodeEntries.find(([_, url]) => url)
+  
+  if (!firstNode || !firstNode[1]) {
+    throw new Error(`No node URL found for head ${headConfig.name}`)
+  }
+  
+  return firstNode[1]
+}

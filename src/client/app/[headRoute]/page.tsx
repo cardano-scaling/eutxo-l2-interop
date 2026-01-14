@@ -18,7 +18,7 @@ export default function HeadDashboardPage({ params }: PageProps) {
   const { headRoute } = use(params)
   const hydraHeads = getHydraHeads()
   const headConfig = hydraHeads.find((head) => head.route === headRoute)
-  const { currentUserVkHash, currentUser } = useCurrentUser()
+  const { currentUser, currentUserData } = useCurrentUser()
   const [pauseRefetch, setPauseRefetch] = useState(false)
   const [pauseRefetchForTx, setPauseRefetchForTx] = useState(false)
   const { data: utxos = [], isLoading, error } = useUtxos(headRoute, pauseRefetch || pauseRefetchForTx)
@@ -266,7 +266,7 @@ export default function HeadDashboardPage({ params }: PageProps) {
         {/* Right Panel - UTXOs List */}
         <UtxosList
           utxos={utxos}
-          currentUserVkeyHash={currentUserVkHash}
+          currentUserVkeyHash={currentUserData.vkHash}
           currentUserName={currentUser}
           onClaim={handleClaim}
           onRefund={handleRefund}

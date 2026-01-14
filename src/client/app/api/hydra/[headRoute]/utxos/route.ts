@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { HydraHandler } from '@/lib/hydra/handler'
 import { HydraProvider } from '@/lib/hydra/provider'
 import { Lucid, Data, validatorToAddress } from '@lucid-evolution/lucid'
-import { getHeadConfigFromCookie } from '@/lib/api-topology'
+import { getHeadConfigFromCookie, getHeadNodeUrl } from '@/lib/api-topology'
 import { getScriptInfo } from '@/lib/hydra-utils'
 import { HtlcDatum, HtlcDatumT, VestingDatum, VestingDatumT } from '@/lib/types'
 import { getAllUsers } from '@/lib/users'
@@ -104,8 +104,9 @@ export async function GET(
 
     const { headConfig } = result
 
-    // Connect to Hydra node using hardcoded httpUrl from config
-    const handler = new HydraHandler(headConfig.httpUrl)
+    // Connect to Hydra node using first available node URL from config
+    const nodeUrl = getHeadNodeUrl(headConfig)
+    const handler = new HydraHandler(nodeUrl)
     const provider = new HydraProvider(handler)
     const lucid = await Lucid(provider, 'Custom')
 

@@ -48,15 +48,16 @@ const getUserColor = (userName?: string) => {
       return { border: 'border-l-orange-500', badge: 'bg-orange-100 text-orange-700' }
     case 'ida':
       return { border: 'border-l-teal-500', badge: 'bg-teal-100 text-teal-700' }
-    default:
+    case 'charlie':
       return { border: 'border-l-green-500', badge: 'bg-green-100 text-green-700' }
+    default:
+      return { border: 'border-l-gray-500', badge: 'bg-gray-100 text-gray-700' }
   }
 }
 
 export default function UtxoItemCard({
   item,
   currentUserVkeyHash,
-  currentUserName,
   onClaim,
   onRefund,
   isClaiming = false,
@@ -64,7 +65,6 @@ export default function UtxoItemCard({
   onDialogClose,
 }: UtxoItemProps) {
   const [currentTime, setCurrentTime] = useState(Date.now())
-  const { data: contractAddresses } = useContractAddresses()
 
   useEffect(() => {
     const interval = setInterval(() => {
