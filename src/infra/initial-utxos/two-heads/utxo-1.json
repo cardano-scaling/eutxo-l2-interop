@@ -1,0 +1,14 @@
+{
+  "0000000000000000000000000000000000000000000000000000000000000001#0": {
+    "address": "addr_test1vzqdn97wxxuem2ukec6fswslmknuj2zlcwhuz2wfqvkdcgq9235ym",
+    "value": {
+      "lovelace": 100000000000000
+    }
+  },
+  "0000000000000000000000000000000000000000000000000000000000000001#1": {
+    "address": "addr_test1vruw26lgqedpwgfh0gu2qatjr90nccd4an54ew9xgr6v90g7uyt4z",
+    "value": {
+      "lovelace": 100000000000001
+    }
+  }
+}

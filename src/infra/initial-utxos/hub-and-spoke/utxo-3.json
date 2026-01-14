@@ -1,0 +1,20 @@
+{
+  "0000000000000000000000000000000000000000000000000000000000000003#0": {
+    "address": "addr_test1vpewv3suua9003u2tav82nl2gx0atkgwdjanh2srxln4z4qahfpfm",
+    "value": {
+      "lovelace": 100000000000000
+    }
+  },
+  "0000000000000000000000000000000000000000000000000000000000000003#1": {
+    "address": "addr_test1vp9n0x2heemntaey6ycygk3wvuxtll2lqpsxc4mjxy34czqpcztw7",
+    "value": {
+      "lovelace": 100000000000001
+    }
+  },
+  "0000000000000000000000000000000000000000000000000000000000000003#2": {
+    "address": "addr_test1vruw26lgqedpwgfh0gu2qatjr90nccd4an54ew9xgr6v90g7uyt4z",
+    "value": {
+      "lovelace": 100000000000002
+    }
+  }
+}
