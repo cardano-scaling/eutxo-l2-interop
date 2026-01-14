@@ -9,7 +9,7 @@ import { getScriptInfo, dataAddressToBech32, dataPairsToAssets } from '@/lib/hyd
 import { HtlcDatum, HtlcDatumT, HtlcRedeemer, HtlcRedeemerT } from '@/lib/types'
 import { loadUserPrivateKey, loadUserPublicKey } from '@/lib/user-credentials'
 import { UserName} from '@/lib/users'
-import { getHeadConfigFromCookie } from '@/lib/api-topology'
+import { getHeadConfigFromCookie, getHeadNodeUrl } from '@/lib/api-topology'
 
 /**
  * POST /api/hydra/[headRoute]/htlc/claim
@@ -53,9 +53,10 @@ export async function POST(
       )
     }
 
-    // Connect to the head's Hydra node (not the claimer's node) using hardcoded httpUrl from config
+    // Connect to the head's Hydra node (not the claimer's node) using first available node URL from config
     // All users connect to the same head node when operating on that head
-    const handler = new HydraHandler(headConfig.httpUrl)
+    const nodeUrl = getHeadNodeUrl(headConfig)
+    const handler = new HydraHandler(nodeUrl)
     const provider = new HydraProvider(handler)
     
     const lucid = await Lucid(provider, 'Custom')

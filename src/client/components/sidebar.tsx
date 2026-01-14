@@ -27,6 +27,11 @@ const userColors: Record<UserName, { bg: string; border: string; text: string }>
     border: 'border-teal-300',
     text: 'text-teal-700',
   },
+  charlie: {
+    bg: 'bg-green-50',
+    border: 'border-green-300',
+    text: 'text-green-700',
+  },
 }
 
 export default function Sidebar() {

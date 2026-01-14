@@ -22,14 +22,20 @@ const twoHeadsConfig: TopologyConfig = {
       route: "head-a",
       headId: "0000000000000000000000000000000000000000000000000000000000000001",
       tag: "Open",
-      httpUrl: "http://localhost:4011",
+      nodes: {
+        alice: "http://localhost:4011",
+        ida: "http://localhost:4019",
+      },
     },
     {
       name: "Head B",
       route: "head-b",
       headId: "0000000000000000000000000000000000000000000000000000000000000002",
       tag: "Open",
-      httpUrl: "http://localhost:4022",
+      nodes: {
+        bob: "http://localhost:4022",
+        ida: "http://localhost:4029",
+      },
     },
   ],
 };
@@ -48,21 +54,30 @@ const singlePathConfig: TopologyConfig = {
       route: "head-a",
       headId: "0000000000000000000000000000000000000000000000000000000000000001",
       tag: "Open",
-      httpUrl: "http://localhost:4111",
+      nodes: {
+        alice: "http://localhost:4111",
+        ida: "http://localhost:4119",
+      },
     },
     {
       name: "Head B",
       route: "head-b",
       headId: "0000000000000000000000000000000000000000000000000000000000000002",
       tag: "Open",
-      httpUrl: "http://localhost:4129",
+      nodes: {
+        ida: "http://localhost:4129",
+        bob: "http://localhost:4122",
+      },
     },
     {
       name: "Head C",
       route: "head-c",
       headId: "0000000000000000000000000000000000000000000000000000000000000003",
       tag: "Open",
-      httpUrl: "http://localhost:4132",
+      nodes: {
+        bob: "http://localhost:4132",
+        charlie: "http://localhost:4133",
+      },
     },
   ],
 };
@@ -82,21 +97,30 @@ const hubAndSpokeConfig: TopologyConfig = {
       route: "head-a",
       headId: "0000000000000000000000000000000000000000000000000000000000000001",
       tag: "Open",
-      httpUrl: "http://localhost:4211",
+      nodes: {
+        alice: "http://localhost:4211",
+        ida: "http://localhost:4219",
+      },
     },
     {
       name: "Head B",
       route: "head-b",
       headId: "0000000000000000000000000000000000000000000000000000000000000002",
       tag: "Open",
-      httpUrl: "http://localhost:4222",
+      nodes: {
+        bob: "http://localhost:4222",
+        ida: "http://localhost:4229",
+      },
     },
     {
       name: "Head C",
       route: "head-c",
       headId: "0000000000000000000000000000000000000000000000000000000000000003",
       tag: "Open",
-      httpUrl: "http://localhost:4233",
+      nodes: {
+        charlie: "http://localhost:4233",
+        ida: "http://localhost:4239",
+      },
     },
   ],
 };

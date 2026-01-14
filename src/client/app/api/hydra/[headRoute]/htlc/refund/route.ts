@@ -9,7 +9,7 @@ import { getScriptInfo } from '@/lib/hydra-utils'
 import { HtlcDatum, HtlcDatumT, Spend } from '@/lib/types'
 import { loadUserPrivateKey, loadUserPublicKey } from '@/lib/user-credentials'
 import { UserName } from '@/lib/users'
-import { getHeadConfigFromCookie } from '@/lib/api-topology'
+import { getHeadConfigFromCookie, getHeadNodeUrl } from '@/lib/api-topology'
 
 /**
  * POST /api/hydra/[headRoute]/htlc/refund
@@ -53,8 +53,9 @@ export async function POST(
       )
     }
 
-    // Connect to the head's Hydra node using hardcoded httpUrl from config
-    const handler = new HydraHandler(headConfig.httpUrl)
+    // Connect to the head's Hydra node using first available node URL from config
+    const nodeUrl = getHeadNodeUrl(headConfig)
+    const handler = new HydraHandler(nodeUrl)
     const provider = new HydraProvider(handler)
     
     const lucid = await Lucid(provider, 'Custom')

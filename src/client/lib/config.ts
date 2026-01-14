@@ -1,15 +1,15 @@
 import { TopologyId, getTopologyConfig } from "./topologies";
-import { validateTopology } from "./validate-topology";
+import { UserName } from "./users";
 
 // Re-export for convenience
 export type { TopologyId } from "./topologies";
 
 export type HydraHeadConfig = {
   name: string;
-  route: string;
+  route: `head-${"a" | "b" | "c"}`;
   headId: string;
   tag: string;
-  httpUrl: string;
+  nodes: Partial<Record<UserName, string>>;
 };
 
 const STORAGE_KEY = "hydra-topology";
