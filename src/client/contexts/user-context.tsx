@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react'
 import { UserName, getUser, getUserNodeUrl, type User } from '@/lib/users'
-import { hydraHeads, type HydraHeadConfig } from '@/lib/config'
+import { getHydraHeads, type HydraHeadConfig } from '@/lib/config'
 
 type UserContextType = {
   currentUser: UserName
@@ -22,6 +22,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const [currentHead, setCurrentHeadState] = useState<HydraHeadConfig | undefined>(undefined)
 
   // Determine head number from current head config
+  const hydraHeads = getHydraHeads()
   const headNumber: 1 | 2 = currentHead
     ? hydraHeads.findIndex((h) => h.headId === currentHead.headId) + 1
     : 1
@@ -66,7 +67,8 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
       const savedHeadId = sessionStorage.getItem('currentHead')
       if (savedHeadId) {
-        const head = hydraHeads.find((h) => h.headId === savedHeadId)
+        const heads = getHydraHeads()
+        const head = heads.find((h) => h.headId === savedHeadId)
         if (head) {
           setCurrentHeadState(head)
         }

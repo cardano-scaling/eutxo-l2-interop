@@ -1,8 +1,9 @@
 'use client'
 
+import * as React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { hydraHeads } from '@/lib/config'
+import { getHydraHeads, getSelectedTopology } from '@/lib/config'
 import UserSwitcher from './user/user-switcher'
 import GeneratePreimageDialog from './htlc/generate-preimage-dialog'
 import { Button } from './ui/button'
@@ -30,6 +31,46 @@ const userColors: Record<UserName, { bg: string; border: string; text: string }>
 
 export default function Sidebar() {
   const { currentUser } = useCurrentUser()
+  const [hydraHeads, setHydraHeads] = React.useState(getHydraHeads())
+  const [topologyId, setTopologyId] = React.useState(getSelectedTopology())
+
+  // Listen for topology changes via storage events
+  React.useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'hydra-topology') {
+        const newTopologyId = getSelectedTopology()
+        setTopologyId(newTopologyId)
+        setHydraHeads(getHydraHeads())
+      }
+    }
+
+    // Listen for storage events (from other tabs/windows)
+    window.addEventListener('storage', handleStorageChange)
+
+    // Also listen for custom events (from same window)
+    const handleTopologyChange = () => {
+      const newTopologyId = getSelectedTopology()
+      setTopologyId(newTopologyId)
+      setHydraHeads(getHydraHeads())
+    }
+
+    window.addEventListener('topology-changed', handleTopologyChange)
+
+    // Poll for changes (fallback for same-origin localStorage changes)
+    const interval = setInterval(() => {
+      const currentTopologyId = getSelectedTopology()
+      if (currentTopologyId !== topologyId) {
+        setTopologyId(currentTopologyId)
+        setHydraHeads(getHydraHeads())
+      }
+    }, 500)
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange)
+      window.removeEventListener('topology-changed', handleTopologyChange)
+      clearInterval(interval)
+    }
+  }, [topologyId])
   
   // Use white/neutral colors until user is explicitly known
   // Check if user was loaded from storage (not just default)

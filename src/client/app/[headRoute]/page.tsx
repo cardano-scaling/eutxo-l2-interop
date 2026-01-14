@@ -2,7 +2,7 @@
 
 import { use, useState, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { hydraHeads } from '@/lib/config'
+import { getHydraHeads } from '@/lib/config'
 import HtlcSenderForm from '@/components/htlc/htlc-sender-form'
 import UtxosList from '@/components/htlc/utxos-list'
 import { formatId } from '@/lib/utils'
@@ -16,6 +16,7 @@ interface PageProps {
 
 export default function HeadDashboardPage({ params }: PageProps) {
   const { headRoute } = use(params)
+  const hydraHeads = getHydraHeads()
   const headConfig = hydraHeads.find((head) => head.route === headRoute)
   const { currentUserVkHash, currentUser } = useCurrentUser()
   const [pauseRefetch, setPauseRefetch] = useState(false)
@@ -58,6 +59,7 @@ export default function HeadDashboardPage({ params }: PageProps) {
     try {
       // Determine if this is a vesting or HTLC claim based on preimage
       const isVestingClaim = !preimage
+      // Topology is read from cookie on server
       const endpoint = isVestingClaim 
         ? `/api/hydra/${headRoute}/vesting/claim`
         : `/api/hydra/${headRoute}/htlc/claim`
@@ -146,6 +148,7 @@ export default function HeadDashboardPage({ params }: PageProps) {
   const handleRefund = async (utxoId: string) => {
     setClaiming(utxoId)
     try {
+      // Topology is read from cookie on server
       const response = await fetch(`/api/hydra/${headRoute}/htlc/refund`, {
         method: 'POST',
         headers: {

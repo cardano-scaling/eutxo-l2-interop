@@ -5,11 +5,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { HydraHandler } from '@/lib/hydra/handler'
 import { HydraProvider } from '@/lib/hydra/provider'
 import { Lucid, Data, credentialToAddress } from '@lucid-evolution/lucid'
-import { hydraHeads } from '@/lib/config'
 import { getScriptInfo } from '@/lib/hydra-utils'
 import { HtlcDatum, HtlcDatumT, Spend } from '@/lib/types'
 import { loadUserPrivateKey, loadUserPublicKey } from '@/lib/user-credentials'
 import { UserName } from '@/lib/users'
+import { getHeadConfigFromCookie } from '@/lib/api-topology'
 
 /**
  * POST /api/hydra/[headRoute]/htlc/refund
@@ -32,13 +32,17 @@ export async function POST(
       )
     }
 
-    const headConfig = hydraHeads.find((head) => head.route === headRoute)
-    if (!headConfig) {
+    // Get topology and head config from cookie
+    const result = await getHeadConfigFromCookie(headRoute)
+    
+    if (!result) {
       return NextResponse.json(
-        { error: 'Head not found' },
-        { status: 404 }
+        { error: 'Topology not selected or head not found' },
+        { status: 400 }
       )
     }
+
+    const { headConfig } = result
 
     // Validate user name
     const sender = senderName as UserName
@@ -49,7 +53,7 @@ export async function POST(
       )
     }
 
-    // Connect to the head's Hydra node
+    // Connect to the head's Hydra node using hardcoded httpUrl from config
     const handler = new HydraHandler(headConfig.httpUrl)
     const provider = new HydraProvider(handler)
     

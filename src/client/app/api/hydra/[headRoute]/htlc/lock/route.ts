@@ -5,11 +5,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { HydraHandler } from '@/lib/hydra/handler'
 import { HydraProvider } from '@/lib/hydra/provider'
 import { Lucid, Assets, Data, credentialToAddress, SpendingValidator, validatorToAddress } from '@lucid-evolution/lucid'
-import { hydraHeads } from '@/lib/config'
 import { getScriptInfo, assetsToDataPairs, bech32ToDataAddress, getNetworkFromLucid } from '@/lib/hydra-utils'
 import { HtlcDatum, HtlcDatumT, HtlcOutputT, VestingDatum, VestingDatumT } from '@/lib/types'
 import { loadUserPrivateKey, loadUserPublicKey } from '@/lib/user-credentials'
 import { getUser, UserName } from '@/lib/users'
+import { getHeadConfigFromCookie } from '@/lib/api-topology'
 
 /**
  * POST /api/hydra/[headRoute]/htlc/lock
@@ -59,13 +59,17 @@ export async function POST(
       )
     }
 
-    const headConfig = hydraHeads.find((head) => head.route === headRoute)
-    if (!headConfig) {
+    // Get topology and head config from cookie
+    const result = await getHeadConfigFromCookie(headRoute)
+    
+    if (!result) {
       return NextResponse.json(
-        { error: 'Head not found' },
-        { status: 404 }
+        { error: 'Topology not selected or head not found' },
+        { status: 400 }
       )
     }
+
+    const { headConfig } = result
 
     // Validate user names
     const sender = senderName as UserName
@@ -77,7 +81,7 @@ export async function POST(
       )
     }
 
-    // Connect to the head's Hydra node (not the sender's node)
+    // Connect to the head's Hydra node (not the sender's node) using hardcoded httpUrl from config
     // All users connect to the same head node when operating on that head
     const handler = new HydraHandler(headConfig.httpUrl)
     const provider = new HydraProvider(handler)
