@@ -11,7 +11,7 @@ const CURRENT_USER_KEY = 'currentUser'
 function getCurrentUserFromStorage(): UserName {
   if (typeof window === 'undefined') return 'alice'
   const saved = sessionStorage.getItem(CURRENT_USER_KEY) as UserName | null
-  return saved && ['alice', 'bob', 'ida', 'charlie'].includes(saved) ? saved : 'alice'
+  return saved && ['alice', 'bob', 'charlie'].includes(saved) ? saved : 'alice'
 }
 
 /**

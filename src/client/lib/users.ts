@@ -5,7 +5,7 @@
 
 import { getTopologyConfig, TopologyId } from "./topologies"
 
-export type UserName = 'alice' | 'bob' | 'ida' | 'charlie'
+export type UserName = 'alice' | 'bob' | 'charlie' | 'ida' | 'jon'
 
 export type User = {
   name: UserName
@@ -43,6 +43,12 @@ export const users: Record<UserName, User> = {
     address: 'addr_test1vpewv3suua9003u2tav82nl2gx0atkgwdjanh2srxln4z4qahfpfm',
     vkHash: '72e6461ce74af7c78a5f58754fea419fd5d90e6cbb3baa0337e75154',
     skHash: 'ed25519_sk19elca94kqmsusrp0063977k7yh0hkvt7t7dx5rz43suwjl44z3ws3dvqkn',
+  },
+  jon: {
+    name: 'jon',
+    address: 'addr_test1vp9n0x2heemntaey6ycygk3wvuxtll2lqpsxc4mjxy34czqpcztw7',
+    vkHash: '4b379957ce7735f724d130445a2e670cbffd5f00606c577231235c08',
+    skHash: 'ed25519_sk1y5qmgv4yc6ge2t6uc380y8774j9hqg7fd7a6hmdatngt6ydnarusg7yyr7',
   },
 }
 

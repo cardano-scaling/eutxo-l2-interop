@@ -1,12 +1,33 @@
 import { HydraHeadConfig } from "./config";
+import { UserName } from "./users";
 
 export type TopologyId = "two-heads" | "single-path" | "hub-and-spoke";
+
+// Actual users (excluding automated intermediaries ida and jon)
+export type PaymentUser = 'alice' | 'bob' | 'charlie';
+
+// Payment step in a path
+export type PaymentStep = {
+  from: {
+    name: UserName;  // Can include 'ida' in steps (as intermediary)
+    head: string;    // 'a', 'b', 'c', etc.
+  };
+  to: {
+    name: UserName;  // Can include 'ida' in steps (as intermediary)
+    head: string;
+  };
+};
+
+// PaymentPaths only has actual users as keys (not intermediaries)
+// Inner record is Partial to allow placeholders for topologies not yet configured
+export type PaymentPaths = Partial<Record<PaymentUser, Partial<Record<PaymentUser, PaymentStep[]>>>>
 
 export type TopologyConfig = {
   id: TopologyId;
   name: string;
   description: string;
   heads: HydraHeadConfig[];
+  paymentPaths: PaymentPaths;
 };
 
 // Two-heads topology
@@ -38,16 +59,30 @@ const twoHeadsConfig: TopologyConfig = {
       },
     },
   ],
+  paymentPaths: {
+    alice: {
+      bob: [
+        { from: { name: 'alice', head: 'a' }, to: { name: 'ida', head: 'a' } },
+        { from: { name: 'ida', head: 'b' }, to: { name: 'bob', head: 'b' } }
+      ],
+    },
+    bob: {
+      alice: [
+        { from: { name: 'bob', head: 'b' }, to: { name: 'ida', head: 'b' } },
+        { from: { name: 'ida', head: 'a' }, to: { name: 'alice', head: 'a' } }
+      ],
+    },
+  },
 };
 
 // Single-path topology
 // Head A: alice, ida-1 (ports 4111, 4119)
-// Head B: ida-2, bob-1 (ports 4129, 4122)
-// Head C: bob-2, charlie (ports 4132, 4133)
+// Head B: bob, ida-2, jon-1 (ports 4122, 4129, 4128)
+// Head C: charlie, jon-2 (ports 4133, 4138)
 const singlePathConfig: TopologyConfig = {
   id: "single-path",
   name: "Single Path",
-  description: "Alice/Ida ↔ Ida/Bob ↔ Bob/Charlie",
+  description: "Alice/Ida ↔ Bob/Ida/Jon ↔ Charlie/Jon",
   heads: [
     {
       name: "Head A",
@@ -65,8 +100,9 @@ const singlePathConfig: TopologyConfig = {
       headId: "0000000000000000000000000000000000000000000000000000000000000002",
       tag: "Open",
       nodes: {
-        ida: "http://localhost:4129",
         bob: "http://localhost:4122",
+        jon: "http://localhost:4128",
+        ida: "http://localhost:4129",
       },
     },
     {
@@ -75,11 +111,45 @@ const singlePathConfig: TopologyConfig = {
       headId: "0000000000000000000000000000000000000000000000000000000000000003",
       tag: "Open",
       nodes: {
-        bob: "http://localhost:4132",
         charlie: "http://localhost:4133",
+        jon: "http://localhost:4138",
       },
     },
   ],
+  paymentPaths: {
+    alice: {
+      bob: [
+        { from: { name: 'alice', head: 'a' }, to: { name: 'ida', head: 'a' } },
+        { from: { name: 'ida', head: 'b' }, to: { name: 'bob', head: 'b' } },
+      ],
+      charlie: [
+        { from: { name: 'alice', head: 'a' }, to: { name: 'ida', head: 'a' } },
+        { from: { name: 'ida', head: 'b' }, to: { name: 'jon', head: 'b' } },
+        { from: { name: 'jon', head: 'c' }, to: { name: 'charlie', head: 'c' } },
+      ],
+    },
+    bob: {
+      alice: [
+        { from: { name: 'bob', head: 'b' }, to: { name: 'ida', head: 'b' } },
+        { from: { name: 'ida', head: 'a' }, to: { name: 'alice', head: 'a' } },
+      ],
+      charlie: [
+        { from: { name: 'bob', head: 'b' }, to: { name: 'jon', head: 'b' } },
+        { from: { name: 'jon', head: 'c' }, to: { name: 'charlie', head: 'c' } },
+      ],
+    },
+    charlie: {
+      alice: [
+        { from: { name: 'charlie', head: 'c' }, to: { name: 'jon', head: 'c' } },
+        { from: { name: 'jon', head: 'b' }, to: { name: 'ida', head: 'b' } },
+        { from: { name: 'ida', head: 'a' }, to: { name: 'alice', head: 'a' } },
+      ],
+      bob: [
+        { from: { name: 'charlie', head: 'c' }, to: { name: 'jon', head: 'c' } },
+        { from: { name: 'jon', head: 'b' }, to: { name: 'bob', head: 'b' } },
+      ],
+    },
+  },
 };
 
 // Hub-and-spoke topology
@@ -123,6 +193,38 @@ const hubAndSpokeConfig: TopologyConfig = {
       },
     },
   ],
+  paymentPaths: {
+    alice: {
+      bob: [
+        { from: { name: 'alice', head: 'a' }, to: { name: 'ida', head: 'a' } },
+        { from: { name: 'ida', head: 'b' }, to: { name: 'bob', head: 'b' } },
+      ],
+      charlie: [
+        { from: { name: 'alice', head: 'a' }, to: { name: 'ida', head: 'a' } },
+        { from: { name: 'ida', head: 'c' }, to: { name: 'charlie', head: 'c' } },
+      ],
+    },
+    bob: {
+      alice: [
+        { from: { name: 'bob', head: 'b' }, to: { name: 'ida', head: 'b' } },
+        { from: { name: 'ida', head: 'a' }, to: { name: 'alice', head: 'a' } },
+      ],
+      charlie: [
+        { from: { name: 'bob', head: 'b' }, to: { name: 'ida', head: 'b' } },
+        { from: { name: 'ida', head: 'c' }, to: { name: 'charlie', head: 'c' } },
+      ],
+    },
+    charlie: {
+      alice: [
+        { from: { name: 'charlie', head: 'c' }, to: { name: 'ida', head: 'c' } },
+        { from: { name: 'ida', head: 'a' }, to: { name: 'alice', head: 'a' } },
+      ],
+      bob: [
+        { from: { name: 'charlie', head: 'c' }, to: { name: 'ida', head: 'c' } },
+        { from: { name: 'ida', head: 'b' }, to: { name: 'bob', head: 'b' } },
+      ],
+    },
+  },
 };
 
 export const TOPOLOGIES: Record<TopologyId, TopologyConfig> = {
@@ -139,3 +241,46 @@ export function getAllTopologies(): TopologyConfig[] {
   return Object.values(TOPOLOGIES);
 }
 
+/**
+ * Find payment path from one user/head to another
+ * Returns null if no path is found
+ */
+export function findPaymentPath(
+  topology: TopologyConfig,
+  fromUser: PaymentUser,
+  fromHead: `head-${"a" | "b" | "c"}`,
+  toUser: PaymentUser,
+  toHead: `head-${"a" | "b" | "c"}`
+): PaymentStep[] | null {
+  // Get the head letter (e.g., 'head-a' -> 'a')
+  const fromHeadLetter = fromHead.replace('head-', '');
+  const toHeadLetter = toHead.replace('head-', '');
+  
+  // Look up path in nested structure (only actual users as keys)
+  const userPaths = topology.paymentPaths[fromUser];
+  if (!userPaths) return null;
+  
+  const steps = userPaths[toUser];
+  if (!steps) return null;
+  
+  // Validate that the path matches the requested heads
+  // First step should start from fromHead, last step should end at toHead
+  if (steps.length === 0) return null;
+  
+  const firstStep = steps[0];
+  const lastStep = steps[steps.length - 1];
+  
+  if (firstStep.from.head !== fromHeadLetter || lastStep.to.head !== toHeadLetter) {
+    return null;
+  }
+  
+  return steps;
+}
+
+/**
+ * Check if a payment step is automated (initiated by an intermediary like ida)
+ */
+export function isAutomatedStep(step: PaymentStep): boolean {
+  const automatedIntermediaries: UserName[] = ['ida'];
+  return automatedIntermediaries.includes(step.from.name);
+}

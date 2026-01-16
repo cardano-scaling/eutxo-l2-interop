@@ -31,7 +31,7 @@ export default function UserSwitcher() {
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-64" align="start">
         {allUsers
-          .filter((u) => u.name !== currentUser)
+          .filter((u) => u.name !== currentUser && u.name !== 'jon' && u.name !== 'ida')
           .map((u) => (
             <DropdownMenuItem
               key={u.name}

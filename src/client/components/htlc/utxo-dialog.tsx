@@ -47,7 +47,6 @@ export default function UtxoDialog({
   const [claimSuccess, setClaimSuccess] = useState(false)
   const [refundError, setRefundError] = useState<string | null>(null)
   const [refundSuccess, setRefundSuccess] = useState(false)
-  const { data: contractAddresses } = useContractAddresses()
   const wasExplicitlyClosedRef = React.useRef(false)
 
   // Update current time every second when dialog is open
