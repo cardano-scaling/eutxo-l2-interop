@@ -74,7 +74,7 @@ export async function POST(
     // Validate user names
     const sender = senderName as UserName
     const recipient = recipientName as UserName
-    if (!['alice', 'bob', 'ida'].includes(sender) || !['alice', 'bob', 'ida'].includes(recipient)) {
+    if (!['alice', 'bob', 'ida', 'charlie', 'jon'].includes(sender) || !['alice', 'bob', 'ida', 'charlie', 'jon'].includes(recipient)) {
       return NextResponse.json(
         { error: 'Invalid user name' },
         { status: 400 }
@@ -105,7 +105,7 @@ export async function POST(
 
     // Validate desired output receiver
     const desiredOutputReceiver = desiredOutputConfig.receiver as UserName
-    if (!['alice', 'bob', 'ida'].includes(desiredOutputReceiver)) {
+    if (!['alice', 'bob', 'ida', 'charlie', 'jon'].includes(desiredOutputReceiver)) {
       return NextResponse.json(
         { error: 'Invalid desired output receiver name' },
         { status: 400 }

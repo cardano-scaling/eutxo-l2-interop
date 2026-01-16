@@ -32,6 +32,11 @@ const userColors: Record<UserName, { bg: string; border: string; text: string }>
     border: 'border-green-300',
     text: 'text-green-700',
   },
+  jon: {
+    bg: 'bg-blue-50',
+    border: 'border-blue-300',
+    text: 'text-blue-700',
+  },
 }
 
 export default function Sidebar() {
