@@ -172,7 +172,7 @@ services:
         "--api-port", "4133",
         "--peer", "172.16.238.138:5138",
         "--hydra-signing-key", "/devnet/credentials/charlie/charlie-hydra.sk",
-        "--hydra-verification-key", "/devnet/credentials/bob/bob-hydra.vk",
+        "--hydra-verification-key", "/devnet/credentials/jon/jon-hydra.vk",
         "--persistence-dir", "/devnet/persistence/charlie-sp",
         "--offline-head-seed", "0000000000000000000000000000000000000000000000000000000000000003",
         "--ledger-protocol-parameters", "/devnet/protocol-parameters.json",

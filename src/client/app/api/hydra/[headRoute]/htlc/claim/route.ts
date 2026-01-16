@@ -46,7 +46,7 @@ export async function POST(
 
     // Validate user name
     const claimer = claimerName as UserName
-    if (!['alice', 'bob', 'ida'].includes(claimer)) {
+    if (!['alice', 'bob', 'ida', 'jon', 'charlie'].includes(claimer)) {
       return NextResponse.json(
         { error: 'Invalid user name' },
         { status: 400 }
