@@ -246,12 +246,13 @@ export function getAllTopologies(): TopologyConfig[] {
  * Returns null if no path is found
  */
 export function findPaymentPath(
-  topology: TopologyConfig,
+  topology: TopologyConfig | null,
   fromUser: PaymentUser,
   fromHead: `head-${"a" | "b" | "c"}`,
   toUser: PaymentUser,
   toHead: `head-${"a" | "b" | "c"}`
 ): PaymentStep[] | null {
+  if (!topology) return null;
   // Get the head letter (e.g., 'head-a' -> 'a')
   const fromHeadLetter = fromHead.replace('head-', '');
   const toHeadLetter = toHead.replace('head-', '');
@@ -278,9 +279,17 @@ export function findPaymentPath(
 }
 
 /**
- * Check if a payment step is automated (initiated by an intermediary like ida)
+ * Check if a payment step is automated (initiated by an intermediary like ida or jon)
  */
 export function isAutomatedStep(step: PaymentStep): boolean {
-  const automatedIntermediaries: UserName[] = ['ida'];
+  const automatedIntermediaries: UserName[] = ['ida', 'jon'];
   return automatedIntermediaries.includes(step.from.name);
+}
+
+/**
+ * Check if a payment step receiver is an automated intermediary (ida or jon)
+ */
+export function isIntermediaryReceiver(step: PaymentStep): boolean {
+  const automatedIntermediaries: UserName[] = ['ida', 'jon'];
+  return automatedIntermediaries.includes(step.to.name);
 }

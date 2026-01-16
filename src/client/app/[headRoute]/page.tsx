@@ -3,7 +3,7 @@
 import { use, useState, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { getHydraHeads } from '@/lib/config'
-import HtlcSenderForm from '@/components/htlc/htlc-sender-form'
+import PaymentForm from '@/components/payment/payment-form'
 import UtxosList from '@/components/htlc/utxos-list'
 import { formatId } from '@/lib/utils'
 import { useCurrentUser } from '@/lib/use-current-user'
@@ -252,13 +252,8 @@ export default function HeadDashboardPage({ params }: PageProps) {
 
       {/* Content Grid */}
       <div className="flex-1 flex gap-6 p-6 overflow-hidden">
-        {/* Left Panel - HTLC Sender Form */}
-        <HtlcSenderForm
-          onRecipientChange={(recipientName, recipientAddress) => {
-            // Recipient name and address are provided
-            // You'll use this when building the HTLC transaction
-            console.log('Recipient selected:', recipientName, 'Address:', recipientAddress)
-          }}
+        {/* Left Panel - Payment Form */}
+        <PaymentForm
           onSubmissionStart={() => setPauseRefetchForTx(true)}
           onSubmissionEnd={() => setPauseRefetchForTx(false)}
         />

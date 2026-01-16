@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Copy, RefreshCw } from 'lucide-react'
+import { usePreimage } from '@/contexts/preimage-context'
 // @ts-ignore - blake2b doesn't have types but works in browser via WASM
 import blake2b from 'blake2b'
 
@@ -24,6 +25,7 @@ interface GeneratePreimageDialogProps {
 export default function GeneratePreimageDialog({
   children,
 }: GeneratePreimageDialogProps) {
+  const { addPair, pairs } = usePreimage()
   const [open, setOpen] = useState(false)
   const [preimage, setPreimage] = useState('')
   const [htlcHash, setHtlcHash] = useState('')
@@ -58,6 +60,9 @@ export default function GeneratePreimageDialog({
     const newHash = generateHash(newPreimage)
     setPreimage(newPreimage)
     setHtlcHash(newHash)
+    
+    // Store pair in context (5 minute TTL)
+    addPair(newPreimage, newHash)
     
     // Automatically copy hash to clipboard
     navigator.clipboard.writeText(newHash)
