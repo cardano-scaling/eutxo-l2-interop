@@ -1,6 +1,6 @@
 'use client'
 
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react'
 
 type PreimagePair = {
   preimage: string
@@ -18,12 +18,8 @@ type PreimageContextType = {
 
 const PreimageContext = createContext<PreimageContextType | undefined>(undefined)
 
-const TTL_MS = 5 * 60 * 1000 // 5 minutes
-const CLEANUP_INTERVAL_MS = 3 * 60 * 1000 // Cleanup every three minutes
-
 export function PreimageProvider({ children }: { children: React.ReactNode }) {
   const [pairs, setPairs] = useState<Map<string, PreimagePair>>(new Map())
-  const cleanupIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
   // Load from localStorage on mount
   useEffect(() => {
@@ -63,32 +59,7 @@ export function PreimageProvider({ children }: { children: React.ReactNode }) {
     }
   }, [pairs])
 
-  // Cleanup expired pairs (not used)
-  useEffect(() => {
-    cleanupIntervalRef.current = setInterval(() => {
-      setPairs((prev) => {
-        const now = Date.now()
-        const updated = new Map(prev)
-        let changed = false
-
-        prev.forEach((pair, hash) => {
-          // Remove if expired and not used
-          if (!pair.isUsed && now - pair.createdAt > TTL_MS) {
-            updated.delete(hash)
-            changed = true
-          }
-        })
-
-        return changed ? updated : prev
-      })
-    }, CLEANUP_INTERVAL_MS)
-
-    return () => {
-      if (cleanupIntervalRef.current) {
-        clearInterval(cleanupIntervalRef.current)
-      }
-    }
-  }, [])
+  // No cleanup interval - pairs persist for the lifetime of the app
 
   const addPair = useCallback((preimage: string, hash: string) => {
     setPairs((prev) => {
@@ -107,11 +78,7 @@ export function PreimageProvider({ children }: { children: React.ReactNode }) {
     const pair = pairs.get(hash)
     if (!pair) return null
     
-    // Check if expired (only for unused pairs)
-    if (!pair.isUsed && Date.now() - pair.createdAt > TTL_MS) {
-      return null
-    }
-    
+    // No expiration check - pairs persist for the lifetime of the app
     return pair.preimage
   }, [pairs])
 
