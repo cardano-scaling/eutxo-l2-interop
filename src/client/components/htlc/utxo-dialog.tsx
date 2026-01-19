@@ -191,17 +191,24 @@ export default function UtxoDialog({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange} modal={true}>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="sm:max-w-lg" onInteractOutside={(e) => {
-        // Prevent closing by clicking outside when claim/refund succeeded
-        if (claimSuccess || refundSuccess) {
-          e.preventDefault()
-        }
-      }} onEscapeKeyDown={(e) => {
-        // Prevent closing with ESC when claim/refund succeeded
-        if (claimSuccess || refundSuccess) {
-          e.preventDefault()
-        }
-      }}>
+      <DialogContent 
+        className="sm:max-w-lg"
+        onInteractOutside={(e) => {
+          // Prevent closing by clicking outside when claim/refund succeeded
+          if (claimSuccess || refundSuccess) {
+            e.preventDefault()
+          }
+        }}
+        onEscapeKeyDown={(e) => {
+          // Prevent closing with ESC when claim/refund succeeded
+          if (claimSuccess || refundSuccess) {
+            e.preventDefault()
+          }
+        }}
+        onPointerDownOutside={(e) => {
+          // Prevent closing
+          e.preventDefault();
+        }}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             UTXO Details

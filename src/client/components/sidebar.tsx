@@ -87,11 +87,8 @@ export default function Sidebar() {
     }
   }, [topologyId])
   
-  // Use white/neutral colors until user is explicitly known
-  // Check if user was loaded from storage (not just default)
-  const hasUserFromStorage = typeof window !== 'undefined' && sessionStorage.getItem('currentUser')
-  const colors = hasUserFromStorage && currentUser ? userColors[currentUser] : { bg: 'bg-white', border: 'border-gray-200', text: 'text-gray-700' }
 
+  const colors = userColors[currentUser]
   return (
     <aside className={cn('w-64 p-4 border-r-4 flex flex-col h-screen', colors.bg, colors.border)}>
       <nav className="space-y-2 flex-shrink-0">
