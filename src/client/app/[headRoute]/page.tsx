@@ -2,8 +2,8 @@
 
 import { use, useState, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { hydraHeads } from '@/lib/config'
-import HtlcSenderForm from '@/components/htlc/htlc-sender-form'
+import { getHydraHeads } from '@/lib/config'
+import PaymentForm from '@/components/payment/payment-form'
 import UtxosList from '@/components/htlc/utxos-list'
 import { formatId } from '@/lib/utils'
 import { useCurrentUser } from '@/lib/use-current-user'
@@ -16,8 +16,9 @@ interface PageProps {
 
 export default function HeadDashboardPage({ params }: PageProps) {
   const { headRoute } = use(params)
+  const hydraHeads = getHydraHeads()
   const headConfig = hydraHeads.find((head) => head.route === headRoute)
-  const { currentUserVkHash, currentUser } = useCurrentUser()
+  const { currentUser, currentUserData } = useCurrentUser()
   const [pauseRefetch, setPauseRefetch] = useState(false)
   const [pauseRefetchForTx, setPauseRefetchForTx] = useState(false)
   const { data: utxos = [], isLoading, error } = useUtxos(headRoute, pauseRefetch || pauseRefetchForTx)
@@ -58,6 +59,7 @@ export default function HeadDashboardPage({ params }: PageProps) {
     try {
       // Determine if this is a vesting or HTLC claim based on preimage
       const isVestingClaim = !preimage
+      // Topology is read from cookie on server
       const endpoint = isVestingClaim 
         ? `/api/hydra/${headRoute}/vesting/claim`
         : `/api/hydra/${headRoute}/htlc/claim`
@@ -146,6 +148,7 @@ export default function HeadDashboardPage({ params }: PageProps) {
   const handleRefund = async (utxoId: string) => {
     setClaiming(utxoId)
     try {
+      // Topology is read from cookie on server
       const response = await fetch(`/api/hydra/${headRoute}/htlc/refund`, {
         method: 'POST',
         headers: {
@@ -249,13 +252,8 @@ export default function HeadDashboardPage({ params }: PageProps) {
 
       {/* Content Grid */}
       <div className="flex-1 flex gap-6 p-6 overflow-hidden">
-        {/* Left Panel - HTLC Sender Form */}
-        <HtlcSenderForm
-          onRecipientChange={(recipientName, recipientAddress) => {
-            // Recipient name and address are provided
-            // You'll use this when building the HTLC transaction
-            console.log('Recipient selected:', recipientName, 'Address:', recipientAddress)
-          }}
+        {/* Left Panel - Payment Form */}
+        <PaymentForm
           onSubmissionStart={() => setPauseRefetchForTx(true)}
           onSubmissionEnd={() => setPauseRefetchForTx(false)}
         />
@@ -263,7 +261,7 @@ export default function HeadDashboardPage({ params }: PageProps) {
         {/* Right Panel - UTXOs List */}
         <UtxosList
           utxos={utxos}
-          currentUserVkeyHash={currentUserVkHash}
+          currentUserVkeyHash={currentUserData.vkHash}
           currentUserName={currentUser}
           onClaim={handleClaim}
           onRefund={handleRefund}

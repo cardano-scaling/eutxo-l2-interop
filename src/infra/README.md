@@ -38,7 +38,7 @@ The use case for this topology is HTLC-based payments between two parties from d
 
 ### Single-path topology
 
-The single-path topology is a topology where three heads are connected in a chain, two participants each.
+The single-path topology is a topology where three heads are connected in a chain, two participants each except for the middle head which has three participants.
 
 The use case for this topology is HTLC-based payments between two parties from different heads, by potentially needing multiple hops.
 
@@ -85,9 +85,9 @@ Z = UserId (A1Z26 encoded)
 
 ### User IDs (A1Z26)
 
-| Alice | Bob | Charli | Ida |
-|-------|-----|--------|-----|
-| 1     | 2   | 3      | 9   |
+| Alice | Bob | Charli | Jon | Ida |
+|-------|-----|--------|-----|-----|
+| 1     | 2   | 3      | 8   | 9   |
 
 ---
 

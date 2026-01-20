@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { HydraHandler } from '@/lib/hydra/handler'
 import { HydraProvider } from '@/lib/hydra/provider'
 import { Lucid, Data, validatorToAddress } from '@lucid-evolution/lucid'
-import { hydraHeads } from '@/lib/config'
+import { getHeadConfigFromCookie, getHeadNodeUrl } from '@/lib/api-topology'
 import { getScriptInfo } from '@/lib/hydra-utils'
 import { HtlcDatum, HtlcDatumT, VestingDatum, VestingDatumT } from '@/lib/types'
 import { getAllUsers } from '@/lib/users'
@@ -91,17 +91,22 @@ export async function GET(
 ) {
   try {
     const { headRoute } = await params
-    const headConfig = hydraHeads.find((head) => head.route === headRoute)
-
-    if (!headConfig) {
+    
+    // Get topology and head config from cookie
+    const result = await getHeadConfigFromCookie(headRoute)
+    
+    if (!result) {
       return NextResponse.json(
-        { error: 'Head not found' },
-        { status: 404 }
+        { error: 'Topology not selected or head not found' },
+        { status: 400 }
       )
     }
 
-    // Connect to Hydra node
-    const handler = new HydraHandler(headConfig.httpUrl)
+    const { headConfig } = result
+
+    // Connect to Hydra node using first available node URL from config
+    const nodeUrl = getHeadNodeUrl(headConfig)
+    const handler = new HydraHandler(nodeUrl)
     const provider = new HydraProvider(handler)
     const lucid = await Lucid(provider, 'Custom')
 

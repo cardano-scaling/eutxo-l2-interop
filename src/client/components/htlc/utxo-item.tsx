@@ -1,12 +1,10 @@
 'use client'
 
 import { Card, CardContent } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
 import { formatId } from '@/lib/utils'
 import { Copy } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import UtxoDialog from './utxo-dialog'
-import { useContractAddresses } from '@/lib/use-contract-addresses'
 
 export type UtxoItem = {
   id: string
@@ -48,15 +46,18 @@ const getUserColor = (userName?: string) => {
       return { border: 'border-l-orange-500', badge: 'bg-orange-100 text-orange-700' }
     case 'ida':
       return { border: 'border-l-teal-500', badge: 'bg-teal-100 text-teal-700' }
-    default:
+    case 'charlie':
       return { border: 'border-l-green-500', badge: 'bg-green-100 text-green-700' }
+    case 'jon':
+      return { border: 'border-l-blue-500', badge: 'bg-blue-100 text-blue-700' }
+    default:
+      return { border: 'border-l-gray-500', badge: 'bg-gray-100 text-gray-700' }
   }
 }
 
 export default function UtxoItemCard({
   item,
   currentUserVkeyHash,
-  currentUserName,
   onClaim,
   onRefund,
   isClaiming = false,
@@ -64,7 +65,6 @@ export default function UtxoItemCard({
   onDialogClose,
 }: UtxoItemProps) {
   const [currentTime, setCurrentTime] = useState(Date.now())
-  const { data: contractAddresses } = useContractAddresses()
 
   useEffect(() => {
     const interval = setInterval(() => {

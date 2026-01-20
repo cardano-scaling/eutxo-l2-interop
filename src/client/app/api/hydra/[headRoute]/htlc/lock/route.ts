@@ -5,11 +5,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { HydraHandler } from '@/lib/hydra/handler'
 import { HydraProvider } from '@/lib/hydra/provider'
 import { Lucid, Assets, Data, credentialToAddress, SpendingValidator, validatorToAddress } from '@lucid-evolution/lucid'
-import { hydraHeads } from '@/lib/config'
 import { getScriptInfo, assetsToDataPairs, bech32ToDataAddress, getNetworkFromLucid } from '@/lib/hydra-utils'
 import { HtlcDatum, HtlcDatumT, HtlcOutputT, VestingDatum, VestingDatumT } from '@/lib/types'
 import { loadUserPrivateKey, loadUserPublicKey } from '@/lib/user-credentials'
 import { getUser, UserName } from '@/lib/users'
+import { getHeadConfigFromCookie, getHeadNodeUrl } from '@/lib/api-topology'
 
 /**
  * POST /api/hydra/[headRoute]/htlc/lock
@@ -59,27 +59,32 @@ export async function POST(
       )
     }
 
-    const headConfig = hydraHeads.find((head) => head.route === headRoute)
-    if (!headConfig) {
+    // Get topology and head config from cookie
+    const result = await getHeadConfigFromCookie(headRoute)
+    
+    if (!result) {
       return NextResponse.json(
-        { error: 'Head not found' },
-        { status: 404 }
+        { error: 'Topology not selected or head not found' },
+        { status: 400 }
       )
     }
+
+    const { headConfig } = result
 
     // Validate user names
     const sender = senderName as UserName
     const recipient = recipientName as UserName
-    if (!['alice', 'bob', 'ida'].includes(sender) || !['alice', 'bob', 'ida'].includes(recipient)) {
+    if (!['alice', 'bob', 'ida', 'charlie', 'jon'].includes(sender) || !['alice', 'bob', 'ida', 'charlie', 'jon'].includes(recipient)) {
       return NextResponse.json(
         { error: 'Invalid user name' },
         { status: 400 }
       )
     }
 
-    // Connect to the head's Hydra node (not the sender's node)
+    // Connect to the head's Hydra node (not the sender's node) using first available node URL from config
     // All users connect to the same head node when operating on that head
-    const handler = new HydraHandler(headConfig.httpUrl)
+    const nodeUrl = getHeadNodeUrl(headConfig)
+    const handler = new HydraHandler(nodeUrl)
     const provider = new HydraProvider(handler)
     const lucid = await Lucid(provider, 'Custom')
     const network = getNetworkFromLucid(lucid)
@@ -100,7 +105,7 @@ export async function POST(
 
     // Validate desired output receiver
     const desiredOutputReceiver = desiredOutputConfig.receiver as UserName
-    if (!['alice', 'bob', 'ida'].includes(desiredOutputReceiver)) {
+    if (!['alice', 'bob', 'ida', 'charlie', 'jon'].includes(desiredOutputReceiver)) {
       return NextResponse.json(
         { error: 'Invalid desired output receiver name' },
         { status: 400 }

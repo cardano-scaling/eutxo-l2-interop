@@ -3,6 +3,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Sidebar from "@/components/sidebar";
 import Providers from "./providers";
+import { PaymentProvider } from "@/contexts/payment-context";
+import { PreimageProvider } from "@/contexts/preimage-context";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -15,8 +17,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "HTLC + Vesting",
-  description: "Hydra HTLC + Vesting Demo",
+  title: "HTLC Multihead Topologies Demo",
+  description: "Hydra HTLC Multihead Topologies Demo",
 };
 
 export default function RootLayout({
@@ -30,10 +32,14 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <Providers>
-          <div className="flex">
-            <Sidebar />
-            <main className="flex-1 min-h-screen">{children}</main>
-          </div>
+          <PreimageProvider>
+            <PaymentProvider>
+              <div className="flex">
+                <Sidebar />
+                <main className="flex-1 min-h-screen">{children}</main>
+              </div>
+            </PaymentProvider>
+          </PreimageProvider>
         </Providers>
       </body>
     </html>
