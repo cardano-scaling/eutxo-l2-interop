@@ -61,25 +61,27 @@ Transaction costs can be divided up into two categories:
 
 #### L1 Costs
 
-The costs in L1 are pretty much constant for all topologies and systems used. For each head we need a set of transactions, namely an `Open Head` transaction, one `Commit` transaction per participant in the head and one `CollectCom` transaction. Fees for each transaction are:
+The costs in L1 are pretty much constant for all topologies and systems used. For each head we need a set of transactions, namely an `Open Head` transaction, one `Commit` transaction per participant in the head and one `CollectCom` transaction. For closing the head, a `Close` and a `Fanout` transaction are needed. Fees for each transaction are:
 
 $$
 F_{open} = 2.11 ADAs \\
 F_{commit} = 1.92 ADAs \\
 F_{collectCom} = 2.11 ADAs \\
+F_{close} = 2.09 ADAs \\
+F_{fanout} = 2.31 ADAs \\
 $$
 
 Now, for each two party head we have a total of:
 
 $$
 \begin{align}
-F_{2pHead} &= F_{open} + 2 * F_{commit} + F_{collectCom} \\
-F_{2pHead} &= 2.11 + 2 * 1.92 + 2.11 \\
-F_{2pHead} &= 8.06 \\
+F_{2pHead} &= F_{open} + 2 * F_{commit} + F_{collectCom} + F_{close} + F_{fanout}\\
+F_{2pHead} &= 2.11 + 2 * 1.92 + 2.11 + 2.09 + 2.31 \\
+F_{2pHead} &= 12.46 \\
 \end{align}
 $$
 
-For a three party head, all costs are the same, but another `Commit` transction is needed, so costs per head grow to `9.98 ADAs`. In total, a SinglePath network as described needs two 2-party heads and $m-2$ 3-party heads when $m>2$ where $m$ is the number of heads. For a hub-and-spoke network, $m$ 2-party heads are needed, making it a much cheaper alternative overall.
+For a three party head, all costs are the same, but another `Commit` transction is needed, so costs per head grow to `14.38 ADAs`. In total, a SinglePath network as described needs two 2-party heads and $m-2$ 3-party heads when $m>2$ where $m$ is the number of heads. For a hub-and-spoke network, $m$ 2-party heads are needed, making it a much cheaper alternative overall.
 
 We got these costs by opening a two party head in preprod with the latest hydra node (1.2.0), these are the tx hashes:
 
@@ -87,6 +89,8 @@ We got these costs by opening a two party head in preprod with the latest hydra 
 * Alice Commit: [db00573c41709f7f375f6623498590884d5023340489bfc57452fa52c2b6df0a](https://preprod.cexplorer.io/tx/db00573c41709f7f375f6623498590884d5023340489bfc57452fa52c2b6df0a)
 * Bob Commit: [846d9158effe47b3b063a03220fc46affe0b2f206859bfaf16ac3c93a6b62c43](https://preprod.cexplorer.io/tx/846d9158effe47b3b063a03220fc46affe0b2f206859bfaf16ac3c93a6b62c43)
 * CollectCom: [d5e5d331c2a84354fa50c98c9e10d5c2b0c31f23cd27d6890694187cf9a21b06](https://preprod.cexplorer.io/tx/d5e5d331c2a84354fa50c98c9e10d5c2b0c31f23cd27d6890694187cf9a21b06)
+* Close: [29c91e09504e3bf8e9d69140191615e367aa50e5c0fb5df1d1257070eebb0828](https://preprod.cexplorer.io/tx/29c91e09504e3bf8e9d69140191615e367aa50e5c0fb5df1d1257070eebb0828)
+* Fanout: [f5fb2340b651ce299280061459d832aa33b55686454ec319018bd413a89715ff](https://preprod.cexplorer.io/tx/f5fb2340b651ce299280061459d832aa33b55686454ec319018bd413a89715ff)
 
 #### L2 Costs
 
