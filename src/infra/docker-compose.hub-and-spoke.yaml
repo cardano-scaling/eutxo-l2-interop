@@ -12,7 +12,7 @@ x-hydra-node-base: &hydra-node-base
 
 services:
   # Head A: alice, ida-1
-  hydra-node-alice:
+  hydra-node-alice-hs:
     <<: *hydra-node-base
     volumes:
       - .:/devnet
@@ -39,7 +39,7 @@ services:
       hydra_net:
         ipv4_address: 172.16.238.211
 
-  hydra-node-ida-1:
+  hydra-node-ida-1-hs:
     <<: *hydra-node-base
     volumes:
       - .:/devnet
@@ -67,7 +67,7 @@ services:
         ipv4_address: 172.16.238.219
 
   # Head B: bob, ida-2
-  hydra-node-bob:
+  hydra-node-bob-hs:
     <<: *hydra-node-base
     volumes:
       - .:/devnet
@@ -94,7 +94,7 @@ services:
       hydra_net:
         ipv4_address: 172.16.238.222
 
-  hydra-node-ida-2:
+  hydra-node-ida-2-hs:
     <<: *hydra-node-base
     volumes:
       - .:/devnet
@@ -122,7 +122,7 @@ services:
         ipv4_address: 172.16.238.229
 
   # Head C: charlie, ida-3
-  hydra-node-charlie:
+  hydra-node-charlie-hs:
     <<: *hydra-node-base
     volumes:
       - .:/devnet
@@ -149,7 +149,7 @@ services:
       hydra_net:
         ipv4_address: 172.16.238.233
 
-  hydra-node-ida-3:
+  hydra-node-ida-3-hs:
     <<: *hydra-node-base
     volumes:
       - .:/devnet
@@ -179,12 +179,12 @@ services:
   startup-time-logger:
     image: alpine
     depends_on:
-      - hydra-node-alice
-      - hydra-node-bob
-      - hydra-node-charlie
-      - hydra-node-ida-1
-      - hydra-node-ida-2
-      - hydra-node-ida-3
+      - hydra-node-alice-hs
+      - hydra-node-bob-hs
+      - hydra-node-charlie-hs
+      - hydra-node-ida-1-hs
+      - hydra-node-ida-2-hs
+      - hydra-node-ida-3-hs
     command: sh -c "echo $$(( $$(date +%s) * 1000 )) > /shared/startup_time.txt && echo 'Timestamp written:' $$(cat /shared/startup_time.txt)"
     volumes:
       - .:/shared

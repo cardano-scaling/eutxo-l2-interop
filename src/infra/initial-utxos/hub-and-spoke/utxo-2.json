@@ -5,12 +5,6 @@
       "lovelace": 100000000000000
     }
   },
-  "0000000000000000000000000000000000000000000000000000000000000002#1": {
-    "address": "addr_test1vp9n0x2heemntaey6ycygk3wvuxtll2lqpsxc4mjxy34czqpcztw7",
-    "value": {
-      "lovelace": 100000000000001
-    }
-  },
   "0000000000000000000000000000000000000000000000000000000000000002#2": {
     "address": "addr_test1vruw26lgqedpwgfh0gu2qatjr90nccd4an54ew9xgr6v90g7uyt4z",
     "value": {

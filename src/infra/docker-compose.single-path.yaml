@@ -12,7 +12,7 @@ x-hydra-node-base: &hydra-node-base
 
 services:
   # Head A: alice, ida-1
-  hydra-node-alice:
+  hydra-node-alice-sp:
     <<: *hydra-node-base
     volumes:
       - .:/devnet
@@ -39,7 +39,7 @@ services:
       hydra_net:
         ipv4_address: 172.16.238.111
 
-  hydra-node-ida-1:
+  hydra-node-ida-1-sp:
     <<: *hydra-node-base
     volumes:
       - .:/devnet
@@ -67,7 +67,7 @@ services:
         ipv4_address: 172.16.238.119
 
   # Head B: bob, ida-2, jon-1
-  hydra-node-bob:
+  hydra-node-bob-sp:
     <<: *hydra-node-base
     volumes:
       - .:/devnet
@@ -95,8 +95,8 @@ services:
     networks:
       hydra_net:
         ipv4_address: 172.16.238.122
-  
-  hydra-node-ida-2:
+
+  hydra-node-ida-2-sp:
     <<: *hydra-node-base
     volumes:
       - .:/devnet
@@ -125,7 +125,7 @@ services:
       hydra_net:
         ipv4_address: 172.16.238.129
 
-  hydra-node-jon-1:
+  hydra-node-jon-1-sp:
     <<: *hydra-node-base
     volumes:
       - .:/devnet
@@ -154,8 +154,8 @@ services:
       hydra_net:
         ipv4_address: 172.16.238.128
 
-  # Head C: charlie, jon-2 
-  hydra-node-charlie:
+  # Head C: charlie, jon-2
+  hydra-node-charlie-sp:
     <<: *hydra-node-base
     volumes:
       - .:/devnet
@@ -182,7 +182,7 @@ services:
       hydra_net:
         ipv4_address: 172.16.238.133
 
-  hydra-node-jon-2:
+  hydra-node-jon-2-sp:
     <<: *hydra-node-base
     volumes:
       - .:/devnet
@@ -212,13 +212,13 @@ services:
   startup-time-logger:
     image: alpine
     depends_on:
-      - hydra-node-alice
-      - hydra-node-ida-1
-      - hydra-node-ida-2
-      - hydra-node-jon-1
-      - hydra-node-jon-2
-      - hydra-node-bob
-      - hydra-node-charlie
+      - hydra-node-alice-sp
+      - hydra-node-ida-1-sp
+      - hydra-node-ida-2-sp
+      - hydra-node-jon-1-sp
+      - hydra-node-jon-2-sp
+      - hydra-node-bob-sp
+      - hydra-node-charlie-sp
     command: sh -c "echo $$(( $$(date +%s) * 1000 )) > /shared/startup_time.txt && echo 'Timestamp written:' $$(cat /shared/startup_time.txt)"
     volumes:
       - .:/shared
