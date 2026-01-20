@@ -17,8 +17,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "HTLC + Vesting",
-  description: "Hydra HTLC + Vesting Demo",
+  title: "HTLC Multihead Topologies Demo",
+  description: "Hydra HTLC Multihead Topologies Demo",
 };
 
 export default function RootLayout({

@@ -4,15 +4,17 @@ import * as React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { getHydraHeads, getSelectedTopology } from '@/lib/config'
+import { getTopologyConfig } from '@/lib/topologies'
 import UserSwitcher from './user/user-switcher'
 import GeneratePreimageDialog from './htlc/generate-preimage-dialog'
 import PaymentStepper from './payment/payment-stepper'
+import { TopologySelector } from './topology-selector'
 import { Button } from './ui/button'
 import { useCurrentUser } from '@/lib/use-current-user'
 import { usePayment } from '@/contexts/payment-context'
 import { type UserName } from '@/lib/users'
 import { cn } from '@/lib/utils'
-import { X } from 'lucide-react'
+import { X, Network, WandSparkles } from 'lucide-react'
 
 // Color scheme for each user
 const userColors: Record<UserName, { bg: string; border: string; text: string }> = {
@@ -48,6 +50,7 @@ export default function Sidebar() {
   const { paymentState, resetPayment } = usePayment()
   const [hydraHeads, setHydraHeads] = React.useState(getHydraHeads())
   const [topologyId, setTopologyId] = React.useState(getSelectedTopology())
+  const [topologyDialogOpen, setTopologyDialogOpen] = React.useState(false)
 
   // Listen for topology changes via storage events
   React.useEffect(() => {
@@ -130,11 +133,32 @@ export default function Sidebar() {
             variant="outline"
             className="w-full justify-start"
           >
+            <WandSparkles className="mr-2 h-4 w-4" />
             Generate Preimage
           </Button>
         </GeneratePreimageDialog>
+        <div className="border-t pt-2"></div>
         <UserSwitcher />
+        <Button
+          onClick={() => setTopologyDialogOpen(true)}
+          variant="outline"
+          className="w-full justify-start"
+        >
+          <Network className="mr-2 h-4 w-4" />
+          {topologyId ? getTopologyConfig(topologyId).name : 'Select Topology'}
+        </Button>
       </div>
+
+      <TopologySelector
+        open={topologyDialogOpen}
+        onOpenChange={setTopologyDialogOpen}
+        onValidSelection={(selectedTopologyId) => {
+          setTopologyId(selectedTopologyId)
+          setHydraHeads(getHydraHeads())
+          setTopologyDialogOpen(false)
+        }}
+        nonDismissible={false}
+      />
     </aside>
   )
 }

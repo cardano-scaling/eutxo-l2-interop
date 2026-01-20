@@ -88,21 +88,12 @@ export default function Home() {
             <div className="flex items-center justify-between">
               <div className="flex flex-col gap-2">
                 <h1 className="text-3xl font-semibold leading-tight">
-                  HTLC + Vesting Demo
+                  HTLC Multihead Topologies Demo
                 </h1>
                 <p className="text-muted-foreground">
                   Select a Hydra head to open its dashboard.
                 </p>
               </div>
-              {hasValidTopology && (
-                <Button
-                  onClick={() => setDialogOpen(true)}
-                  variant="outline"
-                  className="self-start"
-                >
-                  Change Topology
-                </Button>
-              )}
             </div>
           </div>
 
