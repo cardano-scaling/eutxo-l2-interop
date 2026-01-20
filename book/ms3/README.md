@@ -1,12 +1,11 @@
 # Milestone 3
 
-Consists of three parts
+Consists of two parts
 
 1. Multi-L2 topologies
-2. Model efficiency comparisson
-3. Performance metrics
+2. Model efficiency comparisson and performance
 
-In this third milestone we are looking at how we can extend the system we've built to more than 2 L2 ledgers. We look into multiple possible topologies and compare how different configurations of topologies and models perform.
+In this third milestone we are looking at how we can extend the system we've built to more than two L2 ledgers. We look into multiple possible topologies and compare how different configurations of topologies and models perform.
 
 ## Topologies Explanation
 
