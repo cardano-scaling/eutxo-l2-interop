@@ -54,9 +54,49 @@ Now that we presented some common topologies, we will compare the theoretical ef
 
 ### Transaction cost
 
-Transaction cost is hard to pinpoint due to the configurable nature of L2s. In hydra for example, each head can set their own parameters and it is often the case where transaction fees are waived completely. Nonetheless we can compare the transaction count of different scenarios to get an idea of which is more efficient.
+Transaction costs can be divided up into two categories:
 
-#### HTLC
+* L1 setup costs
+* L2 transction costs
+
+#### L1 Costs
+
+The costs in L1 are pretty much constant for all topologies and systems used. For each head we need a set of transactions, namely an `Open Head` transaction, one `Commit` transaction per participant in the head and one `CollectCom` transaction. For closing the head, a `Close` and a `Fanout` transaction are needed. Fees for each transaction are:
+
+$$
+F_{open} = 2.11 ADAs \\
+F_{commit} = 1.92 ADAs \\
+F_{collectCom} = 2.11 ADAs \\
+F_{close} = 2.09 ADAs \\
+F_{fanout} = 2.31 ADAs \\
+$$
+
+Now, for each two party head we have a total of:
+
+$$
+\begin{align}
+F_{2pHead} &= F_{open} + 2 * F_{commit} + F_{collectCom} + F_{close} + F_{fanout}\\
+F_{2pHead} &= 2.11 + 2 * 1.92 + 2.11 + 2.09 + 2.31 \\
+F_{2pHead} &= 12.46 \\
+\end{align}
+$$
+
+For a three party head, all costs are the same, but another `Commit` transction is needed, so costs per head grow to `14.38 ADAs`. In total, a SinglePath network as described needs two 2-party heads and $m-2$ 3-party heads when $m>2$ where $m$ is the number of heads. For a hub-and-spoke network, $m$ 2-party heads are needed, making it a much cheaper alternative overall.
+
+We got these costs by opening a two party head in preprod with the latest hydra node (1.2.0), these are the tx hashes:
+
+* Open Head: [2884e9d97681417360a7ed30085fb0a71d1249c30628e05172cd9203dd04fa69](https://preprod.cexplorer.io/tx/2884e9d97681417360a7ed30085fb0a71d1249c30628e05172cd9203dd04fa69)
+* Alice Commit: [db00573c41709f7f375f6623498590884d5023340489bfc57452fa52c2b6df0a](https://preprod.cexplorer.io/tx/db00573c41709f7f375f6623498590884d5023340489bfc57452fa52c2b6df0a)
+* Bob Commit: [846d9158effe47b3b063a03220fc46affe0b2f206859bfaf16ac3c93a6b62c43](https://preprod.cexplorer.io/tx/846d9158effe47b3b063a03220fc46affe0b2f206859bfaf16ac3c93a6b62c43)
+* CollectCom: [d5e5d331c2a84354fa50c98c9e10d5c2b0c31f23cd27d6890694187cf9a21b06](https://preprod.cexplorer.io/tx/d5e5d331c2a84354fa50c98c9e10d5c2b0c31f23cd27d6890694187cf9a21b06)
+* Close: [29c91e09504e3bf8e9d69140191615e367aa50e5c0fb5df1d1257070eebb0828](https://preprod.cexplorer.io/tx/29c91e09504e3bf8e9d69140191615e367aa50e5c0fb5df1d1257070eebb0828)
+* Fanout: [f5fb2340b651ce299280061459d832aa33b55686454ec319018bd413a89715ff](https://preprod.cexplorer.io/tx/f5fb2340b651ce299280061459d832aa33b55686454ec319018bd413a89715ff)
+
+#### L2 Costs
+
+L2 Transaction cost is hard to pinpoint due to the configurable nature of L2s. In hydra for example, each head can set their own parameters and it is often the case where transaction fees are waived completely. Nonetheless we can compare the transaction count of different scenarios to get an idea of which is more efficient.
+
+##### HTLC
 
 Using HTLCs, for a single hop flow we have a total of four transactions, two create and two claim. Each additional hop adds a new create and claim transaction. Create transactions don't run any plutus script while claim transactions have some basic validations. We can then express the fee cost for $n$ hops as follows:
 
@@ -68,15 +108,13 @@ Where $c$ is the base cost of a transaction and $p$ is the added cost of running
 
 It's clear that a multi-hop setup like the single path topology would require more fees than the single hop hub-and-spoke topology.
 
-#### Adhoc ledger
+##### Adhoc ledger
 
 The adhoc ledger system once it's up and running needs a verify and a perform transaction, both done in all heads where the ledger is setup and both needing to run plutus validation, so for a given topology the cost is constant,regardless of the sender and the recipient. We can express the costs as follows:
 
 $$
 2 * m * (c + p)
 $$
-
-Where $m$ is the number of heads.
 
 Now, given that for $m$ heads we have at most $m-1$ hops for an htlc, the worst case scenario for a single payment becomes $2mc + mp$, which is less than or equal to the adhoc $2mc + 2mp$, given that $m \ge 2$ and $p \ge 0$.
 
