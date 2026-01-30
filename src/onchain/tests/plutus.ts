@@ -8,6 +8,7 @@ import {
 export type ByteArray = string;
 export type Data = Data;
 export type Int = bigint;
+export type ListAdhocLedgerV4WrappedOutput = Array<AdhocLedgerV4WrappedOutput>;
 export type ListAikenCryptoVerificationKeyHash = Array<
   AikenCryptoVerificationKeyHash
 >;
@@ -38,11 +39,20 @@ export type AdhocLedgerV2LpDatum = {
 };
 export type AdhocLedgerV2LpMintRedeemer = "MintVerified" | "BurnVerified";
 export type AdhocLedgerV2LpSpendRedeemer = "Verify" | "Perform";
+export type AdhocLedgerV4VerifiedDatum = {
+  inputs: ListAdhocLedgerV4WrappedOutput;
+  outputs: ListAdhocLedgerV4WrappedOutput;
+};
+export type AdhocLedgerV4VerifiedRedeemer = "Revert" | "Perform";
 export type AdhocLedgerV4WrappedDatum = {
   owner: AikenCryptoVerificationKeyHash;
   intermediaries: ListAikenCryptoVerificationKeyHash;
 };
-export type AdhocLedgerV4WrappedRedeemer = undefined;
+export type AdhocLedgerV4WrappedOutput = {
+  datum: AdhocLedgerV4WrappedDatum;
+  lovelace: Int;
+};
+export type AdhocLedgerV4WrappedRedeemer = "Unwrap" | "Verify";
 export type AikenCryptoScriptHash = string;
 export type AikenCryptoVerificationKeyHash = string;
 export type CardanoAddressAddress = {
@@ -87,6 +97,10 @@ const definitions = {
   "ByteArray": { "dataType": "bytes" },
   "Data": { "title": "Data", "description": "Any Plutus data." },
   "Int": { "dataType": "integer" },
+  "List$adhoc_ledger_v4/WrappedOutput": {
+    "dataType": "list",
+    "items": { "$ref": "#/definitions/adhoc_ledger_v4/WrappedOutput" },
+  },
   "List$aiken/crypto/VerificationKeyHash": {
     "dataType": "list",
     "items": { "$ref": "#/definitions/aiken/crypto/VerificationKeyHash" },
@@ -221,6 +235,35 @@ const definitions = {
       "fields": [],
     }],
   },
+  "adhoc_ledger_v4/VerifiedDatum": {
+    "title": "VerifiedDatum",
+    "anyOf": [{
+      "title": "VerifiedDatum",
+      "dataType": "constructor",
+      "index": 0,
+      "fields": [{
+        "title": "inputs",
+        "$ref": "#/definitions/List$adhoc_ledger_v4/WrappedOutput",
+      }, {
+        "title": "outputs",
+        "$ref": "#/definitions/List$adhoc_ledger_v4/WrappedOutput",
+      }],
+    }],
+  },
+  "adhoc_ledger_v4/VerifiedRedeemer": {
+    "title": "VerifiedRedeemer",
+    "anyOf": [{
+      "title": "Revert",
+      "dataType": "constructor",
+      "index": 0,
+      "fields": [],
+    }, {
+      "title": "Perform",
+      "dataType": "constructor",
+      "index": 1,
+      "fields": [],
+    }],
+  },
   "adhoc_ledger_v4/WrappedDatum": {
     "title": "WrappedDatum",
     "anyOf": [{
@@ -236,12 +279,29 @@ const definitions = {
       }],
     }],
   },
+  "adhoc_ledger_v4/WrappedOutput": {
+    "title": "WrappedOutput",
+    "anyOf": [{
+      "title": "WrappedOutput",
+      "dataType": "constructor",
+      "index": 0,
+      "fields": [{
+        "title": "datum",
+        "$ref": "#/definitions/adhoc_ledger_v4/WrappedDatum",
+      }, { "title": "lovelace", "$ref": "#/definitions/Int" }],
+    }],
+  },
   "adhoc_ledger_v4/WrappedRedeemer": {
     "title": "WrappedRedeemer",
     "anyOf": [{
-      "title": "Verify",
+      "title": "Unwrap",
       "dataType": "constructor",
       "index": 0,
+      "fields": [],
+    }, {
+      "title": "Verify",
+      "dataType": "constructor",
+      "index": 1,
       "fields": [],
     }],
   },
@@ -524,6 +584,34 @@ export const AdhocLedgerV2LpV2Mint = Object.assign(
   },
 ) as unknown as AdhocLedgerV2LpV2Mint;
 
+export interface AdhocLedgerV4VerifiedSpend {
+  new (): Script;
+  datumOpt: AdhocLedgerV4VerifiedDatum;
+  redeemer: AdhocLedgerV4VerifiedRedeemer;
+}
+
+export const AdhocLedgerV4VerifiedSpend = Object.assign(
+  function () {
+    return {
+      type: "PlutusV3",
+      script:
+        "589901010029800aba2aba1aab9faab9eaab9dab9a48888896600264653001300700198039804000cc01c0092225980099b8748008c01cdd500144ca60026016003300b300c00198041baa0048a51488896600266e1d20000028acc004c034dd500440062c80722b30013370e90010014566002601a6ea802200316403916402c805860106ea800a2c8030600e00260066ea801e29344d95900101",
+    };
+  },
+  {
+    datumOpt: {
+      "shape": { "$ref": "#/definitions/adhoc_ledger_v4/VerifiedDatum" },
+      definitions,
+    },
+  },
+  {
+    redeemer: {
+      "shape": { "$ref": "#/definitions/adhoc_ledger_v4/VerifiedRedeemer" },
+      definitions,
+    },
+  },
+) as unknown as AdhocLedgerV4VerifiedSpend;
+
 export interface AdhocLedgerV4WrappedSpend {
   new (): Script;
   datumOpt: AdhocLedgerV4WrappedDatum;
@@ -535,7 +623,7 @@ export const AdhocLedgerV4WrappedSpend = Object.assign(
     return {
       type: "PlutusV3",
       script:
-        "587a01010029800aba2aba1aab9faab9eaab9dab9a48888896600264653001300700198039804000cc01c0092225980099b8748008c01cdd500144c8cc896600266e1d2000300a375400d15980098059baa0068a518b20188b2012300b001300b300c0013008375400516401830070013003375400f149a26cac8009",
+        "59010601010029800aba2aba1aab9faab9eaab9dab9a48888896600264653001300700198039804000cc01c0092225980099b8748008c01cdd500144c8cc8a60022b30013001300a3754005159800980098051baa00689919198008009bac300f30103010301030103010301030103010300d375400c44b30010018a508acc004cdc79bae30100010038a518998010011808800a018403c6eb8c034c02cdd5180698059baa0028a514025164025300a375400d300d003488966002600800515980098071baa009801c5900f456600266e1d20020028acc004c038dd5004c00e2c807a2c806100c0c02cc030004dc3a400060106ea800a2c8030600e00260066ea801e29344d9590011",
     };
   },
   {

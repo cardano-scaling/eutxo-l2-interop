@@ -1,5 +1,6 @@
-use cardano/transaction.{Transaction, Output, OutputReference}
+use cardano/transaction.{Transaction, OutputReference}
 use aiken/crypto.{VerificationKeyHash}
+use aiken/collection/list
 
 pub type WrappedDatum {
   owner: VerificationKeyHash,
@@ -7,7 +8,7 @@ pub type WrappedDatum {
 }
 
 pub type WrappedRedeemer {
-  UnWrap
+  Unwrap
   Verify
 }
 
@@ -18,12 +19,20 @@ validator wrapped() {
     own_input_ref: OutputReference,
     tx: Transaction,
   ) {
-    // TODO: 
-    // - if unwrapping, check for owner signature
-    // - if verifying:
-    //   - check for owner and intermediaries signatures
-    //   - what else?
-    True
+    expect Some(datum) = datum_opt
+
+    let Transaction { extra_signatories, .. } = tx
+
+    when redeemer is {
+      Unwrap -> {
+        // Owner must sign to unwrap funds
+        list.has(extra_signatories, datum.owner)?
+      }
+      Verify -> {
+        // TODO: Verify implementation for future
+        True
+      }
+    }
   }
 }
 
@@ -52,7 +61,9 @@ validator verified() {
     tx: Transaction,
   ) {
     // TODO:
-    // - if reversing, check outputs with datum.inputs
+    // - if reversing, check:
+    //   - must by signed by the owner of one of the inputs
+    //   - outputs must be like datum.inputs
     // - if performing, check outputs with datum.outputs
     True
   }
