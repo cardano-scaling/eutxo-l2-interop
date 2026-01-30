@@ -48,6 +48,7 @@ async function main() {
       intermediaries: new Map(),  // Empty intermediaries for Bob output
       nonce: { transactionId: "", outputIndex: 0n },  // Empty nonce for Bob output
       disputed: false,  // Not disputed initially
+      timeout: 1000000n,  // Set a timeout slot
     },
     lovelace: 5000000n,
   };
@@ -98,6 +99,7 @@ async function main() {
       intermediaries: new Map(),  // Empty intermediaries for Bob output
       nonce: { transactionId: "", outputIndex: 0n },  // Empty nonce for Bob output
       disputed: false,  // Not disputed initially
+      timeout: 1000000n,  // Set a timeout slot
     },
     lovelace: 5000000n,
   };

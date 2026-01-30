@@ -76,6 +76,7 @@ export async function performWrapTransactions(lucid1A: Lucid, lucid2B: Lucid, pr
     intermediaries: new Map(),  // Empty intermediaries for now
     nonce: { transactionId: "", outputIndex: 0n },  // Empty nonce for now
     disputed: false,  // Not disputed initially
+    timeout: 1000000n,  // Set a timeout slot
   }
   const wrapTxA = await lucid1A.newTx()
     .payToContract(
@@ -89,12 +90,13 @@ export async function performWrapTransactions(lucid1A: Lucid, lucid2B: Lucid, pr
   emulatorA.awaitTx(wrapTxAHash);
   console.log("WRAP TX A:", wrapTxAHash);
 
-  // WRAP UTXO IN B: Ida wraps 5 ADA in head B on behalf of Alice
+  // WRAP UTXO IN B: Ida wraps 5 ADA in head B on behalf of herself
   const wrappedDatumB: AdhocLedgerV4WrappedDatum = {
-    owner: Crypto.privateKeyToDetails(privateKey1).credential.hash,           // Alice address hash
+    owner: Crypto.privateKeyToDetails(privateKey2).credential.hash,           // Ida address hash
     intermediaries: new Map(),  // Empty intermediaries for now
     nonce: { transactionId: "", outputIndex: 0n },  // Empty nonce for now
     disputed: false,  // Not disputed initially
+    timeout: 1000000n,  // Set a timeout slot
   }
   const wrapTxB = await lucid2B.newTx()
     .payToContract(
