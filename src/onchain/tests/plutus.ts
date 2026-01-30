@@ -17,6 +17,7 @@ export type ListCardanoTransactionOutputReference = Array<
   CardanoTransactionOutputReference
 >;
 export type OptionData = Data | null;
+export type OptionInt = Int | null;
 export type OptionCardanoAddressStakeCredential =
   | CardanoAddressStakeCredential
   | null;
@@ -54,12 +55,18 @@ export type AdhocLedgerV4WrappedDatum = {
   intermediaries: PairsAikenCryptoVerificationKeyHashInt;
   nonce: CardanoTransactionOutputReference;
   disputed: Bool;
+  timeout: OptionInt;
 };
 export type AdhocLedgerV4WrappedOutput = {
   datum: AdhocLedgerV4WrappedDatum;
   lovelace: Int;
 };
-export type AdhocLedgerV4WrappedRedeemer = "Dispute" | "Verify";
+export type AdhocLedgerV4WrappedRedeemer =
+  | "Unwrap"
+  | "Verify"
+  | "Dispute"
+  | "Merge"
+  | "Punish";
 export type AikenCryptoScriptHash = string;
 export type AikenCryptoVerificationKeyHash = string;
 export type CardanoAddressAddress = {
@@ -138,6 +145,22 @@ const definitions = {
       "dataType": "constructor",
       "index": 0,
       "fields": [{ "$ref": "#/definitions/Data" }],
+    }, {
+      "title": "None",
+      "description": "Nothing.",
+      "dataType": "constructor",
+      "index": 1,
+      "fields": [],
+    }],
+  },
+  "Option$Int": {
+    "title": "Option",
+    "anyOf": [{
+      "title": "Some",
+      "description": "An optional value.",
+      "dataType": "constructor",
+      "index": 0,
+      "fields": [{ "$ref": "#/definitions/Int" }],
     }, {
       "title": "None",
       "description": "Nothing.",
@@ -297,16 +320,22 @@ const definitions = {
       "title": "WrappedDatum",
       "dataType": "constructor",
       "index": 0,
-      "fields": [{
-        "title": "owner",
-        "$ref": "#/definitions/aiken/crypto/VerificationKeyHash",
-      }, {
-        "title": "intermediaries",
-        "$ref": "#/definitions/Pairs$aiken/crypto/VerificationKeyHash_Int",
-      }, {
-        "title": "nonce",
-        "$ref": "#/definitions/cardano/transaction/OutputReference",
-      }, { "title": "disputed", "$ref": "#/definitions/Bool" }],
+      "fields": [
+        {
+          "title": "owner",
+          "$ref": "#/definitions/aiken/crypto/VerificationKeyHash",
+        },
+        {
+          "title": "intermediaries",
+          "$ref": "#/definitions/Pairs$aiken/crypto/VerificationKeyHash_Int",
+        },
+        {
+          "title": "nonce",
+          "$ref": "#/definitions/cardano/transaction/OutputReference",
+        },
+        { "title": "disputed", "$ref": "#/definitions/Bool" },
+        { "title": "timeout", "$ref": "#/definitions/Option$Int" },
+      ],
     }],
   },
   "adhoc_ledger_v4/WrappedOutput": {
@@ -324,7 +353,7 @@ const definitions = {
   "adhoc_ledger_v4/WrappedRedeemer": {
     "title": "WrappedRedeemer",
     "anyOf": [{
-      "title": "Dispute",
+      "title": "Unwrap",
       "dataType": "constructor",
       "index": 0,
       "fields": [],
@@ -332,6 +361,21 @@ const definitions = {
       "title": "Verify",
       "dataType": "constructor",
       "index": 1,
+      "fields": [],
+    }, {
+      "title": "Dispute",
+      "dataType": "constructor",
+      "index": 2,
+      "fields": [],
+    }, {
+      "title": "Merge",
+      "dataType": "constructor",
+      "index": 3,
+      "fields": [],
+    }, {
+      "title": "Punish",
+      "dataType": "constructor",
+      "index": 4,
       "fields": [],
     }],
   },
@@ -653,7 +697,7 @@ export const AdhocLedgerV4WrappedSpend = Object.assign(
     return {
       type: "PlutusV3",
       script:
-        "58da01010029800aba2aba1aab9faab9eaab9dab9a48888896600264653001300700198039804000cc01c0092225980099b8748008c01cdd500144c8cc8a60022b30013001300a37540051332259800980198061baa0088a518a51402c601a60166ea8008dd618069807180718071807180718071807180718059baa0048b201298051baa0069806801a444b300130040028acc004c038dd5004c00e2c807a2b30013370e90010014566002601c6ea802600716403d1640308060601660180026e1d20003008375400516401830070013003375400f149a26cac8009",
+        "59017701010029800aba2aba1aab9faab9eaab9dab9a48888896600264653001300700198039804000cdc3a400530070024888966002600460106ea800e26466453001159800980098059baa0028992cc004c00800626464660020026eb0c044c048c048c048c048c048c048c048c048c03cdd5003912cc00400629422b30013371e6eb8c04800400e2946266004004602600280710111bae300f300d3754601e601a6ea800e2b30013370e9002000c528c566002600c00314a315980099b87480180062946294500b2016402c8058c02cdd5003c5900a4c02cdd5003cc03800d2225980098020014566002601e6ea802a00716404115980098040014566002601e6ea802a00716404115980099b874801000a2b3001300f37540150038b20208acc004cdc3a400c00515980098079baa00a801c59010456600266e1d20080028acc004c03cdd5005400e2c80822c806900d201a403480686018601a0026e1d20003009375400716401c30070013003375400f149a26cac80081",
     };
   },
   {

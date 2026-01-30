@@ -7,11 +7,15 @@ pub type WrappedDatum {
   intermediaries: Pairs<VerificationKeyHash, Int>,
   nonce: OutputReference,
   disputed: Bool,
+  timeout: Option<Int>,
 }
 
 pub type WrappedRedeemer {
-  Dispute
+  Unwrap
   Verify
+  Dispute
+  Merge
+  Punish
 }
 
 validator wrapped() {
@@ -26,6 +30,10 @@ validator wrapped() {
     let Transaction { extra_signatories, .. } = tx
 
     when redeemer is {
+      Unwrap -> {
+        // Owner must sign to unwrap funds
+        list.has(extra_signatories, datum.owner)?
+      }
       Dispute -> {
         // TODO: checks:
         // - signed by any party (owner or intermediary)
@@ -35,6 +43,21 @@ validator wrapped() {
       }
       Verify -> {
         // TODO: Verify implementation for future
+        True
+      }
+      Merge -> {
+        // TODO: only possible in L1, checks:
+        // - UTxO is disputed
+        // - the replica is also consumed and disputed
+        // - first output is the unwrapped UTxO
+        // - following outputs are the intermediaries collaterals
+        True
+      }
+      Punish -> {
+        // TODO: checks:
+        // - timeout expired
+        // - signed by owner
+        // (no need to check payments, owner takes all, even collaterals)
         True
       }
     }
