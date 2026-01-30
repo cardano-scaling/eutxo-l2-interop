@@ -4,11 +4,13 @@ use aiken/collection/list
 
 pub type WrappedDatum {
   owner: VerificationKeyHash,
-  intermediaries: List<VerificationKeyHash>,
+  intermediaries: Pairs<VerificationKeyHash, Int>,
+  nonce: OutputReference,
+  disputed: Bool,
 }
 
 pub type WrappedRedeemer {
-  Unwrap
+  Dispute
   Verify
 }
 
@@ -24,9 +26,12 @@ validator wrapped() {
     let Transaction { extra_signatories, .. } = tx
 
     when redeemer is {
-      Unwrap -> {
-        // Owner must sign to unwrap funds
-        list.has(extra_signatories, datum.owner)?
+      Dispute -> {
+        // TODO: checks:
+        // - signed by any party (owner or intermediary)
+        // - continuing output is equal to spent input but 
+        //   disputed is True
+        True
       }
       Verify -> {
         // TODO: Verify implementation for future

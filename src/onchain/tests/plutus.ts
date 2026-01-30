@@ -5,6 +5,7 @@ import {
   Script,
 } from "https://deno.land/x/lucid@0.20.14/mod.ts";
 
+export type Bool = boolean;
 export type ByteArray = string;
 export type Data = Data;
 export type Int = bigint;
@@ -19,6 +20,10 @@ export type OptionData = Data | null;
 export type OptionCardanoAddressStakeCredential =
   | CardanoAddressStakeCredential
   | null;
+export type PairsAikenCryptoVerificationKeyHashInt = Map<
+  AikenCryptoVerificationKeyHash,
+  Int
+>;
 export type PairsCardanoAssetsAssetNameInt = Map<CardanoAssetsAssetName, Int>;
 export type PairsCardanoAssetsPolicyIdPairsCardanoAssetsAssetNameInt = Map<
   CardanoAssetsPolicyId,
@@ -46,13 +51,15 @@ export type AdhocLedgerV4VerifiedDatum = {
 export type AdhocLedgerV4VerifiedRedeemer = "Revert" | "Perform";
 export type AdhocLedgerV4WrappedDatum = {
   owner: AikenCryptoVerificationKeyHash;
-  intermediaries: ListAikenCryptoVerificationKeyHash;
+  intermediaries: PairsAikenCryptoVerificationKeyHashInt;
+  nonce: CardanoTransactionOutputReference;
+  disputed: Bool;
 };
 export type AdhocLedgerV4WrappedOutput = {
   datum: AdhocLedgerV4WrappedDatum;
   lovelace: Int;
 };
-export type AdhocLedgerV4WrappedRedeemer = "Unwrap" | "Verify";
+export type AdhocLedgerV4WrappedRedeemer = "Dispute" | "Verify";
 export type AikenCryptoScriptHash = string;
 export type AikenCryptoVerificationKeyHash = string;
 export type CardanoAddressAddress = {
@@ -94,6 +101,20 @@ export type HtlcRedeemer = { Claim: [ByteArray] } | "Refund";
 export type VestingVestingDatum = { vestAfter: Int; receiver: ByteArray };
 
 const definitions = {
+  "Bool": {
+    "title": "Bool",
+    "anyOf": [{
+      "title": "False",
+      "dataType": "constructor",
+      "index": 0,
+      "fields": [],
+    }, {
+      "title": "True",
+      "dataType": "constructor",
+      "index": 1,
+      "fields": [],
+    }],
+  },
   "ByteArray": { "dataType": "bytes" },
   "Data": { "title": "Data", "description": "Any Plutus data." },
   "Int": { "dataType": "integer" },
@@ -140,6 +161,12 @@ const definitions = {
       "index": 1,
       "fields": [],
     }],
+  },
+  "Pairs$aiken/crypto/VerificationKeyHash_Int": {
+    "title": "Pairs<VerificationKeyHash, Int>",
+    "dataType": "map",
+    "keys": { "$ref": "#/definitions/aiken/crypto/VerificationKeyHash" },
+    "values": { "$ref": "#/definitions/Int" },
   },
   "Pairs$cardano/assets/AssetName_Int": {
     "title": "Pairs<AssetName, Int>",
@@ -275,8 +302,11 @@ const definitions = {
         "$ref": "#/definitions/aiken/crypto/VerificationKeyHash",
       }, {
         "title": "intermediaries",
-        "$ref": "#/definitions/List$aiken/crypto/VerificationKeyHash",
-      }],
+        "$ref": "#/definitions/Pairs$aiken/crypto/VerificationKeyHash_Int",
+      }, {
+        "title": "nonce",
+        "$ref": "#/definitions/cardano/transaction/OutputReference",
+      }, { "title": "disputed", "$ref": "#/definitions/Bool" }],
     }],
   },
   "adhoc_ledger_v4/WrappedOutput": {
@@ -294,7 +324,7 @@ const definitions = {
   "adhoc_ledger_v4/WrappedRedeemer": {
     "title": "WrappedRedeemer",
     "anyOf": [{
-      "title": "Unwrap",
+      "title": "Dispute",
       "dataType": "constructor",
       "index": 0,
       "fields": [],
@@ -623,7 +653,7 @@ export const AdhocLedgerV4WrappedSpend = Object.assign(
     return {
       type: "PlutusV3",
       script:
-        "59010601010029800aba2aba1aab9faab9eaab9dab9a48888896600264653001300700198039804000cc01c0092225980099b8748008c01cdd500144c8cc8a60022b30013001300a3754005159800980098051baa00689919198008009bac300f30103010301030103010301030103010300d375400c44b30010018a508acc004cdc79bae30100010038a518998010011808800a018403c6eb8c034c02cdd5180698059baa0028a514025164025300a375400d300d003488966002600800515980098071baa009801c5900f456600266e1d20020028acc004c038dd5004c00e2c807a2c806100c0c02cc030004dc3a400060106ea800a2c8030600e00260066ea801e29344d9590011",
+        "58da01010029800aba2aba1aab9faab9eaab9dab9a48888896600264653001300700198039804000cc01c0092225980099b8748008c01cdd500144c8cc8a60022b30013001300a37540051332259800980198061baa0088a518a51402c601a60166ea8008dd618069807180718071807180718071807180718059baa0048b201298051baa0069806801a444b300130040028acc004c038dd5004c00e2c807a2b30013370e90010014566002601c6ea802600716403d1640308060601660180026e1d20003008375400516401830070013003375400f149a26cac8009",
     };
   },
   {
