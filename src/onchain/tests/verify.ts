@@ -35,25 +35,27 @@ async function main() {
     throw new Error("No wrapped UTXOs found in head A");
   }
 
-  // Create wrapped output for verified datum
-  const wrappedOutput: AdhocLedgerV4WrappedOutput = {
+  // Create wrapped output for verified datum in head A (using same structure as in performWrapTransactions)
+  const wrappedOutputA: AdhocLedgerV4WrappedOutput = {
     datum: wrappedDatum,
     lovelace: 5000000n,
   };
 
   // Create output with Bob as owner
-  const bobOutput: AdhocLedgerV4WrappedOutput = {
+  const bobOutputA: AdhocLedgerV4WrappedOutput = {
     datum: {
       owner: Crypto.privateKeyToDetails(env.privateKey3).credential.hash, // Bob
-      intermediaries: []
+      intermediaries: new Map(),  // Empty intermediaries for Bob output
+      nonce: { transactionId: "", outputIndex: 0n },  // Empty nonce for Bob output
+      disputed: false,  // Not disputed initially
     },
     lovelace: 5000000n,
   };
 
   // Create verified datum containing wrapped output and Bob output
-  const verifiedDatum: AdhocLedgerV4VerifiedDatum = {
-    inputs: [wrappedOutput],
-    outputs: [bobOutput],
+  const verifiedDatumA: AdhocLedgerV4VerifiedDatum = {
+    inputs: [wrappedOutputA],
+    outputs: [bobOutputA],
   };
 
   // Create verification transaction
@@ -62,7 +64,7 @@ async function main() {
     .collectFrom(wrappedUtxosA, Data.to("Verify", AdhocLedgerV4WrappedSpend.redeemer))
     .payToContract(
       verifiedAddress,
-      { Inline: Data.to(verifiedDatum, AdhocLedgerV4VerifiedSpend.datumOpt) },
+      { Inline: Data.to(verifiedDatumA, AdhocLedgerV4VerifiedSpend.datumOpt) },
       { lovelace: 5000000n },
     )
     .attachScript(wrappedValidator)
@@ -83,8 +85,8 @@ async function main() {
     throw new Error("No wrapped UTXOs found in head B");
   }
 
-  // Create wrapped output for verified datum in head B
-  const wrappedOutputB: AdhocLedgerV4WrappedOutput = {
+  // Create wrapped output for verified datum in head B (using same structure as in performWrapTransactions)
+  const wrappedOutputB2: AdhocLedgerV4WrappedOutput = {
     datum: wrappedDatum,
     lovelace: 5000000n,
   };
@@ -93,14 +95,16 @@ async function main() {
   const bobOutputB: AdhocLedgerV4WrappedOutput = {
     datum: {
       owner: Crypto.privateKeyToDetails(env.privateKey3).credential.hash, // Bob
-      intermediaries: []
+      intermediaries: new Map(),  // Empty intermediaries for Bob output
+      nonce: { transactionId: "", outputIndex: 0n },  // Empty nonce for Bob output
+      disputed: false,  // Not disputed initially
     },
     lovelace: 5000000n,
   };
 
   // Create verified datum containing wrapped output and Bob output for head B
   const verifiedDatumB: AdhocLedgerV4VerifiedDatum = {
-    inputs: [wrappedOutputB],
+    inputs: [wrappedOutputB2],
     outputs: [bobOutputB],
   };
 

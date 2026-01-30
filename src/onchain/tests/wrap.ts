@@ -73,7 +73,9 @@ export async function performWrapTransactions(lucid1A: Lucid, lucid2B: Lucid, pr
   // WRAP UTXO IN A: Alice wraps 5 ADA in head A
   const wrappedDatum: AdhocLedgerV4WrappedDatum = {
     owner: Crypto.privateKeyToDetails(privateKey1).credential.hash,           // Alice address hash
-    intermediaries: [Crypto.privateKeyToDetails(privateKey2).credential.hash],  // Ida address hash
+    intermediaries: new Map(),  // Empty intermediaries for now
+    nonce: { transactionId: "", outputIndex: 0n },  // Empty nonce for now
+    disputed: false,  // Not disputed initially
   }
   const wrapTxA = await lucid1A.newTx()
     .payToContract(
@@ -90,7 +92,9 @@ export async function performWrapTransactions(lucid1A: Lucid, lucid2B: Lucid, pr
   // WRAP UTXO IN B: Ida wraps 5 ADA in head B on behalf of Alice
   const wrappedDatumB: AdhocLedgerV4WrappedDatum = {
     owner: Crypto.privateKeyToDetails(privateKey1).credential.hash,           // Alice address hash
-    intermediaries: [Crypto.privateKeyToDetails(privateKey2).credential.hash],  // Ida address hash
+    intermediaries: new Map(),  // Empty intermediaries for now
+    nonce: { transactionId: "", outputIndex: 0n },  // Empty nonce for now
+    disputed: false,  // Not disputed initially
   }
   const wrapTxB = await lucid2B.newTx()
     .payToContract(
