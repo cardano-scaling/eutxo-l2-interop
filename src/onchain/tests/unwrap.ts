@@ -55,7 +55,6 @@ async function main() {
   console.log("UNWRAP TX B:", unwrapTxBHash);
 
   //
-  // VERIFY:
   // Check final balances to ensure unwrapping worked correctly
   //
   const finalAliceBalanceA = await env.lucid1A.wallet.getUtxos();
@@ -68,11 +67,6 @@ async function main() {
 
   console.log("Alice's final balance in head A:", finalAliceBalanceInA.toString());
   console.log("Ida's final balance in head B:", finalIdaBalanceInB.toString());
-
-  //
-  // PERFORM:
-  // Test complete - both wrap and unwrap transactions executed successfully
-  //
 }
 
 // Run test

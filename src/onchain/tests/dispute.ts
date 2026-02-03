@@ -8,7 +8,7 @@ import {
 // Import reusable functions from wrap.ts
 import { setupWrapEnvironment, performWrapTransactions } from "./wrap.ts";
 
-// Main unwrap test
+// Main dispute test
 async function main() {
   // Setup environment using imported function
   const env = setupWrapEnvironment();
@@ -19,7 +19,7 @@ async function main() {
   );
 
   //
-  // UNWRAP UTXO IN A: Alice unwraps her 5 ADA from head A
+  // DISPUTE UTXO IN A: Alice disputes her 5 ADA from head A
   //
   const wrappedUtxosA = await env.lucid1A.utxosAt(wrappedAddress);
   if (wrappedUtxosA.length === 0) {
@@ -32,19 +32,19 @@ async function main() {
     disputed: true,
   };
 
-  const unwrapTxA = await env.lucid1A.newTx()
+  const disputeTxA = await env.lucid1A.newTx()
     .addSigner(Crypto.privateKeyToDetails(env.privateKey1).credential.hash)
     .collectFrom(wrappedUtxosA, Data.to("Dispute", AdhocLedgerV4WrappedSpend.redeemer))
     .payToContract(wrappedAddress, { Inline: Data.to(disputedDatumA, AdhocLedgerV4WrappedSpend.datumOpt) }, { lovelace: 5000000n })
     .attachScript(wrappedValidator)
     .commit();
-  const signedUnwrapTxA = await unwrapTxA.sign().commit();
-  const unwrapTxAHash = await signedUnwrapTxA.submit();
-  env.emulatorA.awaitTx(unwrapTxAHash);
-  console.log("UNWRAP TX A:", unwrapTxAHash);
+  const signedDisputeTxA = await disputeTxA.sign().commit();
+  const disputeTxAHash = await signedDisputeTxA.submit();
+  env.emulatorA.awaitTx(disputeTxAHash);
+  console.log("DISPUTE TX A:", disputeTxAHash);
 
   //
-  // UNWRAP UTXO IN B: Ida unwraps 5 ADA from head B and sends to Alice
+  // DISPUTE UTXO IN B: Ida disputes 5 ADA from head B and sends to Alice
   //
   const wrappedUtxosB = await env.lucid2B.utxosAt(wrappedAddress);
   if (wrappedUtxosB.length === 0) {
@@ -57,20 +57,19 @@ async function main() {
     disputed: true,
   };
 
-  const unwrapTxB = await env.lucid2B.newTx()
+  const disputeTxB = await env.lucid2B.newTx()
     .addSigner(Crypto.privateKeyToDetails(env.privateKey2).credential.hash)
     .collectFrom(wrappedUtxosB, Data.to("Dispute", AdhocLedgerV4WrappedSpend.redeemer))
     .payToContract(wrappedAddress, { Inline: Data.to(disputedDatumB, AdhocLedgerV4WrappedSpend.datumOpt) }, { lovelace: 5000000n })
     .attachScript(wrappedValidator)
     .commit();
-  const signedUnwrapTxB = await unwrapTxB.sign().commit();
-  const unwrapTxBHash = await signedUnwrapTxB.submit();
-  env.emulatorB.awaitTx(unwrapTxBHash);
-  console.log("UNWRAP TX B:", unwrapTxBHash);
+  const signedDisputeTxB = await disputeTxB.sign().commit();
+  const disputeTxBHash = await signedDisputeTxB.submit();
+  env.emulatorB.awaitTx(disputeTxBHash);
+  console.log("DISPUTE TX B:", disputeTxBHash);
 
   //
-  // VERIFY:
-  // Check final balances to ensure unwrapping worked correctly
+  // Check final balances to ensure disputeping worked correctly
   //
   const finalAliceBalanceA = await env.lucid1A.wallet.getUtxos();
   const finalAliceBalanceInA = finalAliceBalanceA.reduce((acc, utxo) =>
@@ -82,11 +81,6 @@ async function main() {
 
   console.log("Alice's final balance in head A:", finalAliceBalanceInA.toString());
   console.log("Ida's final balance in head B:", finalIdaBalanceInB.toString());
-
-  //
-  // PERFORM:
-  // Test complete - both wrap and unwrap transactions executed successfully
-  //
 }
 
 // Run test

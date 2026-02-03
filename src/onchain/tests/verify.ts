@@ -128,7 +128,6 @@ async function main() {
   console.log("VERIFY TX B:", verifyTxBHash);
 
   //
-  // VERIFY:
   // Check final state
   //
   const finalAliceBalanceA = await env.lucid1A.wallet.getUtxos();
@@ -140,11 +139,6 @@ async function main() {
   console.log("Alice's final balance in head A:", finalAliceBalanceInA.toString());
   console.log("Verified UTXOs count:", verifiedUtxos.length);
   console.log("Verified contract address:", verifiedAddress);
-
-  //
-  // PERFORM:
-  // Test complete - wrap and verify transactions executed successfully
-  //
 }
 
 // Run the test
