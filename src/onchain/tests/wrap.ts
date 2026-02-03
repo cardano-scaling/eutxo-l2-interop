@@ -4,6 +4,7 @@ import {
   AdhocLedgerV4WrappedSpend,
   CardanoTransactionOutputReference
 } from "./plutus.ts";
+import { HydraEmulator } from "./hydra_emulator.ts";
 
 // Export reusable setup function
 export function setupWrapEnvironment() {
@@ -41,8 +42,8 @@ export function setupWrapEnvironment() {
   };
 
   // SETUP EMULATORS FOR HYDRA HEADS A AND B
-  const emulatorA = new Emulator([alice, ida]);
-  const emulatorB = new Emulator([ida, bob]);
+  const emulatorA = HydraEmulator.withAccounts([alice, ida]);
+  const emulatorB = HydraEmulator.withAccounts([ida, bob]);
 
   // ALICE'S LUCID INSTANCE IN HEAD A
   const lucid1A = new Lucid({
@@ -66,14 +67,14 @@ export function setupWrapEnvironment() {
 }
 
 // Export reusable wrap transaction function
-export async function performWrapTransactions(lucid1A: Lucid, lucid2B: Lucid, privateKey1: any, privateKey2: any, emulatorA: Emulator, emulatorB: Emulator) {
+export async function performWrapTransactions(lucid1A: Lucid, lucid2B: Lucid, privateKey1: any, privateKey2: any, emulatorA: HydraEmulator, emulatorB: HydraEmulator) {
   const wrappedValidator = new AdhocLedgerV4WrappedSpend();
   const wrappedAddress = lucid1A.newScript(wrappedValidator).toAddress();
 
   // WRAP UTXO IN A: Alice wraps 5 ADA in head A
   const wrappedDatum: AdhocLedgerV4WrappedDatum = {
     owner: Crypto.privateKeyToDetails(privateKey1).credential.hash,           // Alice address hash
-    intermediaries: new Map(),  // Empty intermediaries for now
+    intermediaries: new Map([[Crypto.privateKeyToDetails(privateKey2).credential.hash, 5_000_000n]]),  // Ida as intermediary with 5 ADA
     nonce: { transactionId: "", outputIndex: 0n },  // Empty nonce for now
     disputed: false,  // Not disputed initially
     timeout: 1000000n,  // Set a timeout slot
@@ -93,7 +94,7 @@ export async function performWrapTransactions(lucid1A: Lucid, lucid2B: Lucid, pr
   // WRAP UTXO IN B: Ida wraps 5 ADA in head B on behalf of herself
   const wrappedDatumB: AdhocLedgerV4WrappedDatum = {
     owner: Crypto.privateKeyToDetails(privateKey2).credential.hash,           // Ida address hash
-    intermediaries: new Map(),  // Empty intermediaries for now
+    intermediaries: new Map([[Crypto.privateKeyToDetails(privateKey1).credential.hash, 5_000_000n]]),  // Alice as intermediary with 5 ADA
     nonce: { transactionId: "", outputIndex: 0n },  // Empty nonce for now
     disputed: false,  // Not disputed initially
     timeout: 1000000n,  // Set a timeout slot
