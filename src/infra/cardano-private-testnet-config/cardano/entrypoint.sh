@@ -94,9 +94,9 @@ tx_in1="781cb948a37c7c38b43872af9b1e22135a94826eafd3740260a6db0a303885d8#0"
 tx_in_amount=29993040000000000
 
 # Define output amounts (in lovelace)
-tx_out_alice=10000000000 # Alice: 10 Ada
-tx_out_bob=10000000000 # Bob: 10 Ada
-tx_out_ida=10000000000 # Ida: 10 Ada
+tx_out_alice=10000000000 # Alice: 10.000 Ada
+tx_out_bob=10000000000 # Bob: 10.000 Ada
+tx_out_ida=10000000000 # Ida: 10.000 Ada
 
 # Total output without fee
 total_output=$((tx_out_alice + tx_out_bob + tx_out_ida))

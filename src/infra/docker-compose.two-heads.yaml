@@ -34,7 +34,6 @@ services:
       - ./cardano-private-testnet-config/cardano/topology-pool1.json:/shared/node-1-topology.json
       - ./cardano-private-testnet-config/cardano/config-pool1.json:/shared/node-1-config.json.base
       - ./cardano-private-testnet-config/cardano/keys:/keys
-      - ./cardano-private-testnet-config/cardano/reward_token_policy.script:/shared/reward_token_policy.script
       - ./cardano-private-testnet-config/genesis/byron/genesis.json:/shared/byron/genesis.json.base
       - ./cardano-private-testnet-config/genesis/shelley/genesis.json:/shared/shelley/genesis.json.base
       - ./cardano-private-testnet-config/genesis/shelley/genesis.alonzo.json:/shared/shelley/genesis.alonzo.json.base
@@ -67,59 +66,19 @@ services:
       - .:/devnet
       - ./cardano-private-testnet-config/cardano/keys:/keys
       - cardano-node-2h-data:/data:ro
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        echo "Waiting for Cardano node to be ready..."
-        while [ ! -f /shared/cardano.ready ]; do
-          sleep 2
-        done
-        echo "Cardano node is ready. Waiting a bit more for transactions to settle..."
-        sleep 10
-        echo ""
-        echo "=========================================="
-        echo "Publishing Hydra reference scripts to L1"
-        echo "=========================================="
-        echo "Checking socket access..."
-        if [ ! -S /data/node.socket ]; then
-          echo "ERROR: Socket /data/node.socket not found or not accessible"
-          exit 1
-        fi
-        echo "Socket found, publishing scripts..."
-        set +e
-        HYDRA_NODE_PATH=$$(find /nix/store -name "hydra-node" -type f 2>/dev/null | head -1)
-        if [ -z "$$HYDRA_NODE_PATH" ]; then
-          echo "ERROR: hydra-node binary not found"
-          exit 1
-        fi
-        echo "Using hydra-node at: $$HYDRA_NODE_PATH"
-        HYDRA_SCRIPTS_TX_ID=$$($$HYDRA_NODE_PATH publish-scripts \
-          --testnet-magic 42 \
-          --node-socket /data/node.socket \
-          --cardano-signing-key /keys/funded_address.skey 2>&1)
-        EXIT_CODE=$$?
-        set -e
-        if [ $$EXIT_CODE -eq 0 ] && [ -n "$$HYDRA_SCRIPTS_TX_ID" ] && [ "$$HYDRA_SCRIPTS_TX_ID" != "Usage:" ]; then
-          echo "Hydra scripts published successfully!"
-          echo "Transaction ID: $$HYDRA_SCRIPTS_TX_ID"
-          echo "$$HYDRA_SCRIPTS_TX_ID" > /shared/hydra-scripts-tx-id.txt
-          echo "Saved transaction ID to /shared/hydra-scripts-tx-id.txt"
-          echo "You can now use --hydra-scripts-tx-id $$(cat /shared/hydra-scripts-tx-id.txt) with your Hydra nodes"
-        else
-          echo "ERROR: Failed to publish Hydra scripts (exit code: $$EXIT_CODE)"
-          echo "Output: $$HYDRA_SCRIPTS_TX_ID"
-          echo "You may need to publish them manually later."
-          exit 1
-        fi
+      - ./hydra-scripts-publisher-entrypoint.sh:/hydra-scripts-publisher-entrypoint.sh
+    entrypoint: ["/bin/sh", "/hydra-scripts-publisher-entrypoint.sh"]
     networks:
       hydra_net:
     depends_on:
       cardano-node-2h:
         condition: service_healthy
 
-  # Head A: alice, ida-1 (offline mode - default, no profile needed)
+  # Head A: alice, ida-1 (offline mode)
   hydra-node-alice-2h:
     <<: *hydra-node-base
+    profiles:
+      - offline
     volumes:
       - .:/devnet
       - ./persistence/alice-2h:/devnet/persistence/alice-2h
@@ -154,6 +113,7 @@ services:
       - .:/devnet
       - ./persistence/alice-2h:/devnet/persistence/alice-2h
       - shared-config-2h:/shared
+      - cardano-node-2h-data:/data:ro
     ports:
       - "4011:4011"
       - "5011:5011"
@@ -162,7 +122,12 @@ services:
       - |
         HYDRA_SCRIPTS_TX_ID=$$(cat /shared/hydra-scripts-tx-id.txt | tr -d '\n\r')
         echo "Using Hydra scripts transaction ID: $$HYDRA_SCRIPTS_TX_ID"
-        exec hydra-node \
+        HYDRA_NODE_PATH=$$(find /nix/store -name "hydra-node" -type f 2>/dev/null | head -1)
+        if [ -z "$$HYDRA_NODE_PATH" ]; then
+          echo "ERROR: hydra-node binary not found"
+          exit 1
+        fi
+        exec $$HYDRA_NODE_PATH \
           --node-id 1 \
           --api-host 0.0.0.0 \
           --listen 172.16.238.11:5011 \
@@ -174,7 +139,7 @@ services:
           --cardano-signing-key /devnet/credentials/alice/alice-funds.sk \
           --cardano-verification-key /devnet/credentials/ida/ida-funds.vk \
           --persistence-dir /devnet/persistence/alice-2h \
-          --node-socket /shared/node.socket \
+          --node-socket /data/node.socket \
           --testnet-magic 42 \
           --hydra-scripts-tx-id "$$HYDRA_SCRIPTS_TX_ID" \
           --ledger-protocol-parameters /devnet/protocol-parameters.json
@@ -193,6 +158,8 @@ services:
 
   hydra-node-ida-1-2h:
     <<: *hydra-node-base
+    profiles:
+      - offline
     volumes:
       - .:/devnet
       - ./persistence/ida-1-2h:/devnet/persistence/ida-1-2h
@@ -226,6 +193,7 @@ services:
       - .:/devnet
       - ./persistence/ida-1-2h:/devnet/persistence/ida-1-2h
       - shared-config-2h:/shared
+      - cardano-node-2h-data:/data:ro
     ports:
       - "4019:4019"
       - "5019:5019"
@@ -234,7 +202,12 @@ services:
       - |
         HYDRA_SCRIPTS_TX_ID=$$(cat /shared/hydra-scripts-tx-id.txt | tr -d '\n\r')
         echo "Using Hydra scripts transaction ID: $$HYDRA_SCRIPTS_TX_ID"
-        exec hydra-node \
+        HYDRA_NODE_PATH=$$(find /nix/store -name "hydra-node" -type f 2>/dev/null | head -1)
+        if [ -z "$$HYDRA_NODE_PATH" ]; then
+          echo "ERROR: hydra-node binary not found"
+          exit 1
+        fi
+        exec $$HYDRA_NODE_PATH \
           --node-id 3 \
           --api-host 0.0.0.0 \
           --listen 172.16.238.19:5019 \
@@ -246,7 +219,7 @@ services:
           --cardano-signing-key /devnet/credentials/ida/ida-funds.sk \
           --cardano-verification-key /devnet/credentials/alice/alice-funds.vk \
           --persistence-dir /devnet/persistence/ida-1-2h \
-          --node-socket /shared/node.socket \
+          --node-socket /data/node.socket \
           --testnet-magic 42 \
           --hydra-scripts-tx-id "$$HYDRA_SCRIPTS_TX_ID" \
           --ledger-protocol-parameters /devnet/protocol-parameters.json
@@ -259,9 +232,11 @@ services:
       hydra-node-alice-2h-online:
         condition: service_healthy
 
-  # Head B: bob, ida-2 (offline mode - default, no profile needed)
+  # Head B: bob, ida-2 (offline mode)
   hydra-node-bob-2h:
     <<: *hydra-node-base
+    profiles:
+      - offline
     volumes:
       - .:/devnet
       - ./persistence/bob-2h:/devnet/persistence/bob-2h
@@ -296,6 +271,7 @@ services:
       - .:/devnet
       - ./persistence/bob-2h:/devnet/persistence/bob-2h
       - shared-config-2h:/shared
+      - cardano-node-2h-data:/data:ro
     ports:
       - "4022:4022"
       - "5022:5022"
@@ -304,7 +280,12 @@ services:
       - |
         HYDRA_SCRIPTS_TX_ID=$$(cat /shared/hydra-scripts-tx-id.txt | tr -d '\n\r')
         echo "Using Hydra scripts transaction ID: $$HYDRA_SCRIPTS_TX_ID"
-        exec hydra-node \
+        HYDRA_NODE_PATH=$$(find /nix/store -name "hydra-node" -type f 2>/dev/null | head -1)
+        if [ -z "$$HYDRA_NODE_PATH" ]; then
+          echo "ERROR: hydra-node binary not found"
+          exit 1
+        fi
+        exec $$HYDRA_NODE_PATH \
           --node-id 2 \
           --api-host 0.0.0.0 \
           --listen 172.16.238.22:5022 \
@@ -316,7 +297,7 @@ services:
           --cardano-signing-key /devnet/credentials/bob/bob-funds.sk \
           --cardano-verification-key /devnet/credentials/ida/ida-funds.vk \
           --persistence-dir /devnet/persistence/bob-2h \
-          --node-socket /shared/node.socket \
+          --node-socket /data/node.socket \
           --testnet-magic 42 \
           --hydra-scripts-tx-id "$$HYDRA_SCRIPTS_TX_ID" \
           --ledger-protocol-parameters /devnet/protocol-parameters.json
@@ -335,6 +316,8 @@ services:
 
   hydra-node-ida-2-2h:
     <<: *hydra-node-base
+    profiles:
+      - offline
     volumes:
       - .:/devnet
       - ./persistence/ida-2-2h:/devnet/persistence/ida-2-2h
@@ -368,6 +351,7 @@ services:
       - .:/devnet
       - ./persistence/ida-2-2h:/devnet/persistence/ida-2-2h
       - shared-config-2h:/shared
+      - cardano-node-2h-data:/data:ro
     ports:
       - "4029:4029"
       - "5029:5029"
@@ -376,7 +360,12 @@ services:
       - |
         HYDRA_SCRIPTS_TX_ID=$$(cat /shared/hydra-scripts-tx-id.txt | tr -d '\n\r')
         echo "Using Hydra scripts transaction ID: $$HYDRA_SCRIPTS_TX_ID"
-        exec hydra-node \
+        HYDRA_NODE_PATH=$$(find /nix/store -name "hydra-node" -type f 2>/dev/null | head -1)
+        if [ -z "$$HYDRA_NODE_PATH" ]; then
+          echo "ERROR: hydra-node binary not found"
+          exit 1
+        fi
+        exec $$HYDRA_NODE_PATH \
           --node-id 4 \
           --api-host 0.0.0.0 \
           --listen 172.16.238.29:5029 \
@@ -388,7 +377,7 @@ services:
           --cardano-signing-key /devnet/credentials/ida/ida-funds.sk \
           --cardano-verification-key /devnet/credentials/bob/bob-funds.vk \
           --persistence-dir /devnet/persistence/ida-2-2h \
-          --node-socket /shared/node.socket \
+          --node-socket /data/node.socket \
           --testnet-magic 42 \
           --hydra-scripts-tx-id "$$HYDRA_SCRIPTS_TX_ID" \
           --ledger-protocol-parameters /devnet/protocol-parameters.json
@@ -403,6 +392,8 @@ services:
 
   startup-time-logger:
     image: alpine
+    profiles:
+      - offline
     depends_on:
       - hydra-node-alice-2h
       - hydra-node-bob-2h
