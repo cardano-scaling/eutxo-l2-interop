@@ -1,4 +1,4 @@
-use cardano/transaction.{Transaction, OutputReference}
+use cardano/transaction.{Transaction, OutputReference, Output, InlineDatum}
 use aiken/crypto.{VerificationKeyHash}
 use aiken/collection/list
 
@@ -18,7 +18,12 @@ pub type WrappedRedeemer {
   Punish
 }
 
-validator wrapped() {
+// Helper function to check if a VKH is in intermediaries list
+fn is_intermediate(vkh: VerificationKeyHash, intermediaries: Pairs<VerificationKeyHash, Int>) -> Bool {
+  list.any(intermediaries, fn(pair) { pair.1st == vkh })
+}
+
+validator wrapped {
   spend(
     datum_opt: Option<WrappedDatum>,
     redeemer: WrappedRedeemer,
@@ -35,11 +40,49 @@ validator wrapped() {
         list.has(extra_signatories, datum.owner)?
       }
       Dispute -> {
-        // TODO: checks:
-        // - signed by any party (owner or intermediary)
-        // - continuing output is equal to spent input but 
-        //   disputed is True
-        True
+        // Validate signer is owner OR intermediary
+        let is_owner_signed = list.has(extra_signatories, datum.owner)?
+        let is_intermediate_signed = list.any(extra_signatories, fn(signer) {
+          is_intermediate(signer, datum.intermediaries)?
+        })?
+
+        let valid_signer = is_owner_signed || is_intermediate_signed?
+
+        // Get own input for comparison
+        expect Some(own_input) = list.find(tx.inputs, fn(input) {
+          input.output_reference == own_input_ref
+        })
+
+        // Use first output as continuing output
+        expect [continuing_output, ..] = tx.outputs
+
+        // Extract inline datum from continuing output
+        expect InlineDatum(continuing_datum) = continuing_output.datum
+        expect continuing_datum: WrappedDatum = continuing_datum
+
+        // Validate state transition
+        and {
+          // Authorization checks
+          valid_signer,
+
+          // Datum field preservation
+          continuing_datum.owner == datum.owner,
+          continuing_datum.intermediaries == datum.intermediaries,
+          continuing_datum.nonce == datum.nonce,
+
+          // Required state changes
+          continuing_datum.disputed == True,
+          when continuing_datum.timeout is {
+            Some(_) -> True
+            None -> False
+          },
+
+          // Value preservation
+          continuing_output.value == own_input.output.value,
+
+          // Address preservation
+          continuing_output.address == own_input.output.address,
+        }
       }
       Verify -> {
         // TODO: Verify implementation for future
