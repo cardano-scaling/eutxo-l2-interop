@@ -30,6 +30,7 @@ async function main() {
   const disputedDatumA: AdhocLedgerV4WrappedDatum = {
     ...wrappedDatum,
     disputed: true,
+    timeout: 1000000n,
   };
 
   const disputeTxA = await env.lucid1A.newTx()
@@ -55,6 +56,7 @@ async function main() {
   const disputedDatumB: AdhocLedgerV4WrappedDatum = {
     ...wrappedDatum,
     disputed: true,
+    timeout: 1000000n,
   };
 
   const disputeTxB = await env.lucid2B.newTx()

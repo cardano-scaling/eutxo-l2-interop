@@ -31,6 +31,7 @@ async function main() {
   const disputedDatumA: AdhocLedgerV4WrappedDatum = {
     ...wrappedDatum,
     disputed: true,
+    timeout: 1000000n,
   };
 
   const disputeTxA = await env.lucid1A.newTx()
@@ -56,6 +57,7 @@ async function main() {
   const disputedDatumB: AdhocLedgerV4WrappedDatum = {
     ...wrappedDatum,
     disputed: true,
+    timeout: 1000000n,
   };
 
   const disputeTxB = await env.lucid2B.newTx()
@@ -146,7 +148,8 @@ async function main() {
     // Create transaction to spend both disputed UTXOs
     const spendTxs = await lucidMain.newTx()
       .collectFrom([disputeUtxoA, disputeUtxoB], Data.to("Merge", AdhocLedgerV4WrappedSpend.redeemer))
-      .payTo(env.address1, { lovelace: 10000000n }) // Send 10 ADA back to Alice
+      .payTo(env.address1, { lovelace: 5000000n }) // Send 5 ADA back to Alice
+      .payTo(env.address2, { lovelace: 5000000n }) // Send 5 ADA back to Ida
       .attachScript(wrappedValidator)
       .commit();
     
