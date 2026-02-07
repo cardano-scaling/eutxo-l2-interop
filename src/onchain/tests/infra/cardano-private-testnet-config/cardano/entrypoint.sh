@@ -94,12 +94,15 @@ tx_in1="781cb948a37c7c38b43872af9b1e22135a94826eafd3740260a6db0a303885d8#0"
 tx_in_amount=29993040000000000
 
 # Define output amounts (in lovelace)
-tx_out_alice=10000000000 # Alice: 10.000 Ada
-tx_out_bob=10000000000 # Bob: 10.000 Ada
-tx_out_ida=10000000000 # Ida: 10.000 Ada
+# Each participant gets 2 UTXOs per head: one for Hydra fuel, one for committing.
+# Fuel must be LARGER than commit — the Hydra node picks fuel and the commit
+# endpoint builds a tx that also requires fuel for on-chain fees.
+# Ida participates in BOTH heads, so she gets 4 UTXOs (2 per head).
+tx_fuel=9000000000     # 9.000 Ada fuel (for on-chain Hydra tx fees)
+tx_commit=1000000000   # 1.000 Ada to commit into the head
 
-# Total output without fee
-total_output=$((tx_out_alice + tx_out_bob + tx_out_ida))
+# Alice: 2, Bob: 2, Ida: 4 = 10 UTXOs total (but 4 unique pairs)
+total_output=$(( (tx_fuel + tx_commit) * 4 ))
 
 fee=1000000
 
@@ -107,11 +110,19 @@ fee=1000000
 change=$((tx_in_amount - total_output - fee))
 
 # Build the raw transaction
+# Alice: 2 UTXOs (fuel + commit) — for Head A
+# Bob:   2 UTXOs (fuel + commit) — for Head B
+# Ida:   4 UTXOs (fuel + commit for Head A, fuel + commit for Head B)
 cardano-cli latest transaction build-raw \
   --tx-in $tx_in1 \
-  --tx-out "$alice_address+$tx_out_alice" \
-  --tx-out "$bob_address+$tx_out_bob" \
-  --tx-out "$ida_address+$tx_out_ida" \
+  --tx-out "$alice_address+$tx_fuel" \
+  --tx-out "$alice_address+$tx_commit" \
+  --tx-out "$bob_address+$tx_fuel" \
+  --tx-out "$bob_address+$tx_commit" \
+  --tx-out "$ida_address+$tx_fuel" \
+  --tx-out "$ida_address+$tx_commit" \
+  --tx-out "$ida_address+$tx_fuel" \
+  --tx-out "$ida_address+$tx_commit" \
   --tx-out "$genesis_address+$change" \
   --fee $fee \
   --out-file /data/tx.raw
@@ -149,25 +160,99 @@ cardano-cli latest query utxo \
   --testnet-magic 42 \
   --address $ida_address
 
-echo "Querying and saving the first UTXO details for Alice address to /shared/alice.utxo:"
+# Save individual first-UTXO refs (legacy, used by Hydra nodes)
 cardano-cli latest query utxo --testnet-magic 42 --address "${alice_address}" | /busybox awk 'NR>2 { print $1 "#" $2; exit }' > /shared/alice.utxo
-echo "UTXO details for Alice saved in /shared/alice.utxo."
-cat /shared/alice.utxo
-
-echo "Querying and saving the first UTXO details for Bob address to /shared/bob.utxo:"
 cardano-cli latest query utxo --testnet-magic 42 --address "${bob_address}" | /busybox awk 'NR>2 { print $1 "#" $2; exit }' > /shared/bob.utxo
-echo "UTXO details for Bob saved in /shared/bob.utxo."
-cat /shared/bob.utxo
-
-echo "Querying and saving the first UTXO details for Ida address to /shared/ida.utxo:"
 cardano-cli latest query utxo --testnet-magic 42 --address "${ida_address}" | /busybox awk 'NR>2 { print $1 "#" $2; exit }' > /shared/ida.utxo
-echo "UTXO details for Ida saved in /shared/ida.utxo."
-cat /shared/ida.utxo
-
-echo "Querying and saving the first UTXO details for genesis address to /shared/genesis.utxo:"
 cardano-cli latest query utxo --testnet-magic 42 --address "${genesis_address}" | /busybox awk 'NR>2 { print $1 "#" $2; exit }' > /shared/genesis.utxo
-cat /shared/genesis.utxo
+
+# Write full UTXO JSON for each participant (consumed by commit script on host)
+echo "Writing initial L1 UTXOs JSON to /devnet/initial-l1-utxos.json..."
+{
+  echo '{'
+  echo '  "alice":'
+  cardano-cli latest query utxo --testnet-magic 42 --address "${alice_address}" --output-json
+  echo '  ,'
+  echo '  "bob":'
+  cardano-cli latest query utxo --testnet-magic 42 --address "${bob_address}" --output-json
+  echo '  ,'
+  echo '  "ida":'
+  cardano-cli latest query utxo --testnet-magic 42 --address "${ida_address}" --output-json
+  echo '}'
+} > /devnet/initial-l1-utxos.json
+chmod 666 /devnet/initial-l1-utxos.json
+chown 1000:1000 /devnet/initial-l1-utxos.json 2>/dev/null || true
+echo "Saved initial-l1-utxos.json"
+cat /devnet/initial-l1-utxos.json
 
 touch /shared/cardano.ready
+
+# Background watcher: after hydra-scripts-publisher finishes (using Alice's key),
+# Alice has a single change UTXO. Split it into fuel + commit so the commit
+# script sees 2 UTXOs, then refresh the JSON file.
+(
+  echo "[utxo-refresh] Waiting for hydra-scripts-publisher to finish..."
+  while [ ! -f /shared/hydra-scripts-tx-id.txt ]; do sleep 2; done
+  echo "[utxo-refresh] Publisher done. Waiting 10s for chain to settle..."
+  sleep 10
+
+  alice_addr=$(cat /devnet/credentials/alice/alice-funds.addr | tr -d '\n\r')
+  bob_addr=$(cat /devnet/credentials/bob/bob-funds.addr | tr -d '\n\r')
+  ida_addr=$(cat /devnet/credentials/ida/ida-funds.addr | tr -d '\n\r')
+
+  # --- Split Alice's single UTXO into fuel + commit ---
+  echo "[utxo-refresh] Querying Alice's current UTXOs..."
+  alice_utxo_line=$(cardano-cli latest query utxo --testnet-magic 42 --address "${alice_addr}" | /busybox awk 'NR>2 { print $1, $2, $3; exit }')
+  alice_txhash=$(echo "$alice_utxo_line" | /busybox awk '{print $1}')
+  alice_txix=$(echo "$alice_utxo_line" | /busybox awk '{print $2}')
+  alice_balance=$(echo "$alice_utxo_line" | /busybox awk '{print $3}')
+  echo "[utxo-refresh] Alice UTXO: ${alice_txhash}#${alice_txix} = ${alice_balance} lovelace"
+
+  split_fee=200000
+  split_commit=1000000000   # 1000 ADA to commit into the head
+  split_fuel=$((alice_balance - split_commit - split_fee))  # rest goes to fuel
+  echo "[utxo-refresh] Splitting → fuel: ${split_fuel}, commit: ${split_commit}, fee: ${split_fee}"
+
+  cardano-cli latest transaction build-raw \
+    --tx-in "${alice_txhash}#${alice_txix}" \
+    --tx-out "${alice_addr}+${split_fuel}" \
+    --tx-out "${alice_addr}+${split_commit}" \
+    --fee ${split_fee} \
+    --out-file /data/alice-split.raw
+
+  cardano-cli latest transaction sign \
+    --tx-body-file /data/alice-split.raw \
+    --signing-key-file /devnet/credentials/alice/alice-funds.sk \
+    --testnet-magic 42 \
+    --out-file /data/alice-split.signed
+
+  cardano-cli latest transaction submit \
+    --tx-file /data/alice-split.signed \
+    --testnet-magic 42
+  echo "[utxo-refresh] Alice split tx submitted. Waiting 10s for confirmation..."
+  sleep 10
+
+  # --- Refresh the UTXO JSON file ---
+  echo "[utxo-refresh] Re-querying UTXOs for all participants..."
+  {
+    echo '{'
+    echo '  "alice":'
+    cardano-cli latest query utxo --testnet-magic 42 --address "${alice_addr}" --output-json
+    echo '  ,'
+    echo '  "bob":'
+    cardano-cli latest query utxo --testnet-magic 42 --address "${bob_addr}" --output-json
+    echo '  ,'
+    echo '  "ida":'
+    cardano-cli latest query utxo --testnet-magic 42 --address "${ida_addr}" --output-json
+    echo '}'
+  } > /devnet/initial-l1-utxos.json.tmp
+  mv /devnet/initial-l1-utxos.json.tmp /devnet/initial-l1-utxos.json
+  chmod 666 /devnet/initial-l1-utxos.json
+  chown 1000:1000 /devnet/initial-l1-utxos.json 2>/dev/null || true
+
+  echo "[utxo-refresh] Updated initial-l1-utxos.json:"
+  cat /devnet/initial-l1-utxos.json
+  echo "[utxo-refresh] Done."
+) &
 
 wait
