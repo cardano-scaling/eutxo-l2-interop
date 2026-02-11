@@ -294,7 +294,7 @@ export async function performWrapTransactions(
   await emulatorB.awaitTx(wrapTxBHash);
   console.log("WRAP TX B:", wrapTxBHash);
 
-  return { wrappedValidator, wrappedAddress, wrappedDatum };
+  return { wrappedValidator, wrappedAddress, wrappedDatum, wrappedDatumB };
 }
 
 // ============================================================

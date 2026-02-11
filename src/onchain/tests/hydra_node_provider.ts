@@ -44,7 +44,10 @@ export class HydraNodeProvider implements Provider {
     const raw = JSON.parse(await Deno.readTextFile(PROTOCOL_PARAMETERS_PATH));
 
     this.protocolParams = {
-      minFeeA: raw.txFeeFixed ?? 0,
+      // Hydra sets fees to 0, but Lucid's WASM builder skips collateral when
+      // fee=0. A 1-lovelace fixed fee triggers collateral inclusion for Plutus
+      // script txs. Hydra accepts any fee ≥ 0.
+      minFeeA: raw.txFeeFixed || 1,
       minFeeB: raw.txFeePerByte ?? 0,
       maxTxSize: raw.maxTxSize ?? 25000,
       maxValSize: raw.maxValueSize ?? 5000,
