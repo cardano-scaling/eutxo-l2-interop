@@ -195,6 +195,55 @@ export class HydraHandler {
     });
   }
 
+  /**
+   * Close the Hydra head, wait for contestation period, then fanout.
+   * Full lifecycle: Close → HeadIsClosed → ReadyToFanout → Fanout → HeadIsFinalized
+   *
+   * Uses a single onmessage listener to avoid race conditions when the
+   * contestation period is short.
+   */
+  async closeAndFanout(timeout = 120000): Promise<void> {
+    await this.ensureReady();
+
+    return new Promise((resolve, reject) => {
+      const tid = setTimeout(
+        () => reject(new Error("Timeout waiting for head close/fanout lifecycle")),
+        timeout,
+      );
+
+      let phase: "closing" | "closed" | "fanning_out" = "closing";
+
+      this.connection.onmessage = (msg: MessageEvent) => {
+        const data = JSON.parse(msg.data);
+        console.log(`  [WS] Received: ${data.tag}`);
+
+        if (data.tag === "HeadIsClosed" && phase === "closing") {
+          phase = "closed";
+          console.log("  Head is closed, waiting for contestation deadline...");
+        } else if (data.tag === "ReadyToFanout" && phase === "closed") {
+          phase = "fanning_out";
+          console.log("  Ready to fanout, sending Fanout...");
+          this.connection.send(JSON.stringify({ tag: "Fanout" }));
+        } else if (data.tag === "HeadIsFinalized" && phase === "fanning_out") {
+          clearTimeout(tid);
+          console.log("  Head is finalized — UTXOs released to L1");
+          resolve();
+        } else if (data.tag === "PostTxOnChainFailed") {
+          console.log(
+            `  [WS] ⚠ PostTxOnChainFailed (node will retry): ${data.postTxError?.tag || "unknown"}`,
+          );
+        } else if (ERROR_TAGS.includes(data.tag)) {
+          clearTimeout(tid);
+          reject(new Error(`Error during close/fanout: ${data.tag} - ${JSON.stringify(data)}`));
+        }
+      };
+
+      // Kick off the lifecycle
+      console.log("  Sending Close...");
+      this.connection.send(JSON.stringify({ tag: "Close" }));
+    });
+  }
+
   stop() {
     this.connection.close();
   }

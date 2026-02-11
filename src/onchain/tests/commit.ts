@@ -87,14 +87,24 @@ async function loadL1Utxos(name: "alice" | "bob" | "ida"): Promise<Utxo[]> {
 }
 
 /**
+ * Minimum lovelace for a commit UTXO. Must be well above the 5 ADA that
+ * wrap.ts locks into the validator, so there is enough left for fees and
+ * the change output inside the head.
+ */
+const MIN_COMMIT_LOVELACE = 10_000_000n; // 10 ADA
+
+/**
  * Pick the commit UTXO for a participant.
- * If they have 2+ UTXOs, commit the SMALLEST — the larger UTXO stays as Hydra
- * fuel (the node needs it to cover on-chain Init/Commit tx fees).
- * If they have only 1 UTXO, return null (empty commit — the single UTXO is Hydra fuel).
+ * From the sorted (ascending) list, pick the smallest UTXO that is above
+ * MIN_COMMIT_LOVELACE. UTXOs that are too small are skipped — they might
+ * be leftover dust from a previous merge cycle.
+ * If no suitable UTXO is found (or only 1 remains), return null (empty commit).
  */
 function pickCommitUtxo(utxos: Utxo[]): Utxo | null {
-  if (utxos.length >= 2) return utxos[0]; // smallest (sorted ascending)
-  return null; // single UTXO reserved as fuel
+  if (utxos.length < 2) return null; // single UTXO reserved as fuel
+  const eligible = utxos.filter((u) => u.assets.lovelace >= MIN_COMMIT_LOVELACE);
+  if (eligible.length >= 2) return eligible[0]; // smallest eligible (sorted ascending)
+  return null; // not enough eligible UTXOs
 }
 
 // HydraHandler, UTxO conversion, and types are imported from hydra_handler.ts
@@ -423,12 +433,11 @@ async function main() {
   const idaUtxos = await loadL1Utxos("ida");
   console.log(`  Alice: ${aliceUtxos.length} UTXOs, Bob: ${bobUtxos.length} UTXOs, Ida: ${idaUtxos.length} UTXOs`);
 
-  // Ida participates in both heads — she has 4 UTXOs (sorted ascending by lovelace):
-  //   [1000 ADA, 1000 ADA, 9000 ADA, 9000 ADA]
-  // Split: 1st commit for Head A, 2nd commit for Head B.
-  // The Hydra nodes auto-select fuel from the larger UTXOs.
-  const idaCommitA = idaUtxos.length >= 4 ? idaUtxos[0] : pickCommitUtxo(idaUtxos);
-  const idaCommitB = idaUtxos.length >= 4 ? idaUtxos[1] : null;
+  // Ida participates in both heads — she needs 2 commit UTXOs + 2 fuel UTXOs.
+  // Filter by MIN_COMMIT_LOVELACE to skip dust from previous merge cycles.
+  const idaEligible = idaUtxos.filter((u) => u.assets.lovelace >= MIN_COMMIT_LOVELACE);
+  const idaCommitA = idaEligible.length >= 2 ? idaEligible[0] : pickCommitUtxo(idaUtxos);
+  const idaCommitB = idaEligible.length >= 2 ? idaEligible[1] : null;
 
   // Head A: Alice + Ida
   const aliceCommit = pickCommitUtxo(aliceUtxos);

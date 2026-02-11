@@ -78,6 +78,11 @@ echo "Creating symlink to shared volume for socket access..."
 ln -sf /data/node.socket /shared/node.socket
 echo "Socket symlink created at /shared/node.socket"
 
+# Start lightweight HTTP query API (socat-based, port 1442)
+chmod +x /cardano-query-api.sh
+socat TCP-LISTEN:1442,reuseaddr,fork SYSTEM:"/cardano-query-api.sh" &
+echo "Cardano query API started on port 1442"
+
 # Read addresses from mounted credentials
 alice_address=$(cat /devnet/credentials/alice/alice-funds.addr | tr -d '\n\r')
 bob_address=$(cat /devnet/credentials/bob/bob-funds.addr | tr -d '\n\r')

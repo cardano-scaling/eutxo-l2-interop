@@ -41,11 +41,13 @@ services:
       - ./cardano-private-testnet-config/genesis/shelley/genesis-utxo.skey:/shared/shelley/genesis-utxo.skey
       - ./cardano-private-testnet-config/genesis/shelley/genesis-utxo.vkey:/shared/shelley/genesis-utxo.vkey
       - ./cardano-private-testnet-config/genesis/conway/genesis.conway.json:/shared/conway/genesis.conway.json.base
+      - ./cardano-query-api.sh:/cardano-query-api.sh
     environment:
       - CARDANO_NODE_SOCKET_PATH=/data/node.socket
     entrypoint: ["/bin/bash", "/entrypoint.sh"]
     ports:
       - "32000:32000"
+      - "1442:1442"
     networks:
       hydra_net:
         ipv4_address: 172.16.238.100
@@ -136,6 +138,7 @@ services:
           --node-socket /data/node.socket \
           --testnet-magic 42 \
           --hydra-scripts-tx-id "$$HYDRA_SCRIPTS_TX_ID" \
+          --contestation-period 5s \
           --ledger-protocol-parameters /devnet/protocol-parameters.json
     networks:
       hydra_net:
@@ -186,6 +189,7 @@ services:
           --node-socket /data/node.socket \
           --testnet-magic 42 \
           --hydra-scripts-tx-id "$$HYDRA_SCRIPTS_TX_ID" \
+          --contestation-period 5s \
           --ledger-protocol-parameters /devnet/protocol-parameters.json
     networks:
       hydra_net:
@@ -232,6 +236,7 @@ services:
           --node-socket /data/node.socket \
           --testnet-magic 42 \
           --hydra-scripts-tx-id "$$HYDRA_SCRIPTS_TX_ID" \
+          --contestation-period 5s \
           --ledger-protocol-parameters /devnet/protocol-parameters.json
     networks:
       hydra_net:
@@ -282,6 +287,7 @@ services:
           --node-socket /data/node.socket \
           --testnet-magic 42 \
           --hydra-scripts-tx-id "$$HYDRA_SCRIPTS_TX_ID" \
+          --contestation-period 5s \
           --ledger-protocol-parameters /devnet/protocol-parameters.json
     networks:
       hydra_net:
