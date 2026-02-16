@@ -456,6 +456,9 @@ async function main() {
 }
 
 if (import.meta.main) {
+  try { await Deno.stat("./infra/l1-utxos.ready"); }
+  catch { console.error("Infrastructure not ready — l1-utxos.ready not found. Is docker compose up?"); Deno.exit(1); }
+
   main().catch((e) => {
     console.error("Error:", e);
     Deno.exit(1);

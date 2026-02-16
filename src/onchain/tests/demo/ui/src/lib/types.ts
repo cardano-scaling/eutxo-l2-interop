@@ -55,6 +55,7 @@ export interface DemoSnapshot {
   phase: DemoPhase;
   busy: boolean;
   busyAction: string;
+  infraReady: boolean;
 }
 
 /**

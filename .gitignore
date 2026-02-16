@@ -20,4 +20,5 @@ node_modules
 *.pdf
 
 src/onchain/tests/infra/l1-utxos.json
+src/onchain/tests/infra/l1-utxos.ready
 src/onchain/tests/infra/persistence/**

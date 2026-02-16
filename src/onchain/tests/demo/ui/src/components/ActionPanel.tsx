@@ -10,6 +10,7 @@ interface Props {
   busy: boolean;
   busyAction: string;
   hasL1ScriptUtxos: boolean;
+  infraReady: boolean;
   error: string | null;
   onAction: (action: string) => void;
   onRefresh: () => void;
@@ -85,7 +86,7 @@ const ACTIONS: ActionDef[] = [
   },
 ];
 
-export function ActionPanel({ phase, loading, busy, busyAction, hasL1ScriptUtxos, error, onAction, onRefresh }: Props) {
+export function ActionPanel({ phase, loading, busy, busyAction, hasL1ScriptUtxos, infraReady, error, onAction, onRefresh }: Props) {
   const blocked = loading || busy;
   return (
     <Card>
@@ -93,6 +94,9 @@ export function ActionPanel({ phase, loading, busy, busyAction, hasL1ScriptUtxos
         <div className="flex items-center justify-between">
           <CardTitle className="text-base">Actions</CardTitle>
           <div className="flex items-center gap-2">
+            {!infraReady && (
+              <Badge variant="destructive" className="animate-pulse">Infra not ready</Badge>
+            )}
             <Badge variant="outline">{PHASE_LABELS[phase]}</Badge>
             <Button variant="ghost" size="sm" onClick={onRefresh} disabled={blocked}>
               🔄
@@ -101,12 +105,19 @@ export function ActionPanel({ phase, loading, busy, busyAction, hasL1ScriptUtxos
         </div>
       </CardHeader>
       <CardContent className="space-y-2">
+        {!infraReady && (
+          <div className="p-2 bg-orange-500/10 border border-orange-500/30 rounded text-sm text-orange-700 dark:text-orange-400">
+            ⏳ Waiting for infrastructure…
+          </div>
+        )}
         {ACTIONS.map(({ action, label, description, enabledPhases, variant }) => {
           // Merge is always available when there are script UTXOs on L1
           const phaseMatch = action === "merge"
             ? (enabledPhases.includes(phase) || hasL1ScriptUtxos)
             : enabledPhases.includes(phase);
-          const enabled = phaseMatch && !blocked;
+          // Connect requires infra to be ready
+          const infraOk = action !== "connect" || infraReady;
+          const enabled = phaseMatch && infraOk && !blocked;
           const isRunning = busy && busyAction === action;
           return (
             <div key={action}>

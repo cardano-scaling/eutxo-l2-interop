@@ -1,5 +1,8 @@
 #! /bin/bash
 
+# Remove sentinel so the app and scripts know infra is not ready yet
+rm -f /devnet/l1-utxos.ready
+
 chmod 600 /keys/*
 chmod +x /busybox
 chmod 777 /shared
@@ -234,8 +237,8 @@ touch /shared/cardano.ready
   cardano-cli latest transaction submit \
     --tx-file /data/alice-split.signed \
     --testnet-magic 42
-  echo "[utxo-refresh] Alice split tx submitted. Waiting 10s for confirmation..."
-  sleep 10
+  echo "[utxo-refresh] Alice split tx submitted. Waiting 6s for confirmation..."
+  sleep 6
 
   # --- Refresh the UTXO JSON file ---
   echo "[utxo-refresh] Re-querying UTXOs for all participants..."
@@ -257,7 +260,10 @@ touch /shared/cardano.ready
 
   echo "[utxo-refresh] Updated l1-utxos.json:"
   cat /devnet/l1-utxos.json
-  echo "[utxo-refresh] Done."
+
+  # Signal that infra is fully ready (L1 UTXOs available)
+  touch /devnet/l1-utxos.ready
+  echo "[utxo-refresh] Done. Sentinel written: /devnet/l1-utxos.ready"
 ) &
 
 wait

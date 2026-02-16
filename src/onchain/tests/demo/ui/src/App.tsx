@@ -65,6 +65,7 @@ export default function App() {
               phase: "idle",
               busy: false,
               busyAction: "",
+              infraReady: false,
             }} />
 
             {/* Actions */}
@@ -74,6 +75,7 @@ export default function App() {
               busy={snapshot?.busy || false}
               busyAction={snapshot?.busyAction || ""}
               hasL1ScriptUtxos={hasL1ScriptUtxos}
+              infraReady={snapshot?.infraReady ?? false}
               error={error}
               onAction={handleAction}
               onRefresh={fetchSnapshot}

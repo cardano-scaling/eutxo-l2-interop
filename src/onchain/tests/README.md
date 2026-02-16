@@ -18,7 +18,7 @@ cd src/onchain/tests/infra
 docker compose up
 
 # Tear down (wipes all state)
-docker compose down -v
+docker compose down -v && sudo rm -rf persistence
 ```
 
 Services: `cardano-node`, `cardano-submit-api`, `hydra-scripts-publisher`,

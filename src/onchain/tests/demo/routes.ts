@@ -87,6 +87,9 @@ export function getEvents(): Response {
 /** Initialize: load credentials and connect to heads */
 export async function actionConnect(): Promise<Response> {
   return withBusy("connect", async () => {
+    if (!await state.isInfraReady()) {
+      throw new Error("Infrastructure not ready — waiting for L1 UTXOs (is docker compose up?)");
+    }
     await state.loadCredentials();
     await state.connectHeads();
     const snapshot = await state.getSnapshot();

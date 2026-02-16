@@ -30,6 +30,7 @@ import {
 
 const CREDENTIALS_PATH = "../infra/credentials";
 const UTXO_FILE = "../infra/l1-utxos.json";
+const INFRA_READY_SENTINEL = "../infra/l1-utxos.ready";
 
 // Hydra node API endpoints (must match docker-compose)
 const HEAD_A_ALICE_API = "http://127.0.0.1:4011";
@@ -77,6 +78,7 @@ export interface DemoSnapshot {
   phase: DemoPhase;
   busy: boolean;
   busyAction: string;
+  infraReady: boolean;
 }
 
 export type DemoPhase =
@@ -134,6 +136,18 @@ export class DemoState {
 
   constructor() {
     this.l1Provider = new CardanoCliProvider();
+  }
+
+  // ── Infra readiness ───────────────────────────────────────
+
+  /** Check if the sentinel file exists (written by cardano-node entrypoint after L1 UTXOs are ready) */
+  async isInfraReady(): Promise<boolean> {
+    try {
+      await Deno.stat(INFRA_READY_SENTINEL);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   // ── Credentials ────────────────────────────────────────────
@@ -490,6 +504,7 @@ export class DemoState {
       phase: this.phase,
       busy: this.busy,
       busyAction: this.busyAction,
+      infraReady: await this.isInfraReady(),
     };
   }
 
