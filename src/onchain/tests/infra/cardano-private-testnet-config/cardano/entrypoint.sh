@@ -172,7 +172,7 @@ cardano-cli latest query utxo --testnet-magic 42 --address "${ida_address}" | /b
 cardano-cli latest query utxo --testnet-magic 42 --address "${genesis_address}" | /busybox awk 'NR>2 { print $1 "#" $2; exit }' > /shared/genesis.utxo
 
 # Write full UTXO JSON for each participant (consumed by commit script on host)
-echo "Writing initial L1 UTXOs JSON to /devnet/initial-l1-utxos.json..."
+echo "Writing initial L1 UTXOs JSON to /devnet/l1-utxos.json..."
 {
   echo '{'
   echo '  "alice":'
@@ -184,11 +184,11 @@ echo "Writing initial L1 UTXOs JSON to /devnet/initial-l1-utxos.json..."
   echo '  "ida":'
   cardano-cli latest query utxo --testnet-magic 42 --address "${ida_address}" --output-json
   echo '}'
-} > /devnet/initial-l1-utxos.json
-chmod 666 /devnet/initial-l1-utxos.json
-chown 1000:1000 /devnet/initial-l1-utxos.json 2>/dev/null || true
-echo "Saved initial-l1-utxos.json"
-cat /devnet/initial-l1-utxos.json
+} > /devnet/l1-utxos.json
+chmod 666 /devnet/l1-utxos.json
+chown 1000:1000 /devnet/l1-utxos.json 2>/dev/null || true
+echo "Saved l1-utxos.json"
+cat /devnet/l1-utxos.json
 
 touch /shared/cardano.ready
 
@@ -250,13 +250,13 @@ touch /shared/cardano.ready
     echo '  "ida":'
     cardano-cli latest query utxo --testnet-magic 42 --address "${ida_addr}" --output-json
     echo '}'
-  } > /devnet/initial-l1-utxos.json.tmp
-  mv /devnet/initial-l1-utxos.json.tmp /devnet/initial-l1-utxos.json
-  chmod 666 /devnet/initial-l1-utxos.json
-  chown 1000:1000 /devnet/initial-l1-utxos.json 2>/dev/null || true
+  } > /devnet/l1-utxos.json.tmp
+  mv /devnet/l1-utxos.json.tmp /devnet/l1-utxos.json
+  chmod 666 /devnet/l1-utxos.json
+  chown 1000:1000 /devnet/l1-utxos.json 2>/dev/null || true
 
-  echo "[utxo-refresh] Updated initial-l1-utxos.json:"
-  cat /devnet/initial-l1-utxos.json
+  echo "[utxo-refresh] Updated l1-utxos.json:"
+  cat /devnet/l1-utxos.json
   echo "[utxo-refresh] Done."
 ) &
 

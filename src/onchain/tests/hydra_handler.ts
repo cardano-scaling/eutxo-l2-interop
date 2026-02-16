@@ -55,11 +55,16 @@ export type HydraUtxo = {
 export class HydraHandler {
   private connection: WebSocket;
   private url: URL;
+  private label: string;
   private isReady = false;
   private greetingsPromise: Promise<GreetingsMessage>;
   private resolveGreetings!: (msg: GreetingsMessage) => void;
+  private _headStatus: HeadStatus = "Idle";
+  /** All-messages listener — always fires, even when listen()/sendTx() override onmessage. */
+  private messageInterceptor: ((data: any) => void) | null = null;
 
-  constructor(url: string) {
+  constructor(url: string, label = "?") {
+    this.label = label;
     const wsURL = new URL(url);
     wsURL.protocol = wsURL.protocol.replace("http", "ws");
     this.url = wsURL;
@@ -73,18 +78,40 @@ export class HydraHandler {
   private setupEventHandlers() {
     this.connection.onopen = () => {
       this.isReady = true;
+      console.log(`  [WS:${this.label}] connected`);
     };
-    this.connection.onerror = () => console.error("  Error on Hydra websocket");
+    this.connection.onerror = () => console.error(`  [WS:${this.label}] Error on Hydra websocket`);
     this.connection.onclose = () => {
       this.isReady = false;
+      console.log(`  [WS:${this.label}] closed`);
     };
+    this.connection.addEventListener("message", (msg: MessageEvent) => {
+      // Catch-all logger that runs BEFORE onmessage — cannot be overridden
+      try {
+        const data = JSON.parse(msg.data);
+        console.log(`  [WS:${this.label}] <<< ${data.tag}${data.headStatus ? ` (${data.headStatus})` : ""}`);
+        this.updateStatus(data);
+        if (this.messageInterceptor) this.messageInterceptor(data);
+      } catch { /* ignore parse errors */ }
+    });
     this.connection.onmessage = (msg: MessageEvent) => {
       const data = JSON.parse(msg.data);
       if (data.tag === "Greetings") {
         this.resolveGreetings(data as GreetingsMessage);
-        console.log(`  [WS] Greetings - status: ${data.headStatus}`);
       }
     };
+  }
+
+  /** Track head status from any WS event that implies a state change. */
+  private updateStatus(data: any): void {
+    switch (data.tag) {
+      case "Greetings": this._headStatus = data.headStatus; break;
+      case "HeadIsInitializing": this._headStatus = "Initial"; break;
+      case "HeadIsOpen": this._headStatus = "Open"; break;
+      case "HeadIsClosed": this._headStatus = "Closed"; break;
+      case "ReadyToFanout": this._headStatus = "FanoutPossible"; break;
+      case "HeadIsFinalized": this._headStatus = "Final"; break;
+    }
   }
 
   private async ensureReady(): Promise<void> {
@@ -102,7 +129,9 @@ export class HydraHandler {
 
   async getHeadStatus(): Promise<HeadStatus> {
     await this.ensureReady();
-    return (await this.greetingsPromise).headStatus;
+    // Wait for Greetings on first call, then return tracked status
+    await this.greetingsPromise;
+    return this._headStatus;
   }
 
   async listen(tag: string, timeout = 60000): Promise<any> {
@@ -113,6 +142,7 @@ export class HydraHandler {
       );
       this.connection.onmessage = (msg: MessageEvent) => {
         const data = JSON.parse(msg.data);
+        this.updateStatus(data);
         console.log(`  [WS] Received: ${data.tag}`);
         if (data.tag === tag) {
           clearTimeout(tid);
@@ -134,8 +164,10 @@ export class HydraHandler {
     const status = await this.getHeadStatus();
     if (status === "Idle") {
       console.log("  Head is Idle, sending Init...");
+      // Set up listener BEFORE sending to avoid race condition
+      const initPromise = this.listen("HeadIsInitializing");
       this.connection.send(JSON.stringify({ tag: "Init" }));
-      await this.listen("HeadIsInitializing");
+      await initPromise;
       return "Initial";
     }
     console.log(`  Head is already ${status}`);
@@ -175,6 +207,7 @@ export class HydraHandler {
       );
       this.connection.onmessage = (msg: MessageEvent) => {
         const data = JSON.parse(msg.data);
+        this.updateStatus(data);
         console.log(`  [WS] Received: ${data.tag}`);
         if (data.tag === "TxValid") {
           clearTimeout(tid);
@@ -215,6 +248,7 @@ export class HydraHandler {
 
       this.connection.onmessage = (msg: MessageEvent) => {
         const data = JSON.parse(msg.data);
+        this.updateStatus(data);
         console.log(`  [WS] Received: ${data.tag}`);
 
         if (data.tag === "HeadIsClosed" && phase === "closing") {

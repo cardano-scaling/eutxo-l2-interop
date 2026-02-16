@@ -19,5 +19,5 @@ node_modules
 # For typst compilations
 *.pdf
 
-src/onchain/tests/infra/initial-l1-utxos.json
+src/onchain/tests/infra/l1-utxos.json
 src/onchain/tests/infra/persistence/**
