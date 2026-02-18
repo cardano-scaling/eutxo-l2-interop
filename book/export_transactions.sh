@@ -11,3 +11,11 @@ typst compile ms2/adhoc-ledger-transactions.typ ms2/tx_verify_v1.svg --input exp
 typst compile ms2/adhoc-ledger-transactions.typ ms2/tx_perform_v1.svg --input export="perform_v1" --root .
 typst compile ms2/adhoc-ledger-transactions.typ ms2/tx_verify_v2.svg --input export="verify_v2" --root .
 typst compile ms2/adhoc-ledger-transactions.typ ms2/tx_perform_v2.svg --input export="perform_v2" --root .
+typst compile ms4/dispute-transactions.typ ms4/tx_wrap_v4.svg --input export="wrap" --root .
+typst compile ms4/dispute-transactions.typ ms4/tx_unwrap_v4.svg --input export="unwrap" --root .
+typst compile ms4/dispute-transactions.typ ms4/tx_dispute_v4.svg --input export="dispute" --root .
+typst compile ms4/dispute-transactions.typ ms4/tx_merge_v4.svg --input export="merge" --root .
+typst compile ms4/dispute-transactions.typ ms4/tx_punish_v4.svg --input export="punish" --root .
+typst compile ms4/dispute-transactions.typ ms4/tx_verify_v4.svg --input export="verify" --root .
+typst compile ms4/dispute-transactions.typ ms4/tx_revert_v4.svg --input export="revert" --root .
+typst compile ms4/dispute-transactions.typ ms4/tx_perform_v4.svg --input export="perform" --root .
