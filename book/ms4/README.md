@@ -1,5 +1,87 @@
 # Milestone 4
 
+
+## Adversarial Scenarios
+
+Adversarial scenarios occur when parties involved in a cross-ledger operation fail to cooperate. These situations are secured by two primary mechanisms: the on-chain smart contracts ensure that funds cannot be stolen or permanently locked, while the Hydra Head protocol ensures that progress is possible even if some participants become unresponsive.
+
+An important aspect of these L2-to-L1 transitions is the **Hydra contestation period**. Before any disputed state can be settled on L1, the head must be closed and fanned out. This requires waiting for a contestation window, which in production environments may last for several days. Only after this period has elapsed can the final L1 transactions be submitted to resolve the dispute.
+
+In this milestone, we consider two primary adversarial scenarios:
+
+### Dispute in L2 and merge on L1
+
+In this scenario, a party (e.g., an intermediary) ceases cooperation after funds have already been wrapped. The dispute is initiated within the L2 Hydra Head, but final resolution occurs on L1 after the head is closed.
+
+1.  **Setup**: Alice wraps `X` ADA in Head A. Ida wraps collateral `Y` ADA in Head B. Both UTxOs share the same `nonce`.
+2.  **Stall**: Ida stops responding (e.g., refusing to sign a `Verify` transaction).
+3.  **Dispute (L2)**: Alice invokes the `Dispute` redeemer on her Wrapped UTxO within Head A. This marks the UTxO as disputed and starts an internal timeout.
+4.  **Dispute (L2)**: Either Alice or Ida calls `Dispute` on the Collateral UTxO in Head B.
+5.  **Fanout**: The Hydra heads are closed. After the contestation period expires, the disputed UTxOs are fanned out to the L1 ledger.
+6.  **Merge (L1)**: On L1, the two fanned-out disputed UTxOs are spent together in a single `Merge` transaction.
+    *   Alice recovers her original `X` ADA.
+    *   Ida recovers her collateral `Y` ADA.
+
+```mermaid
+sequenceDiagram
+    participant AliceL2 as L2 (Head A)
+    participant IdaL2 as L2 (Head B)
+    participant L1 as L1 Ledger
+
+    AliceL2->>AliceL2: Wrap Funds (X ADA)
+    IdaL2->>IdaL2: Wrap Collateral (Y ADA)
+
+    Note over AliceL2, IdaL2: Intermediary Stalls
+
+    AliceL2->>AliceL2: Dispute Wrapped UTxO
+    IdaL2->>IdaL2: Dispute Collateral UTxO
+
+    AliceL2->>L1: Fanout (Disputed UTxO)
+    IdaL2->>L1: Fanout (Disputed UTxO)
+
+    L1->>L1: Merge Disputed UTxOs
+    Note right of L1: Alice gets X ADA<br>Ida gets Y ADA
+```
+
+### Dispute and merge on L1
+
+In this scenario, an intermediary stops signing Hydra snapshots entirely, effectively freezing the L2 head and preventing even L2 transactions like `Dispute`. The participants must force-close the heads, moving the dispute logic to L1.
+
+1.  **Setup**: Alice wraps `X` ADA in Head A; Ida wraps collateral `Y` ADA in Head B.
+2.  **Stall**: Ida refuses to sign new snapshots. Head A can no longer progress.
+3.  **Fanout**: Participants close the heads. Once the contestation period ends, the Wrapped UTxOs fan out to L1 in their last valid state (non-disputed).
+4.  **Dispute (L1)**: On L1, Alice calls `Dispute` on her fanned-out Wrapped UTxO.
+5.  **Dispute (L1)**: Similarly, the Collateral UTxO is disputed on L1.
+6.  **Merge (L1)**: Once both replicas are marked as disputed on L1, they are merged in a single transaction, refunding both parties.
+
+```mermaid
+sequenceDiagram
+    participant AliceL2 as L2 (Head A)
+    participant IdaL2 as L2 (Head B)
+    participant L1 as L1 Ledger
+
+    AliceL2->>AliceL2: Wrap Funds (X ADA)
+    IdaL2->>IdaL2: Wrap Collateral (Y ADA)
+
+    Note over AliceL2, IdaL2: Ida stops signing snapshots
+
+    AliceL2->>L1: Force Close (Fanout Wrapped UTxO)
+    IdaL2->>L1: Force Close (Fanout Collateral UTxO)
+
+    L1->>L1: Dispute Alice's UTxO
+    L1->>L1: Dispute Ida's UTxO
+
+    L1->>L1: Merge Disputed UTxOs
+    Note right of L1: Alice gets X ADA<br>Ida gets Y ADA
+```
+### Midgard <> Hydra Scenarios
+
+Scenarios involving Midgard follow a similar logic but benefit from different liveness guarantees. Unlike a Hydra Head, which can be stalled if a single participant stops signing, Midgard works by having multiple operators that take turns in a round-robin system validating transactions and modifying the ledger. 
+
+If a specific operator refuses to validate transactions, the user simply waits for the next operator's shift to resubmit the transaction. This inherent robustness applies to both the `Dispute` transaction on L2 and the `Withdraw` event used to bridge UTxOs back to L1.
+
+However, Midgard also imposes a delay: the **confirmation period**. Similar to Hydra's contestation period, Midgard requires a waiting period (which can last up to a week according to the specification) before an event is considered final and can be used on L1. Once this period passes, the rest of the L1 resolution flow (Dispute and Merge) remains identical to the Hydra scenarios described above.
+
 ## Contract Design - Version 4
 
 > [!WARNING]
