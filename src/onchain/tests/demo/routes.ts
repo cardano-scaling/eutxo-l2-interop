@@ -39,7 +39,7 @@ function err(message: string, status = 400): Response {
   return json({ error: message }, status);
 }
 
-const BUSY_TIMEOUT_MS = 120_000; // auto-release lock after 2 min
+const BUSY_TIMEOUT_MS = 60_000; // auto-release lock after 1 min
 
 async function withBusy(actionName: string, fn: () => Promise<Response>): Promise<Response> {
   // Auto-expire stale locks (e.g. previous action hung and never resolved)
@@ -69,6 +69,13 @@ async function withBusy(actionName: string, fn: () => Promise<Response>): Promis
 
 export async function getStatus(): Promise<Response> {
   try {
+    // Auto-expire stale busy lock on every poll (not just on action attempts)
+    if (state.busy && state.busySince && Date.now() - state.busySince > BUSY_TIMEOUT_MS) {
+      state.emit("warn", `Action "${state.busyAction}" timed out after ${BUSY_TIMEOUT_MS / 1000}s — auto-releasing lock`);
+      state.busy = false;
+      state.busySince = 0;
+      state.busyAction = "";
+    }
     const snapshot = await state.getSnapshot();
     return json(snapshot);
   } catch (e) {
@@ -307,14 +314,22 @@ export async function actionClose(): Promise<Response> {
       throw new Error("Not connected to heads");
     }
 
+    const prevPhase = state.phase;
     state.phase = "closing";
-    state.emit("action", "Closing Head A...");
-    await state.handlerA.closeAndFanout();
-    state.emit("success", "Head A closed & fanned out");
 
-    state.emit("action", "Closing Head B...");
-    await state.handlerB.closeAndFanout();
-    state.emit("success", "Head B closed & fanned out");
+    try {
+      state.emit("action", "Closing Head A...");
+      await state.handlerA.closeAndFanout();
+      state.emit("success", "Head A closed & fanned out");
+
+      state.emit("action", "Closing Head B...");
+      await state.handlerB.closeAndFanout();
+      state.emit("success", "Head B closed & fanned out");
+    } catch (e) {
+      // Restore previous phase so the UI isn't stuck on "closing"
+      state.phase = prevPhase;
+      throw e;
+    }
 
     // Wait for L1 settlement
     state.emit("action", "Waiting for L1 settlement...");
@@ -353,6 +368,7 @@ export async function actionClose(): Promise<Response> {
     }
 
     if (!settled) {
+      state.phase = prevPhase;
       throw new Error("Timed out waiting for L1 settlement");
     }
 
@@ -362,6 +378,21 @@ export async function actionClose(): Promise<Response> {
     const snapshot = await state.getSnapshot();
     return json({ ok: true, snapshot });
   });
+}
+
+/** Force-cancel: release the busy lock and reset to a safe state */
+export function actionCancel(): Response {
+  if (!state.busy) return json({ ok: true, message: "Nothing to cancel" });
+  const was = state.busyAction;
+  state.emit("warn", `Force-cancelled action: ${was || "unknown"}`);
+  state.busy = false;
+  state.busySince = 0;
+  state.busyAction = "";
+  // After a force-cancel the in-memory state can't be trusted —
+  // disconnect and go back to idle so Connect (with re-detection) is required.
+  state.disconnectHeads();
+  state.phase = "idle";
+  return json({ ok: true, cancelled: was });
 }
 
 /** Merge disputed UTXOs on L1 */

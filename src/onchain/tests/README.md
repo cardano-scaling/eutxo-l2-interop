@@ -87,47 +87,8 @@ inputs **without restarting the infrastructure**.
 ## Demo UI
 
 Interactive web UI for reproducing the dispute mechanism step-by-step against
-real Hydra nodes. It supports both the happy path (wrap → unwrap only) and the
-dispute path (wrap → dispute → close heads → merge on L1).
-
-### Architecture
-
-| Component | Description |
-|---|---|
-| **Deno backend** (`demo/server.ts`) | HTTP + WebSocket server that holds in-memory state, talks to Hydra nodes and L1, and exposes a REST API for each action |
-| **State singleton** (`demo/state.ts`) | Manages credentials, Hydra connections, phase tracking, and L1 queries. Survives page reloads (state lives server-side) |
-| **Route handlers** (`demo/routes.ts`) | One handler per action (connect, commit, wrap, unwrap, dispute, close, merge). Guards against concurrent actions |
-| **React frontend** (`demo/ui/`) | Vite + React + shadcn/ui. Live topology diagram, head/L1 panels, action buttons, and a real-time event log via WebSocket |
-
-### Running the demo
-
-```bash
-# 1. Infrastructure must be running (see above)
-cd src/onchain/tests/infra
-docker compose up
-
-# 2. Start the Deno backend
-cd src/onchain/tests/demo
-deno run --allow-net --allow-read --allow-write server.ts
-
-# 3. Start the frontend dev server
-cd src/onchain/tests/demo/ui
-npm install   # first time only
-npm run dev   # http://localhost:5173
-```
-
-### UI flow
-
-1. **Connect** — loads credentials, connects to Hydra nodes
-2. **Commit** — initializes both heads and commits L1 funds
-3. **Wrap** — locks 5 ADA in each head via the ad-hoc ledger validator
-4. **Unwrap** *(happy path)* — owner reclaims funds in-head
-5. **Dispute** *(dispute path)* — marks wrapped UTXOs as disputed
-6. **Close Heads** — closes & fanouts both heads to L1
-7. **Merge on L1** — spends disputed script UTXOs back to their owners
-
-Merge is also available any time there are script UTXOs on L1, regardless of
-the current phase.
+real Hydra nodes. See [`demo/README.md`](demo/README.md) for full documentation
+(architecture, commands, flows, and API reference).
 
 ## File overview
 

@@ -136,9 +136,21 @@ export function ActionPanel({ phase, loading, busy, busyAction, hasL1ScriptUtxos
         })}
 
         {busy && (
-          <div className="mt-3 p-2 bg-yellow-500/10 border border-yellow-500/30 rounded text-sm text-yellow-700 dark:text-yellow-400 flex items-center gap-2">
-            <span className="animate-spin">⏳</span>
-            <span>{ACTION_LABELS[busyAction] || "Action in progress…"}</span>
+          <div className="mt-3 p-2 bg-yellow-500/10 border border-yellow-500/30 rounded text-sm text-yellow-700 dark:text-yellow-400">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="animate-spin">⏳</span>
+                <span>{ACTION_LABELS[busyAction] || "Action in progress…"}</span>
+              </div>
+              <Button
+                variant="destructive"
+                size="sm"
+                className="h-6 px-2 text-xs"
+                onClick={() => onAction("cancel")}
+              >
+                ✕ Cancel
+              </Button>
+            </div>
           </div>
         )}
 

@@ -42,6 +42,15 @@ export function useApi() {
   }, [queryClient]);
 
   const callAction = useCallback(async (action: string) => {
+    // Cancel is fire-and-forget — don't touch loading state
+    if (action === "cancel") {
+      try {
+        await fetch(`${BASE}/api/cancel`, { method: "POST" });
+      } finally {
+        queryClient.invalidateQueries({ queryKey: ["status"] });
+      }
+      return;
+    }
     setActionLoading(true);
     setError(null);
     try {

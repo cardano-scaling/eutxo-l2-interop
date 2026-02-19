@@ -22,6 +22,13 @@ export const ERROR_TAGS = [
   "DecommitInvalid",
 ];
 
+/**
+ * PostTxOnChainFailed is the Hydra node's internal L1 retry mechanism.
+ * The node will re-submit with adjusted parameters.  We just log warnings
+ * and keep waiting for the expected lifecycle event; the overall timeout
+ * is the real safety net.
+ */
+
 export type HeadStatus =
   | "Idle"
   | "Initial"
@@ -115,16 +122,23 @@ export class HydraHandler {
   }
 
   private async ensureReady(): Promise<void> {
-    if (!this.isReady) {
-      await new Promise<void>((resolve) => {
-        const orig = this.connection.onopen;
-        this.connection.onopen = (ev) => {
-          this.isReady = true;
-          if (orig) (orig as (ev: Event) => void)(ev);
-          resolve();
-        };
-      });
+    if (this.isReady) return;
+    // If the underlying socket is already closed/closing, don't wait forever
+    if (this.connection.readyState === WebSocket.CLOSED ||
+        this.connection.readyState === WebSocket.CLOSING) {
+      throw new Error(`WebSocket [${this.label}] is ${this.connection.readyState === WebSocket.CLOSED ? "closed" : "closing"} — cannot send`);
     }
+    // Still CONNECTING — wait for onopen with a timeout
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error(`WebSocket [${this.label}] connect timeout`)), 10_000);
+      const orig = this.connection.onopen;
+      this.connection.onopen = (ev) => {
+        clearTimeout(timeout);
+        this.isReady = true;
+        if (orig) (orig as (ev: Event) => void)(ev);
+        resolve();
+      };
+    });
   }
 
   async getHeadStatus(): Promise<HeadStatus> {
@@ -148,10 +162,10 @@ export class HydraHandler {
           clearTimeout(tid);
           resolve(data);
         } else if (data.tag === "PostTxOnChainFailed") {
-          // Hydra node retries automatically — log and keep waiting
-          console.log(
-            `  [WS] ⚠ PostTxOnChainFailed (node will retry): ${data.postTxError?.tag || "unknown"}`,
-          );
+          const reason = data.postTxError?.failureReason || data.postTxError?.tag || "unknown";
+          console.log(`  [WS] ⚠ PostTxOnChainFailed (node will retry): ${reason.slice(0, 150)}`);
+          // Don't reject — the Hydra node retries L1 tx internally.
+          // The overall timeout is the safety net if it never recovers.
         } else if (ERROR_TAGS.includes(data.tag)) {
           clearTimeout(tid);
           reject(new Error(`Error: ${data.tag} - ${JSON.stringify(data)}`));
@@ -235,7 +249,7 @@ export class HydraHandler {
    * Uses a single onmessage listener to avoid race conditions when the
    * contestation period is short.
    */
-  async closeAndFanout(timeout = 120000): Promise<void> {
+  async closeAndFanout(timeout = 45000): Promise<void> {
     await this.ensureReady();
 
     return new Promise((resolve, reject) => {
@@ -263,9 +277,9 @@ export class HydraHandler {
           console.log("  Head is finalized — UTXOs released to L1");
           resolve();
         } else if (data.tag === "PostTxOnChainFailed") {
-          console.log(
-            `  [WS] ⚠ PostTxOnChainFailed (node will retry): ${data.postTxError?.tag || "unknown"}`,
-          );
+          const reason = data.postTxError?.failureReason || data.postTxError?.tag || "unknown";
+          console.log(`  [WS] ⚠ PostTxOnChainFailed (node will retry): ${reason.slice(0, 150)}`);
+          // Don't reject — the Hydra node retries L1 tx internally.
         } else if (ERROR_TAGS.includes(data.tag)) {
           clearTimeout(tid);
           reject(new Error(`Error during close/fanout: ${data.tag} - ${JSON.stringify(data)}`));

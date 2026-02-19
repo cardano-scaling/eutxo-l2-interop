@@ -14,6 +14,7 @@
  *   POST /api/dispute    — dispute in both heads
  *   POST /api/close      — close & fanout + wait L1
  *   POST /api/merge      — merge disputed UTXOs on L1
+ *   POST /api/cancel     — force-release busy lock
  *   GET  /ws             — WebSocket for real-time events
  */
 
@@ -28,6 +29,7 @@ import {
   actionDispute,
   actionClose,
   actionMerge,
+  actionCancel,
 } from "./routes.ts";
 
 const PORT = 3001;
@@ -106,6 +108,9 @@ async function handler(req: Request): Promise<Response> {
       break;
     case req.method === "POST" && path === "/api/merge":
       response = await actionMerge();
+      break;
+    case req.method === "POST" && path === "/api/cancel":
+      response = actionCancel();
       break;
     default:
       response = new Response("Not Found", { status: 404 });

@@ -342,11 +342,25 @@ export class DemoState {
     const aliceCommit = pickCommitUtxo(aliceUtxos);
     const bobCommit = pickCommitUtxo(bobUtxos);
 
+    // Reject if any participant would do an empty commit
+    const missing: string[] = [];
+    if (!aliceCommit) missing.push("Alice (Head A)");
+    if (!bobCommit) missing.push("Bob (Head B)");
+    if (!idaCommitA) missing.push("Ida (Head A)");
+    if (!idaCommitB) missing.push("Ida (Head B)");
+    if (missing.length > 0) {
+      throw new Error(
+        `No eligible commit UTXO for: ${missing.join(", ")}. ` +
+        `Each participant needs at least 2 UTXOs on L1 (one for Hydra fuel, one to commit). ` +
+        `Try restarting the devnet: docker compose down -v && docker compose up -d`
+      );
+    }
+
     this.emit("info",
-      `Commit plan — Alice: ${aliceCommit ? `${Number(aliceCommit.assets.lovelace) / 1e6} ADA` : "empty"}, ` +
-      `Bob: ${bobCommit ? `${Number(bobCommit.assets.lovelace) / 1e6} ADA` : "empty"}, ` +
-      `Ida(A): ${idaCommitA ? `${Number(idaCommitA.assets.lovelace) / 1e6} ADA` : "empty"}, ` +
-      `Ida(B): ${idaCommitB ? `${Number(idaCommitB.assets.lovelace) / 1e6} ADA` : "empty"}`
+      `Commit plan — Alice: ${Number(aliceCommit!.assets.lovelace) / 1e6} ADA, ` +
+      `Bob: ${Number(bobCommit!.assets.lovelace) / 1e6} ADA, ` +
+      `Ida(A): ${Number(idaCommitA!.assets.lovelace) / 1e6} ADA, ` +
+      `Ida(B): ${Number(idaCommitB!.assets.lovelace) / 1e6} ADA`
     );
 
     // 3. Head A: Init → Commit → HeadIsOpen
