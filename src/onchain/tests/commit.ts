@@ -31,7 +31,7 @@ import {
 // Configuration
 // ============================================================
 
-const CARDANO_SUBMIT_API = "http://127.0.0.1:8090/api/submit/tx";
+export const CARDANO_SUBMIT_API = "http://127.0.0.1:8090/api/submit/tx";
 const CREDENTIALS_PATH = "./infra/credentials";
 
 interface ParticipantConfig {
@@ -53,11 +53,11 @@ const HEAD_B: { p1: ParticipantConfig; p2: ParticipantConfig } = {
 
 // ============================================================
 // L1 UTxOs — loaded from file written by cardano-node entrypoint
-// File: src/onchain/tests/infra/initial-l1-utxos.json (mounted as /devnet/initial-l1-utxos.json)
+// File: src/onchain/tests/infra/l1-utxos.json (mounted as /devnet/l1-utxos.json)
 // Format per participant: { "txHash#idx": { "address": "...", "value": { "lovelace": N } } }
 // ============================================================
 
-const UTXO_FILE = "./infra/initial-l1-utxos.json";
+const UTXO_FILE = "./infra/l1-utxos.json";
 
 interface CardanoCliUtxo {
   address: string;
@@ -69,8 +69,8 @@ interface CardanoCliUtxo {
  * Returns sorted by lovelace ascending so the smallest UTXO is first (used for commit,
  * while the larger UTXO stays as Hydra fuel).
  */
-async function loadL1Utxos(name: "alice" | "bob" | "ida"): Promise<Utxo[]> {
-  const raw = JSON.parse(await Deno.readTextFile(UTXO_FILE));
+export async function loadL1Utxos(name: "alice" | "bob" | "ida", utxoFile = UTXO_FILE): Promise<Utxo[]> {
+  const raw = JSON.parse(await Deno.readTextFile(utxoFile));
   const entries: Record<string, CardanoCliUtxo> = raw[name];
   const utxos: Utxo[] = Object.entries(entries).map(([outRef, out]) => {
     const [txHash, idx] = outRef.split("#");
@@ -91,7 +91,7 @@ async function loadL1Utxos(name: "alice" | "bob" | "ida"): Promise<Utxo[]> {
  * wrap.ts locks into the validator, so there is enough left for fees and
  * the change output inside the head.
  */
-const MIN_COMMIT_LOVELACE = 10_000_000n; // 10 ADA
+export const MIN_COMMIT_LOVELACE = 10_000_000n; // 10 ADA
 
 /**
  * Pick the commit UTXO for a participant.
@@ -100,7 +100,7 @@ const MIN_COMMIT_LOVELACE = 10_000_000n; // 10 ADA
  * be leftover dust from a previous merge cycle.
  * If no suitable UTXO is found (or only 1 remains), return null (empty commit).
  */
-function pickCommitUtxo(utxos: Utxo[]): Utxo | null {
+export function pickCommitUtxo(utxos: Utxo[]): Utxo | null {
   if (utxos.length < 2) return null; // single UTXO reserved as fuel
   const eligible = utxos.filter((u) => u.assets.lovelace >= MIN_COMMIT_LOVELACE);
   if (eligible.length >= 2) return eligible[0]; // smallest eligible (sorted ascending)
@@ -113,7 +113,7 @@ function pickCommitUtxo(utxos: Utxo[]): Utxo | null {
 // Key Loading & Lucid
 // ============================================================
 
-async function loadPrivateKeyHex(skPath: string): Promise<string> {
+export async function loadPrivateKeyHex(skPath: string): Promise<string> {
   const skJson = JSON.parse(await Deno.readTextFile(skPath));
   return skJson.cborHex.slice(4); // skip CBOR prefix 5820
 }
@@ -250,7 +250,7 @@ function addVKeyToWitnessSet(witBytes: Uint8Array, vkWitCbor: Uint8Array): Uint8
 }
 
 /** Sign a Cardano tx preserving original body bytes. Returns signed CBOR hex. */
-function signTxCbor(txCborHex: string, privateKeyHex: string): string {
+export function signTxCbor(txCborHex: string, privateKeyHex: string): string {
   const tx = fromHex(txCborHex);
   let pos = 0;
   const header = tx[pos++];
@@ -289,7 +289,7 @@ function signTxCbor(txCborHex: string, privateKeyHex: string): string {
   return toHex(result);
 }
 
-async function submitToL1(signedTxCborHex: string): Promise<string> {
+export async function submitToL1(signedTxCborHex: string): Promise<string> {
   const txBytes = fromHex(signedTxCborHex);
   const response = await fetch(CARDANO_SUBMIT_API, {
     method: "POST",
@@ -308,10 +308,10 @@ async function submitToL1(signedTxCborHex: string): Promise<string> {
 // Commit a single participant
 // ============================================================
 
-const COMMIT_RETRIES = 3;
-const COMMIT_BACKOFFS = [5000, 10000, 20000]; // 5s, 10s, 20s
+export const COMMIT_RETRIES = 3;
+export const COMMIT_BACKOFFS = [5000, 10000, 20000]; // 5s, 10s, 20s
 
-async function commitParticipant(
+export async function commitParticipant(
   label: string,
   apiUrl: string,
   skHex: string,
@@ -455,7 +455,12 @@ async function main() {
   console.log("=".repeat(60));
 }
 
-main().catch((e) => {
-  console.error("Error:", e);
-  Deno.exit(1);
-});
+if (import.meta.main) {
+  try { await Deno.stat("./infra/l1-utxos.ready"); }
+  catch { console.error("Infrastructure not ready — l1-utxos.ready not found. Is docker compose up?"); Deno.exit(1); }
+
+  main().catch((e) => {
+    console.error("Error:", e);
+    Deno.exit(1);
+  });
+}

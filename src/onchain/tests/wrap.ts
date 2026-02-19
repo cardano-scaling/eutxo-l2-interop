@@ -303,6 +303,10 @@ export async function performWrapTransactions(
 
 if (import.meta.main) {
   const mode = Deno.args.includes("--mode=nodes") ? "nodes" : "emulator";
+  if (mode === "nodes") {
+    try { await Deno.stat("./infra/l1-utxos.ready"); }
+    catch { console.error("Infrastructure not ready — l1-utxos.ready not found. Is docker compose up?"); Deno.exit(1); }
+  }
   console.log(`Running wrap.ts in ${mode} mode...`);
 
   const env =

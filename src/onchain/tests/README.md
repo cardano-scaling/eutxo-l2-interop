@@ -18,7 +18,7 @@ cd src/onchain/tests/infra
 docker compose up
 
 # Tear down (wipes all state)
-docker compose down -v
+docker compose down -v && sudo rm -rf persistence
 ```
 
 Services: `cardano-node`, `cardano-submit-api`, `hydra-scripts-publisher`,
@@ -73,7 +73,7 @@ using the `Merge` redeemer.
 In **emulator** mode: combines both head ledgers and spends disputed UTXOs
 via the `Merge` redeemer.
 
-### Refresh L1 UTXOs
+### Refresh L1 UTxOs
 
 ```bash
 ./infra/refresh-l1-utxos.sh
@@ -81,8 +81,14 @@ via the `Merge` redeemer.
 
 After a full commit → merge cycle the L1 UTXOs have changed (heads consumed
 fuel, merge produced new outputs). Run this script to update
-`infra/initial-l1-utxos.json` so the next `commit.ts` run picks up the correct
-inputs — **without restarting the infrastructure**.
+`infra/l1-utxos.json` so the next `commit.ts` run picks up the correct
+inputs **without restarting the infrastructure**.
+
+## Demo UI
+
+Interactive web UI for reproducing the dispute mechanism step-by-step against
+real Hydra nodes. See [`demo/README.md`](demo/README.md) for full documentation
+(architecture, commands, flows, and API reference).
 
 ## File overview
 
@@ -100,4 +106,4 @@ inputs — **without restarting the infrastructure**.
 | `verify.ts` | Verifies wrapped UTXOs |
 | `unwrap.ts` | Unwraps UTXOs (single-head) |
 | `infra/` | Docker Compose, credentials, and devnet configuration |
-| `infra/refresh-l1-utxos.sh` | Refreshes `initial-l1-utxos.json` from current L1 state |
+| `infra/refresh-l1-utxos.sh` | Refreshes `l1-utxos.json` from current L1 state |

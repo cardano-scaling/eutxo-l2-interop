@@ -22,6 +22,13 @@ export const ERROR_TAGS = [
   "DecommitInvalid",
 ];
 
+/**
+ * PostTxOnChainFailed is the Hydra node's internal L1 retry mechanism.
+ * The node will re-submit with adjusted parameters.  We just log warnings
+ * and keep waiting for the expected lifecycle event; the overall timeout
+ * is the real safety net.
+ */
+
 export type HeadStatus =
   | "Idle"
   | "Initial"
@@ -55,11 +62,16 @@ export type HydraUtxo = {
 export class HydraHandler {
   private connection: WebSocket;
   private url: URL;
+  private label: string;
   private isReady = false;
   private greetingsPromise: Promise<GreetingsMessage>;
   private resolveGreetings!: (msg: GreetingsMessage) => void;
+  private _headStatus: HeadStatus = "Idle";
+  /** All-messages listener — always fires, even when listen()/sendTx() override onmessage. */
+  private messageInterceptor: ((data: any) => void) | null = null;
 
-  constructor(url: string) {
+  constructor(url: string, label = "?") {
+    this.label = label;
     const wsURL = new URL(url);
     wsURL.protocol = wsURL.protocol.replace("http", "ws");
     this.url = wsURL;
@@ -73,36 +85,67 @@ export class HydraHandler {
   private setupEventHandlers() {
     this.connection.onopen = () => {
       this.isReady = true;
+      console.log(`  [WS:${this.label}] connected`);
     };
-    this.connection.onerror = () => console.error("  Error on Hydra websocket");
+    this.connection.onerror = () => console.error(`  [WS:${this.label}] Error on Hydra websocket`);
     this.connection.onclose = () => {
       this.isReady = false;
+      console.log(`  [WS:${this.label}] closed`);
     };
+    this.connection.addEventListener("message", (msg: MessageEvent) => {
+      // Catch-all logger that runs BEFORE onmessage — cannot be overridden
+      try {
+        const data = JSON.parse(msg.data);
+        console.log(`  [WS:${this.label}] <<< ${data.tag}${data.headStatus ? ` (${data.headStatus})` : ""}`);
+        this.updateStatus(data);
+        if (this.messageInterceptor) this.messageInterceptor(data);
+      } catch { /* ignore parse errors */ }
+    });
     this.connection.onmessage = (msg: MessageEvent) => {
       const data = JSON.parse(msg.data);
       if (data.tag === "Greetings") {
         this.resolveGreetings(data as GreetingsMessage);
-        console.log(`  [WS] Greetings - status: ${data.headStatus}`);
       }
     };
   }
 
-  private async ensureReady(): Promise<void> {
-    if (!this.isReady) {
-      await new Promise<void>((resolve) => {
-        const orig = this.connection.onopen;
-        this.connection.onopen = (ev) => {
-          this.isReady = true;
-          if (orig) (orig as (ev: Event) => void)(ev);
-          resolve();
-        };
-      });
+  /** Track head status from any WS event that implies a state change. */
+  private updateStatus(data: any): void {
+    switch (data.tag) {
+      case "Greetings": this._headStatus = data.headStatus; break;
+      case "HeadIsInitializing": this._headStatus = "Initial"; break;
+      case "HeadIsOpen": this._headStatus = "Open"; break;
+      case "HeadIsClosed": this._headStatus = "Closed"; break;
+      case "ReadyToFanout": this._headStatus = "FanoutPossible"; break;
+      case "HeadIsFinalized": this._headStatus = "Final"; break;
     }
+  }
+
+  private async ensureReady(): Promise<void> {
+    if (this.isReady) return;
+    // If the underlying socket is already closed/closing, don't wait forever
+    if (this.connection.readyState === WebSocket.CLOSED ||
+        this.connection.readyState === WebSocket.CLOSING) {
+      throw new Error(`WebSocket [${this.label}] is ${this.connection.readyState === WebSocket.CLOSED ? "closed" : "closing"} — cannot send`);
+    }
+    // Still CONNECTING — wait for onopen with a timeout
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error(`WebSocket [${this.label}] connect timeout`)), 10_000);
+      const orig = this.connection.onopen;
+      this.connection.onopen = (ev) => {
+        clearTimeout(timeout);
+        this.isReady = true;
+        if (orig) (orig as (ev: Event) => void)(ev);
+        resolve();
+      };
+    });
   }
 
   async getHeadStatus(): Promise<HeadStatus> {
     await this.ensureReady();
-    return (await this.greetingsPromise).headStatus;
+    // Wait for Greetings on first call, then return tracked status
+    await this.greetingsPromise;
+    return this._headStatus;
   }
 
   async listen(tag: string, timeout = 60000): Promise<any> {
@@ -113,15 +156,16 @@ export class HydraHandler {
       );
       this.connection.onmessage = (msg: MessageEvent) => {
         const data = JSON.parse(msg.data);
+        this.updateStatus(data);
         console.log(`  [WS] Received: ${data.tag}`);
         if (data.tag === tag) {
           clearTimeout(tid);
           resolve(data);
         } else if (data.tag === "PostTxOnChainFailed") {
-          // Hydra node retries automatically — log and keep waiting
-          console.log(
-            `  [WS] ⚠ PostTxOnChainFailed (node will retry): ${data.postTxError?.tag || "unknown"}`,
-          );
+          const reason = data.postTxError?.failureReason || data.postTxError?.tag || "unknown";
+          console.log(`  [WS] ⚠ PostTxOnChainFailed (node will retry): ${reason.slice(0, 150)}`);
+          // Don't reject — the Hydra node retries L1 tx internally.
+          // The overall timeout is the safety net if it never recovers.
         } else if (ERROR_TAGS.includes(data.tag)) {
           clearTimeout(tid);
           reject(new Error(`Error: ${data.tag} - ${JSON.stringify(data)}`));
@@ -134,8 +178,10 @@ export class HydraHandler {
     const status = await this.getHeadStatus();
     if (status === "Idle") {
       console.log("  Head is Idle, sending Init...");
+      // Set up listener BEFORE sending to avoid race condition
+      const initPromise = this.listen("HeadIsInitializing");
       this.connection.send(JSON.stringify({ tag: "Init" }));
-      await this.listen("HeadIsInitializing");
+      await initPromise;
       return "Initial";
     }
     console.log(`  Head is already ${status}`);
@@ -175,6 +221,7 @@ export class HydraHandler {
       );
       this.connection.onmessage = (msg: MessageEvent) => {
         const data = JSON.parse(msg.data);
+        this.updateStatus(data);
         console.log(`  [WS] Received: ${data.tag}`);
         if (data.tag === "TxValid") {
           clearTimeout(tid);
@@ -202,7 +249,7 @@ export class HydraHandler {
    * Uses a single onmessage listener to avoid race conditions when the
    * contestation period is short.
    */
-  async closeAndFanout(timeout = 120000): Promise<void> {
+  async closeAndFanout(timeout = 45000): Promise<void> {
     await this.ensureReady();
 
     return new Promise((resolve, reject) => {
@@ -215,6 +262,7 @@ export class HydraHandler {
 
       this.connection.onmessage = (msg: MessageEvent) => {
         const data = JSON.parse(msg.data);
+        this.updateStatus(data);
         console.log(`  [WS] Received: ${data.tag}`);
 
         if (data.tag === "HeadIsClosed" && phase === "closing") {
@@ -229,9 +277,9 @@ export class HydraHandler {
           console.log("  Head is finalized — UTXOs released to L1");
           resolve();
         } else if (data.tag === "PostTxOnChainFailed") {
-          console.log(
-            `  [WS] ⚠ PostTxOnChainFailed (node will retry): ${data.postTxError?.tag || "unknown"}`,
-          );
+          const reason = data.postTxError?.failureReason || data.postTxError?.tag || "unknown";
+          console.log(`  [WS] ⚠ PostTxOnChainFailed (node will retry): ${reason.slice(0, 150)}`);
+          // Don't reject — the Hydra node retries L1 tx internally.
         } else if (ERROR_TAGS.includes(data.tag)) {
           clearTimeout(tid);
           reject(new Error(`Error during close/fanout: ${data.tag} - ${JSON.stringify(data)}`));

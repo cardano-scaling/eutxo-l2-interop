@@ -1,5 +1,5 @@
 #!/bin/sh
-# Refresh initial-l1-utxos.json with the current L1 UTXO state.
+# Refresh l1-utxos.json with the current L1 UTXO state.
 #
 # Run this after a commit+merge cycle (or any L1-mutating operation) to
 # update the cached UTXOs so the next run of commit.ts picks up the
@@ -21,7 +21,7 @@ ALICE_UTXOS=$(curl -sf "$API/utxo?address=$ALICE_ADDR")
 BOB_UTXOS=$(curl -sf "$API/utxo?address=$BOB_ADDR")
 IDA_UTXOS=$(curl -sf "$API/utxo?address=$IDA_ADDR")
 
-cat > "$SCRIPT_DIR/initial-l1-utxos.json" <<EOF
+cat > "$SCRIPT_DIR/l1-utxos.json" <<EOF
 {
   "alice": $ALICE_UTXOS,
   "bob": $BOB_UTXOS,
@@ -29,7 +29,7 @@ cat > "$SCRIPT_DIR/initial-l1-utxos.json" <<EOF
 }
 EOF
 
-echo "Updated $SCRIPT_DIR/initial-l1-utxos.json"
+echo "Updated $SCRIPT_DIR/l1-utxos.json"
 echo "  alice: $(echo "$ALICE_UTXOS" | grep -c '"lovelace"') UTXOs"
 echo "  bob:   $(echo "$BOB_UTXOS" | grep -c '"lovelace"') UTXOs"
 echo "  ida:   $(echo "$IDA_UTXOS" | grep -c '"lovelace"') UTXOs"

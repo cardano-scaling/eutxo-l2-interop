@@ -19,7 +19,8 @@ import {
 
 import { HydraHandler } from "./hydra_handler.ts";
 
-const PROTOCOL_PARAMETERS_PATH = "./infra/protocol-parameters.json";
+// Resolve relative to this file so it works regardless of CWD (e.g. from demo/)
+const PROTOCOL_PARAMETERS_PATH = new URL("./infra/protocol-parameters.json", import.meta.url).pathname;
 
 export class HydraNodeProvider implements Provider {
   network?: Network;
