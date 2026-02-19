@@ -1,0 +1,47 @@
+name: Dispute Mechanism Emulator Tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/onchain/**"
+      - ".github/workflows/emulator-tests.yaml"
+  pull_request:
+    paths:
+      - "src/onchain/**"
+      - ".github/workflows/emulator-tests.yaml"
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Dispute Mechanism Emulator Tests
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: src/onchain/tests
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Cache Deno dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/deno
+          key: deno-${{ runner.os }}-${{ hashFiles('src/onchain/tests/**/*.ts') }}
+          restore-keys: deno-${{ runner.os }}-
+
+      - name: Run wrap test (emulator)
+        run: deno run --allow-net wrap.ts
+
+      - name: Run dispute test (emulator)
+        run: deno run --allow-net dispute.ts
+
+      - name: Run merge test (emulator)
+        run: deno run --allow-net merge.ts
