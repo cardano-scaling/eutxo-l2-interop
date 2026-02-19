@@ -1,5 +1,9 @@
 # Milestone 4
 
+Consists of two parts:
+1. Adversarial Scenarios
+2. Ad-hoc ledger V4 specification
+
 
 ## Adversarial Scenarios
 
