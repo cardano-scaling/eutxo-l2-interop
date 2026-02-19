@@ -1,7 +1,11 @@
 # Two-heads topology (ID 0)
-
+#
 # Head A: alice, ida-1
 # Head B: bob, ida-2
+#
+# This compose file runs Hydra nodes in OFFLINE mode (no L1).
+# For online-private mode (with Cardano L1), see:
+#   src/onchain/tests/infra/docker-compose.yaml
 
 x-hydra-node-base: &hydra-node-base
   image: ghcr.io/cardano-scaling/hydra-node:1.0.0
@@ -10,7 +14,7 @@ x-hydra-node-base: &hydra-node-base
   restart: always
 
 services:
-  # Head A: alice, ida-1
+  # Head A: alice
   hydra-node-alice-2h:
     <<: *hydra-node-base
     volumes:
@@ -38,6 +42,7 @@ services:
       hydra_net:
         ipv4_address: 172.16.238.11
 
+  # Head A: ida-1
   hydra-node-ida-1-2h:
     <<: *hydra-node-base
     volumes:
@@ -53,7 +58,7 @@ services:
         "--listen", "172.16.238.19:5019",
         "--monitoring-port", "6019",
         "--api-port", "4019",
-        "--peer", "172.16.238.011:5011",
+        "--peer", "172.16.238.11:5011",
         "--hydra-signing-key", "/devnet/credentials/ida/ida-hydra.sk",
         "--hydra-verification-key", "/devnet/credentials/alice/alice-hydra.vk",
         "--persistence-dir", "/devnet/persistence/ida-1-2h",
@@ -65,7 +70,7 @@ services:
       hydra_net:
         ipv4_address: 172.16.238.19
 
-  # Head B: bob, ida-2
+  # Head B: bob
   hydra-node-bob-2h:
     <<: *hydra-node-base
     volumes:
@@ -93,6 +98,7 @@ services:
       hydra_net:
         ipv4_address: 172.16.238.22
 
+  # Head B: ida-2
   hydra-node-ida-2-2h:
     <<: *hydra-node-base
     volumes:
@@ -138,4 +144,3 @@ networks:
       config:
         - subnet: 172.16.238.0/24
           gateway: 172.16.238.1
-

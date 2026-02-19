@@ -123,7 +123,11 @@ validator wrapped {
         expect replica_datum.disputed == True
 
         // Validate outputs structure
-        expect [unwrap_output, ..rest] = tx.outputs
+        // Find owner output by address (not positional) so it works when
+        // two inputs in the same tx have different owners.
+        expect Some(unwrap_output) = list.find(tx.outputs, fn(output) {
+          output.address == from_verification_key(datum.owner)
+        })
 
         and {
           // Validate unwrap output sends to owner
@@ -131,17 +135,18 @@ validator wrapped {
           unwrap_output.value == own_input.output.value,
 
           // Validate intermediary outputs
-          // - must be immediately after the unwrap_output
           // - one output for each element of intermediaries
           // - for each output, address must be equal to 1st elemento of pair, lovelace value must be equal to 2nd
           list.all(
-            list.zip(rest, datum.intermediaries),
-            fn((output, intermediary)) {
+            datum.intermediaries,
+            fn(intermediary) {
               let Pair(vkh, lovelace) = intermediary
-              and {
-                output.address == from_verification_key(vkh),
-                output.value == from_lovelace(lovelace),
-              }
+              list.any(tx.outputs, fn(output) {
+                and {
+                  output.address == from_verification_key(vkh),
+                  output.value == from_lovelace(lovelace),
+                }
+              })
             }
           ),
         }

@@ -1,0 +1,319 @@
+# Two-heads online-private topology
+#
+# Cardano L1 private testnet + Hydra nodes connected to it.
+#
+# Head A: alice + ida-1
+# Head B: bob   + ida-2
+#
+# Usage:
+#   cd src/onchain/tests/infra
+#   docker compose up -d
+#   docker compose down -v   # to wipe all state
+
+x-hydra-node-base: &hydra-node-base
+  image: ghcr.io/cardano-scaling/hydra-node:1.0.0
+  networks:
+    hydra_net:
+  restart: always
+
+volumes:
+  cardano-node-data:
+  shared-config:
+
+services:
+  # ── Cardano L1 node ────────────────────────────────────────────
+  cardano-node:
+    image: ghcr.io/intersectmbo/cardano-node:10.1.4
+    platform: linux/amd64
+    volumes:
+      - cardano-node-data:/data
+      - shared-config:/shared
+      - .:/devnet
+      - ./cardano-private-testnet-config/busybox:/busybox
+      - ./cardano-private-testnet-config/cardano/entrypoint.sh:/entrypoint.sh
+      - ./cardano-private-testnet-config/cardano/topology-pool1.json:/shared/node-1-topology.json
+      - ./cardano-private-testnet-config/cardano/config-pool1.json:/shared/node-1-config.json.base
+      - ./cardano-private-testnet-config/cardano/keys:/keys
+      - ./cardano-private-testnet-config/genesis/byron/genesis.json:/shared/byron/genesis.json.base
+      - ./cardano-private-testnet-config/genesis/shelley/genesis.json:/shared/shelley/genesis.json.base
+      - ./cardano-private-testnet-config/genesis/shelley/genesis.alonzo.json:/shared/shelley/genesis.alonzo.json.base
+      - ./cardano-private-testnet-config/genesis/shelley/genesis-utxo.addr:/shared/shelley/genesis-utxo.addr
+      - ./cardano-private-testnet-config/genesis/shelley/genesis-utxo.skey:/shared/shelley/genesis-utxo.skey
+      - ./cardano-private-testnet-config/genesis/shelley/genesis-utxo.vkey:/shared/shelley/genesis-utxo.vkey
+      - ./cardano-private-testnet-config/genesis/conway/genesis.conway.json:/shared/conway/genesis.conway.json.base
+      - ./cardano-query-api.sh:/cardano-query-api.sh
+    environment:
+      - CARDANO_NODE_SOCKET_PATH=/data/node.socket
+    entrypoint: ["/bin/bash", "/entrypoint.sh"]
+    ports:
+      - "32000:32000"
+      - "1442:1442"
+    networks:
+      hydra_net:
+        ipv4_address: 172.16.238.100
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /shared/cardano.ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 60s
+
+  # ── cardano-submit-api ─────────────────────────────────────────
+  cardano-submit-api:
+    image: ghcr.io/intersectmbo/cardano-submit-api:10.1.4
+    volumes:
+      - cardano-node-data:/data:ro
+      - shared-config:/shared:ro
+    environment:
+      - CARDANO_NODE_SOCKET_PATH=/data/node.socket
+    command:
+      - --socket-path
+      - /data/node.socket
+      - --listen-address
+      - "0.0.0.0"
+      - --port
+      - "8090"
+      - --config
+      - /shared/node-1-config.json
+      - --testnet-magic
+      - "42"
+    ports:
+      - "8090:8090"
+    networks:
+      hydra_net:
+        ipv4_address: 172.16.238.101
+    depends_on:
+      cardano-node:
+        condition: service_healthy
+
+  # ── Hydra scripts publisher ────────────────────────────────────
+  hydra-scripts-publisher:
+    image: ghcr.io/cardano-scaling/hydra-node:1.0.0
+    volumes:
+      - shared-config:/shared
+      - .:/devnet
+      - ./cardano-private-testnet-config/cardano/keys:/keys
+      - cardano-node-data:/data:ro
+      - ./hydra-scripts-publisher-entrypoint.sh:/hydra-scripts-publisher-entrypoint.sh
+    entrypoint: ["/bin/sh", "/hydra-scripts-publisher-entrypoint.sh"]
+    networks:
+      hydra_net:
+    depends_on:
+      cardano-node:
+        condition: service_healthy
+
+  # ── Head A: alice ──────────────────────────────────────────────
+  hydra-node-alice:
+    <<: *hydra-node-base
+    volumes:
+      - .:/devnet
+      - ./persistence/alice-2h:/devnet/persistence/alice-2h
+      - shared-config:/shared
+      - cardano-node-data:/data:ro
+    ports:
+      - "4011:4011"
+      - "5011:5011"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        HYDRA_SCRIPTS_TX_ID=$$(cat /shared/hydra-scripts-tx-id.txt | tr -d '\n\r')
+        echo "Using Hydra scripts transaction ID: $$HYDRA_SCRIPTS_TX_ID"
+        HYDRA_NODE_PATH=$$(find /nix/store -name "hydra-node" -type f 2>/dev/null | head -1)
+        if [ -z "$$HYDRA_NODE_PATH" ]; then
+          echo "ERROR: hydra-node binary not found"
+          exit 1
+        fi
+        exec $$HYDRA_NODE_PATH \
+          --node-id 1 \
+          --api-host 0.0.0.0 \
+          --listen 172.16.238.11:5011 \
+          --monitoring-port 6011 \
+          --api-port 4011 \
+          --peer 172.16.238.19:5019 \
+          --hydra-signing-key /devnet/credentials/alice/alice-hydra.sk \
+          --hydra-verification-key /devnet/credentials/ida/ida-hydra.vk \
+          --cardano-signing-key /devnet/credentials/alice/alice-funds.sk \
+          --cardano-verification-key /devnet/credentials/ida/ida-funds.vk \
+          --persistence-dir /devnet/persistence/alice-2h \
+          --node-socket /data/node.socket \
+          --testnet-magic 42 \
+          --hydra-scripts-tx-id "$$HYDRA_SCRIPTS_TX_ID" \
+          --contestation-period 5s \
+          --ledger-protocol-parameters /devnet/protocol-parameters.json
+    networks:
+      hydra_net:
+        ipv4_address: 172.16.238.11
+    depends_on:
+      hydra-scripts-publisher:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 4011 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  # ── Head A: ida-1 ──────────────────────────────────────────────
+  hydra-node-ida-1:
+    <<: *hydra-node-base
+    volumes:
+      - .:/devnet
+      - ./persistence/ida-1-2h:/devnet/persistence/ida-1-2h
+      - shared-config:/shared
+      - cardano-node-data:/data:ro
+    ports:
+      - "4019:4019"
+      - "5019:5019"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        HYDRA_SCRIPTS_TX_ID=$$(cat /shared/hydra-scripts-tx-id.txt | tr -d '\n\r')
+        echo "Using Hydra scripts transaction ID: $$HYDRA_SCRIPTS_TX_ID"
+        HYDRA_NODE_PATH=$$(find /nix/store -name "hydra-node" -type f 2>/dev/null | head -1)
+        if [ -z "$$HYDRA_NODE_PATH" ]; then
+          echo "ERROR: hydra-node binary not found"
+          exit 1
+        fi
+        exec $$HYDRA_NODE_PATH \
+          --node-id 3 \
+          --api-host 0.0.0.0 \
+          --listen 172.16.238.19:5019 \
+          --monitoring-port 6019 \
+          --api-port 4019 \
+          --peer 172.16.238.11:5011 \
+          --hydra-signing-key /devnet/credentials/ida/ida-hydra.sk \
+          --hydra-verification-key /devnet/credentials/alice/alice-hydra.vk \
+          --cardano-signing-key /devnet/credentials/ida/ida-funds.sk \
+          --cardano-verification-key /devnet/credentials/alice/alice-funds.vk \
+          --persistence-dir /devnet/persistence/ida-1-2h \
+          --node-socket /data/node.socket \
+          --testnet-magic 42 \
+          --hydra-scripts-tx-id "$$HYDRA_SCRIPTS_TX_ID" \
+          --contestation-period 5s \
+          --ledger-protocol-parameters /devnet/protocol-parameters.json
+    networks:
+      hydra_net:
+        ipv4_address: 172.16.238.19
+    depends_on:
+      hydra-scripts-publisher:
+        condition: service_completed_successfully
+      hydra-node-alice:
+        condition: service_healthy
+
+  # ── Head B: bob ────────────────────────────────────────────────
+  hydra-node-bob:
+    <<: *hydra-node-base
+    volumes:
+      - .:/devnet
+      - ./persistence/bob-2h:/devnet/persistence/bob-2h
+      - shared-config:/shared
+      - cardano-node-data:/data:ro
+    ports:
+      - "4022:4022"
+      - "5022:5022"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        HYDRA_SCRIPTS_TX_ID=$$(cat /shared/hydra-scripts-tx-id.txt | tr -d '\n\r')
+        echo "Using Hydra scripts transaction ID: $$HYDRA_SCRIPTS_TX_ID"
+        HYDRA_NODE_PATH=$$(find /nix/store -name "hydra-node" -type f 2>/dev/null | head -1)
+        if [ -z "$$HYDRA_NODE_PATH" ]; then
+          echo "ERROR: hydra-node binary not found"
+          exit 1
+        fi
+        exec $$HYDRA_NODE_PATH \
+          --node-id 2 \
+          --api-host 0.0.0.0 \
+          --listen 172.16.238.22:5022 \
+          --monitoring-port 6022 \
+          --api-port 4022 \
+          --peer 172.16.238.29:5029 \
+          --hydra-signing-key /devnet/credentials/bob/bob-hydra.sk \
+          --hydra-verification-key /devnet/credentials/ida/ida-hydra.vk \
+          --cardano-signing-key /devnet/credentials/bob/bob-funds.sk \
+          --cardano-verification-key /devnet/credentials/ida/ida-funds.vk \
+          --persistence-dir /devnet/persistence/bob-2h \
+          --node-socket /data/node.socket \
+          --testnet-magic 42 \
+          --hydra-scripts-tx-id "$$HYDRA_SCRIPTS_TX_ID" \
+          --contestation-period 5s \
+          --ledger-protocol-parameters /devnet/protocol-parameters.json
+    networks:
+      hydra_net:
+        ipv4_address: 172.16.238.22
+    depends_on:
+      hydra-scripts-publisher:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 4022 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  # ── Head B: ida-2 ──────────────────────────────────────────────
+  hydra-node-ida-2:
+    <<: *hydra-node-base
+    volumes:
+      - .:/devnet
+      - ./persistence/ida-2-2h:/devnet/persistence/ida-2-2h
+      - shared-config:/shared
+      - cardano-node-data:/data:ro
+    ports:
+      - "4029:4029"
+      - "5029:5029"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        HYDRA_SCRIPTS_TX_ID=$$(cat /shared/hydra-scripts-tx-id.txt | tr -d '\n\r')
+        echo "Using Hydra scripts transaction ID: $$HYDRA_SCRIPTS_TX_ID"
+        HYDRA_NODE_PATH=$$(find /nix/store -name "hydra-node" -type f 2>/dev/null | head -1)
+        if [ -z "$$HYDRA_NODE_PATH" ]; then
+          echo "ERROR: hydra-node binary not found"
+          exit 1
+        fi
+        exec $$HYDRA_NODE_PATH \
+          --node-id 4 \
+          --api-host 0.0.0.0 \
+          --listen 172.16.238.29:5029 \
+          --monitoring-port 6029 \
+          --peer 172.16.238.22:5022 \
+          --api-port 4029 \
+          --hydra-signing-key /devnet/credentials/ida/ida-hydra.sk \
+          --hydra-verification-key /devnet/credentials/bob/bob-hydra.vk \
+          --cardano-signing-key /devnet/credentials/ida/ida-funds.sk \
+          --cardano-verification-key /devnet/credentials/bob/bob-funds.vk \
+          --persistence-dir /devnet/persistence/ida-2-2h \
+          --node-socket /data/node.socket \
+          --testnet-magic 42 \
+          --hydra-scripts-tx-id "$$HYDRA_SCRIPTS_TX_ID" \
+          --contestation-period 5s \
+          --ledger-protocol-parameters /devnet/protocol-parameters.json
+    networks:
+      hydra_net:
+        ipv4_address: 172.16.238.29
+    depends_on:
+      hydra-scripts-publisher:
+        condition: service_completed_successfully
+      hydra-node-bob:
+        condition: service_healthy
+
+  # ── Startup time logger ────────────────────────────────────────
+  startup-time-logger:
+    image: alpine
+    depends_on:
+      - hydra-node-alice
+      - hydra-node-bob
+      - hydra-node-ida-1
+      - hydra-node-ida-2
+    command: sh -c "echo $$(( $$(date +%s) * 1000 )) > /shared/startup_time.txt && echo 'Timestamp written:' $$(cat /shared/startup_time.txt)"
+    volumes:
+      - shared-config:/shared
+
+networks:
+  hydra_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.16.238.0/24
+          gateway: 172.16.238.1
