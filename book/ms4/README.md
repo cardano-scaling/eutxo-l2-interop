@@ -4,6 +4,7 @@ Consists of two parts:
 1. Adversarial Scenarios
 2. Ad-hoc ledger V4 specification
 
+This milestone focuses on adversarial scenarios and implements the dispute mechanism to ensure that funds cannot get stuck indefinitely.
 
 ## Adversarial Scenarios
 
