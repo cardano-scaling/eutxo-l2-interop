@@ -19,8 +19,9 @@ function statusColor(status: string): string {
   switch (status) {
     case "Open": return "#22c55e";
     case "Closed": case "Final": return "#ef4444";
-    case "Idle": return "#94a3b8";
-    default: return "#eab308";
+    case "Idle": return "#eab308";
+    case "Unknown": case "Connecting": return "#475569"; // slate-600 — not connected
+    default: return "#94a3b8"; // fallback to idle color for transitional states
   }
 }
 
@@ -74,10 +75,10 @@ export function TopologyDiagram({ snapshot }: Props) {
 
       {/* ── L1 layer ──────────────────────────────────────────── */}
       <rect x="40" y="330" width="720" height="70" rx="10"
-        fill="hsl(var(--muted))" stroke={l1Active ? COLORS.l1 : "hsl(var(--border))"}
+        fill="hsl(var(--muted))" stroke={l1Active ? COLORS.l1 : "#475569"}
         strokeWidth={l1Active ? 2.5 : 1.5} opacity="0.8"
       />
-      <text x="400" y="350" textAnchor="middle" fill="hsl(var(--muted-foreground))" fontSize="11" fontWeight="600">
+      <text x="400" y="350" textAnchor="middle" fill="#e2e8f0" fontSize="11" fontWeight="600">
         CARDANO L1
       </text>
 
@@ -112,7 +113,7 @@ export function TopologyDiagram({ snapshot }: Props) {
       </rect>
       <text x="200" y="125" textAnchor="middle" fill={COLORS.headA} fontSize="13" fontWeight="700">HEAD A</text>
       <circle cx="310" cy="120" r="6" fill={statusColor(headAStatus)} />
-      <text x="200" y="142" textAnchor="middle" fill="hsl(var(--muted-foreground))" fontSize="10">{headAStatus}</text>
+      <text x="200" y="142" textAnchor="middle" fill="#e2e8f0" fontSize="10">{headAStatus}</text>
 
       {/* Alice node */}
       {phase === "wrapped" && hasWrappedA && <PulseCircle cx={120} cy={195} r={28} color={COLORS.alice} />}
@@ -154,7 +155,7 @@ export function TopologyDiagram({ snapshot }: Props) {
       </rect>
       <text x="600" y="125" textAnchor="middle" fill={COLORS.headB} fontSize="13" fontWeight="700">HEAD B</text>
       <circle cx="710" cy="120" r="6" fill={statusColor(headBStatus)} />
-      <text x="600" y="142" textAnchor="middle" fill="hsl(var(--muted-foreground))" fontSize="10">{headBStatus}</text>
+      <text x="600" y="142" textAnchor="middle" fill="#e2e8f0" fontSize="10">{headBStatus}</text>
 
       {/* Ida node in Head B */}
       <circle cx="520" cy="195" r="28" fill={COLORS.ida} opacity="0.15" stroke={COLORS.ida} strokeWidth="2" />
@@ -229,31 +230,33 @@ export function TopologyDiagram({ snapshot }: Props) {
       )}
 
       {/* ── Title ─────────────────────────────────────────────── */}
-      <text x="400" y="30" textAnchor="middle" fill="hsl(var(--foreground))" fontSize="16" fontWeight="700">
+      <text x="400" y="30" textAnchor="middle" fill="#e2e8f0" fontSize="16" fontWeight="700">
         eUTXO L2 Interop — Two-Head Topology
       </text>
 
       {/* Phase indicator */}
-      <text x="400" y="55" textAnchor="middle" fill="hsl(var(--muted-foreground))" fontSize="12">
+      <text x="400" y="55" textAnchor="middle" fill="#e2e8f0" fontSize="12">
         Phase: <tspan fontWeight="600" fill={
           phase === "disputed" || phase === "closed" ? COLORS.disputed :
           phase === "merged" || phase === "heads_open" ? "#22c55e" :
-          "hsl(var(--foreground))"
+          "#e2e8f0"
         }>{phase.replace("_", " ").toUpperCase()}</tspan>
       </text>
 
       {/* Legend */}
-      <g transform="translate(40, 70)">
+      <g transform="translate(40, 80)">
         <circle cx="0" cy="0" r="5" fill="#22c55e" />
-        <text x="10" y="4" fill="hsl(var(--muted-foreground))" fontSize="9">Open</text>
+        <text x="10" y="4" fill="#e2e8f0" fontSize="9">Open</text>
         <circle cx="55" cy="0" r="5" fill="#ef4444" />
-        <text x="65" y="4" fill="hsl(var(--muted-foreground))" fontSize="9">Closed</text>
-        <circle cx="120" cy="0" r="5" fill="#94a3b8" />
-        <text x="130" y="4" fill="hsl(var(--muted-foreground))" fontSize="9">Idle</text>
-        <rect x="170" y="-6" width="12" height="12" rx="2" fill={COLORS.script} opacity="0.3" stroke={COLORS.script} strokeWidth="1" />
-        <text x="186" y="4" fill="hsl(var(--muted-foreground))" fontSize="9">Wrapped</text>
-        <rect x="240" y="-6" width="12" height="12" rx="2" fill={COLORS.disputed} opacity="0.3" stroke={COLORS.disputed} strokeWidth="1" />
-        <text x="256" y="4" fill="hsl(var(--muted-foreground))" fontSize="9">Disputed</text>
+        <text x="65" y="4" fill="#e2e8f0" fontSize="9">Closed</text>
+        <circle cx="120" cy="0" r="5" fill="#eab308" />
+        <text x="130" y="4" fill="#e2e8f0" fontSize="9">Idle</text>
+        <circle cx="165" cy="0" r="5" fill="#475569" />
+        <text x="175" y="4" fill="#e2e8f0" fontSize="9">Disconnected</text>
+        <rect x="250" y="-6" width="12" height="12" rx="2" fill={COLORS.script} opacity="0.3" stroke={COLORS.script} strokeWidth="1" />
+        <text x="266" y="4" fill="#e2e8f0" fontSize="9">Wrapped</text>
+        <rect x="320" y="-6" width="12" height="12" rx="2" fill={COLORS.disputed} opacity="0.3" stroke={COLORS.disputed} strokeWidth="1" />
+        <text x="336" y="4" fill="#e2e8f0" fontSize="9">Disputed</text>
       </g>
     </svg>
   );
