@@ -1,8 +1,9 @@
 # Milestone 4
 
-Consists of two parts:
+Consists of three parts:
 1. Adversarial Scenarios
 2. Ad-hoc ledger V4 specification
+3. Test suite
 
 This milestone focuses on adversarial scenarios and implements the dispute mechanism to ensure that funds cannot get stuck indefinitely.
 
@@ -205,3 +206,12 @@ Consumes a Verified UTxO with the `Revert` redeemer and restores the original Wr
 Consumes a Verified UTxO with the `Perform` redeemer and produces the intended outputs as new Wrapped UTxOs.
 
 ![Perform](tx_perform_v4.svg)
+
+
+## Test suite
+
+This milestone includes a comprehensive test suite designed to validate the adversarial scenarios through two distinct approaches:
+
+1.  **Emulator-based Tests**: These tests utilize an emulator to verify the on-chain contract logic in isolation. Because they offer several advantages, including faster execution and lower computational overhead, they are integrated into our GitHub Actions workflow.
+
+2.  **End-to-End Local Node Tests**: These tests run against a full local Cardano node and using real Hydra Heads. They validate the entire system's behavior, including the lifecycle of Hydra Heads (opening, committing funds, disputing UTxOs, and closing).
