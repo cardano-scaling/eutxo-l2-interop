@@ -97,6 +97,9 @@ async function main() {
 
   console.log("Alice's final balance in head A:", finalAliceBalanceInA.toString());
   console.log("Ida's final balance in head B:", finalIdaBalanceInB.toString());
+
+  // ── Emulator-only assertions ──────────────────────────────
+  await assertDisputeResults(env.lucid1A, env.lucid2B, env.privateKey1, env.privateKey2, wrappedAddress);
 }
 
 // ============================================================
@@ -187,6 +190,54 @@ export async function performDisputeTransactions(
   console.log("DISPUTE TX B:", disputeTxBHash);
 
   return { disputeTxAHash, disputeTxBHash };
+}
+
+// ============================================================
+// Assertions (emulator-only) — verify dispute produced expected UTXOs
+// ============================================================
+
+export async function assertDisputeResults(
+  lucid1A: Lucid,
+  lucid2B: Lucid,
+  privateKey1: string,
+  privateKey2: string,
+  wrappedAddress: string,
+) {
+  const scriptUtxosA = await lucid1A.utxosAt(wrappedAddress);
+  const scriptUtxosB = await lucid2B.utxosAt(wrappedAddress);
+
+  if (scriptUtxosA.length !== 1) {
+    throw new Error(`Expected 1 disputed UTXO in Head A, found ${scriptUtxosA.length}`);
+  }
+  if (scriptUtxosB.length !== 1) {
+    throw new Error(`Expected 1 disputed UTXO in Head B, found ${scriptUtxosB.length}`);
+  }
+  if (scriptUtxosA[0].assets.lovelace !== 5_000_000n) {
+    throw new Error(`Head A disputed UTXO has ${scriptUtxosA[0].assets.lovelace} lovelace, expected 5000000`);
+  }
+  if (scriptUtxosB[0].assets.lovelace !== 5_000_000n) {
+    throw new Error(`Head B disputed UTXO has ${scriptUtxosB[0].assets.lovelace} lovelace, expected 5000000`);
+  }
+
+  const datumA = Data.from(scriptUtxosA[0].datum!, AdhocLedgerV4WrappedSpend.datumOpt);
+  const datumB = Data.from(scriptUtxosB[0].datum!, AdhocLedgerV4WrappedSpend.datumOpt);
+  const aliceHash = Crypto.privateKeyToDetails(privateKey1).credential.hash;
+  const idaHash = Crypto.privateKeyToDetails(privateKey2).credential.hash;
+
+  if (!datumA.disputed) {
+    throw new Error("Head A UTXO should be disputed");
+  }
+  if (!datumB.disputed) {
+    throw new Error("Head B UTXO should be disputed");
+  }
+  if (datumA.owner !== aliceHash) {
+    throw new Error(`Head A disputed datum owner mismatch: expected Alice (${aliceHash}), got ${datumA.owner}`);
+  }
+  if (datumB.owner !== idaHash) {
+    throw new Error(`Head B disputed datum owner mismatch: expected Ida (${idaHash}), got ${datumB.owner}`);
+  }
+
+  console.log("✅ Assertions passed: 1 disputed UTXO per head, 5 ADA each, disputed=true, correct owners");
 }
 
 // ============================================================

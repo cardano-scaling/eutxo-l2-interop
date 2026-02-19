@@ -132,6 +132,11 @@ async function main() {
     acc + utxo.assets.lovelace, 0n);
   console.log("Alice's total balance in combined emulator:", aliceCombinedBalance.toString());
 
+  const idaCombinedUtxos = await lucidMain.utxosAt(env.address2);
+  const idaCombinedBalance = idaCombinedUtxos.reduce((acc, utxo) =>
+    acc + utxo.assets.lovelace, 0n);
+  console.log("Ida's total balance in combined emulator:", idaCombinedBalance.toString());
+
   //
   // SPEND BOTH DISPUTED UTXOS USING COMBINED LUCID INSTANCE
   //
@@ -164,7 +169,7 @@ async function main() {
       .payTo(env.address2, { lovelace: 5000000n }) // Send 5 ADA back to Ida
       .attachScript(wrappedValidator)
       .commit();
-    
+
     const signedSpendTxs = await spendTxs.sign().commit();
     const spendTxsHash = await signedSpendTxs.submit();
     emulatorMain.awaitTx(spendTxsHash);
@@ -176,7 +181,47 @@ async function main() {
     const finalAliceBalance = finalAliceUtxos.reduce((acc, utxo) =>
       acc + utxo.assets.lovelace, 0n);
     console.log("Alice's final balance after spending disputed UTXOs:", finalAliceBalance.toString());
+
+    // ── Emulator-only assertions ──────────────────────────────
+    await assertMergeResults(lucidMain, wrappedAddress, env.address1, env.address2, aliceCombinedBalance, idaCombinedBalance);
   }
+}
+
+// ============================================================
+// Assertions (emulator-only) — verify merge consumed disputed UTXOs
+// ============================================================
+
+async function assertMergeResults(
+  lucid: Lucid,
+  wrappedAddress: string,
+  aliceAddress: string,
+  idaAddress: string,
+  aliceBalanceBefore: bigint,
+  idaBalanceBefore: bigint,
+) {
+  // Script address must be empty after merge
+  const scriptUtxos = await lucid.utxosAt(wrappedAddress);
+  if (scriptUtxos.length !== 0) {
+    throw new Error(`Expected 0 UTXOs at script address after merge, found ${scriptUtxos.length}`);
+  }
+
+  // Alice must have received her 5 ADA back (minus merge tx fee, < 0.5 ADA)
+  const aliceUtxos = await lucid.utxosAt(aliceAddress);
+  const aliceBalanceAfter = aliceUtxos.reduce((acc, u) => acc + u.assets.lovelace, 0n);
+  const aliceGain = aliceBalanceAfter - aliceBalanceBefore;
+  if (aliceGain < 4_500_000n || aliceGain > 5_000_000n) {
+    throw new Error(`Alice should have gained ~5 ADA (minus fee), actual gain: ${aliceGain} lovelace`);
+  }
+
+  // Ida must have gained exactly 5 ADA (she doesn't pay the fee)
+  const idaUtxos = await lucid.utxosAt(idaAddress);
+  const idaBalanceAfter = idaUtxos.reduce((acc, u) => acc + u.assets.lovelace, 0n);
+  const idaGain = idaBalanceAfter - idaBalanceBefore;
+  if (idaGain !== 5_000_000n) {
+    throw new Error(`Ida should have gained exactly 5 ADA, actual gain: ${idaGain} lovelace (before=${idaBalanceBefore}, after=${idaBalanceAfter})`);
+  }
+
+  console.log(`✅ Assertions passed: script address empty, Alice +${aliceGain} lovelace (5 ADA minus merge tx fee), Ida +${idaGain} lovelace (5 ADA)`);
 }
 
 // ============================================================

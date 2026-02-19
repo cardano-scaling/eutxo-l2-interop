@@ -298,6 +298,52 @@ export async function performWrapTransactions(
 }
 
 // ============================================================
+// Assertions (emulator-only) — verify wrap produced expected UTXOs
+// ============================================================
+
+export async function assertWrapResults(
+  lucid1A: Lucid,
+  lucid2B: Lucid,
+  privateKey1: string,
+  privateKey2: string,
+  wrappedAddress: string,
+) {
+  const scriptUtxosA = await lucid1A.utxosAt(wrappedAddress);
+  const scriptUtxosB = await lucid2B.utxosAt(wrappedAddress);
+
+  if (scriptUtxosA.length !== 1) {
+    throw new Error(`Expected 1 wrapped UTXO in Head A, found ${scriptUtxosA.length}`);
+  }
+  if (scriptUtxosB.length !== 1) {
+    throw new Error(`Expected 1 wrapped UTXO in Head B, found ${scriptUtxosB.length}`);
+  }
+  if (scriptUtxosA[0].assets.lovelace !== 5_000_000n) {
+    throw new Error(`Head A wrapped UTXO has ${scriptUtxosA[0].assets.lovelace} lovelace, expected 5000000`);
+  }
+  if (scriptUtxosB[0].assets.lovelace !== 5_000_000n) {
+    throw new Error(`Head B wrapped UTXO has ${scriptUtxosB[0].assets.lovelace} lovelace, expected 5000000`);
+  }
+
+  // Verify datums: both must be non-disputed with correct owners
+  const datumA = Data.from(scriptUtxosA[0].datum!, AdhocLedgerV4WrappedSpend.datumOpt);
+  const datumB = Data.from(scriptUtxosB[0].datum!, AdhocLedgerV4WrappedSpend.datumOpt);
+  const aliceHash = Crypto.privateKeyToDetails(privateKey1).credential.hash;
+  const idaHash = Crypto.privateKeyToDetails(privateKey2).credential.hash;
+
+  if (datumA.owner !== aliceHash) {
+    throw new Error(`Head A datum owner mismatch: expected Alice (${aliceHash}), got ${datumA.owner}`);
+  }
+  if (datumB.owner !== idaHash) {
+    throw new Error(`Head B datum owner mismatch: expected Ida (${idaHash}), got ${datumB.owner}`);
+  }
+  if (datumA.disputed || datumB.disputed) {
+    throw new Error("Freshly wrapped UTXOs should not be disputed");
+  }
+
+  console.log("✅ Assertions passed: 1 wrapped UTXO per head, 5 ADA each, correct owners, not disputed");
+}
+
+// ============================================================
 // Main — run with: deno run --allow-net --allow-read wrap.ts [--mode=nodes]
 // ============================================================
 
@@ -344,7 +390,7 @@ if (import.meta.main) {
     console.log("");
   }
 
-  await performWrapTransactions(
+  const { wrappedAddress } = await performWrapTransactions(
     env.lucid1A,
     env.lucid2B,
     env.privateKey1,
@@ -354,6 +400,11 @@ if (import.meta.main) {
   );
 
   console.log("Wrap transactions completed successfully!");
+
+  // ── Emulator-only assertions ──────────────────────────────
+  if (mode === "emulator") {
+    await assertWrapResults(env.lucid1A, env.lucid2B, env.privateKey1, env.privateKey2, wrappedAddress);
+  }
 
   // ── Show snapshots AFTER wrap (nodes only) ───────────────
   if (mode === "nodes") {
