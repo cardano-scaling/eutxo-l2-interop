@@ -120,6 +120,12 @@ sequenceDiagram
     Note right of L1: Alice claims Ida & Jhon's collateral
 ```
 
+### Funds Ownership guarantees
+
+It's important to note that in all scenarios, once Alice initiates the dispute process, she is guaranteed to recover her funds by waiting for the timeout and using the `Punish` redeemer, even if intermediaries become unresponsive.
+
+Intermediaries have a strong incentive to complete the protocol flow (i.e., the `Merge` transaction on L1) before the timeout to recover their collateral. If no honest intermediaries remain, those funds will be lost and eventually paid to Alice for the troubles. Head B will eventually be closed because we assume there is at least one honest user participating there that is not an intermediary, otherwise, there would be no reason for Alice to bridge funds to that Head in the first place.
+
 ### Midgard <> Hydra Scenarios
 
 Scenarios involving Midgard follow a similar logic but benefit from different liveness guarantees. Unlike a Hydra Head, which can be stalled if a single participant stops signing, Midgard works by having multiple operators that take turns in a round-robin system validating transactions and modifying the ledger.
