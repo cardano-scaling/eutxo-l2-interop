@@ -80,6 +80,46 @@ sequenceDiagram
     L1->>L1: Merge Disputed UTxOs
     Note right of L1: Alice gets X ADA<br>Ida & Jhon get collateral
 ```
+
+### Complete intermediary unresponsiveness (Punish)
+
+In this scenario, all intermediaries cease cooperation entirely and refuse to participate in any further actions. Alice must use the `Punish` mechanism to reclaim her funds and subsequently seize the intermediaries' collateral.
+
+1. **Setup**: Alice wraps `X` ADA in Head A. Intermediaries Ida and Jhon wrap their collateral in Head B.
+2. **Stall**: Ida and Jhon stop responding entirely. Head B can't progress.
+3. **Fanout (Head A)**: Alice closes Head A.
+4. **Dispute & Punish (L1)**: Alice calls `Dispute` on her fanned-out Wrapped UTxO on L1, starting the timeout. Once the timeout expires without a merge resolution, she uses the `Punish` redeemer to claim her original `X` ADA back.
+5. **Fanout & Punish (Head B)**: Head B remains frozen. When Head B is eventually closed by another user, the Collateral UTxO is fanned out to L1, Alice can call `Dispute` and subsequently `Punish` on that UTxO to claim both Ida's and Jhon's collateral. Note that merge is no longer an option because the original disputed UTxO has been consumed already.
+
+```mermaid
+sequenceDiagram
+    participant AliceL2 as L2 (Head A)
+    participant CollatL2 as L2 (Head B)
+    participant L1 as L1 Ledger
+
+    AliceL2->>AliceL2: Wrap Funds (X ADA)
+    CollatL2->>CollatL2: Wrap Collateral (Ida & Jhon)
+
+    Note over AliceL2, CollatL2: Intermediaries stop responding entirely
+
+    AliceL2->>L1: Force Close (Fanout Wrapped UTxO)
+
+    L1->>L1: Dispute Alice's UTxO
+    Note right of L1: Timeout expires
+
+    L1->>L1: Alice uses Punish redeemer
+    Note right of L1: Alice recovers X ADA
+
+    Note over CollatL2: At a future date...
+    CollatL2->>L1: Head B force-closed (Fanout Collateral UTxO)
+
+    L1->>L1: Dispute Collateral UTxO
+    Note right of L1: Timeout expires
+
+    L1->>L1: Alice uses Punish redeemer
+    Note right of L1: Alice claims Ida & Jhon's collateral
+```
+
 ### Midgard <> Hydra Scenarios
 
 Scenarios involving Midgard follow a similar logic but benefit from different liveness guarantees. Unlike a Hydra Head, which can be stalled if a single participant stops signing, Midgard works by having multiple operators that take turns in a round-robin system validating transactions and modifying the ledger.
