@@ -1,6 +1,7 @@
 # Milestone 4
 
 Consists of three parts:
+
 1. Adversarial Scenarios
 2. Ad-hoc ledger V4 specification
 3. Test suite
@@ -128,7 +129,7 @@ Intermediaries have a strong incentive to complete the protocol flow (i.e., the 
 
 ### Midgard <> Hydra Scenarios
 
-Scenarios involving Midgard follow a similar logic but benefit from different liveness guarantees. Unlike a Hydra Head, which can be stalled if a single participant stops signing, Midgard works by having multiple operators that take turns in a round-robin system validating transactions and modifying the ledger. 
+Scenarios involving Midgard follow a similar logic but benefit from different liveness guarantees. Unlike a Hydra Head, which can be stalled if a single participant stops signing, Midgard works by having multiple operators that take turns in a round-robin system validating transactions and modifying the ledger.
 
 If a specific operator refuses to validate transactions, the user simply waits for the next operator's shift to resubmit the transaction. This inherent robustness applies to both the `Dispute` transaction on L2 and the `Withdraw` event used to bridge UTxOs back to L1.
 
@@ -226,7 +227,7 @@ The validator enforces:
 
 #### Punish
 
-If the dispute timeout expires without a merge resolution, the owner can claim **all** value from the disputed UTxO, including collateral. This disincentivizes intermediaries from stalling indefinitely.
+If the dispute timeout expires without a merge resolution, the owner can claim **all** value from the disputed UTxOs, including the intermediaries' collateral. This disincentivizes intermediaries from stalling indefinitely.
 
 The validator enforces:
 
