@@ -1,6 +1,7 @@
 # Milestone 4
 
 Consists of three parts:
+
 1. Adversarial Scenarios
 2. Ad-hoc ledger V4 specification
 3. Test suite
@@ -226,7 +227,7 @@ The validator enforces:
 
 #### Punish
 
-If the dispute timeout expires without a merge resolution, the owner can claim **all** value from the disputed UTxO, including collateral. This disincentivizes intermediaries from stalling indefinitely.
+If the dispute timeout expires without a merge resolution, the owner can claim **all** value from the disputed UTxOs, including the intermediaries' collateral. This disincentivizes intermediaries from stalling indefinitely.
 
 The validator enforces:
 
