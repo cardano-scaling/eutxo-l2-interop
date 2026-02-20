@@ -253,11 +253,10 @@ Consumes a Verified UTxO with the `Perform` redeemer and produces the intended o
 
 ![Perform](tx_perform_v4.svg)
 
-
 ## Test suite
 
-This milestone includes a comprehensive test suite designed to validate the adversarial scenarios through two distinct approaches:
+This milestone includes a test suite designed to validate a simpler version with only one intermediary of the adversarial scenarios through two distinct approaches:
 
-1.  **Emulator-based Tests**: These tests utilize an emulator to verify the on-chain contract logic in isolation. Because they offer several advantages, including faster execution and lower computational overhead, they are integrated into our GitHub Actions workflow.
+1. **Emulator-based Tests**: These tests utilize an emulator to verify the on-chain contract logic in isolation. They abstract away the actual L2 implementations and replace the L2 mechanism of bridging funds from L1 to L2 and back with a test driver that maps UTxOs between the emulator instances. This proves that the protocol is generic and can work for any L2 that meets the abstracted interface. Because of this, and given other advantages like faster execution and lower computational overhead, they are integrated into our GitHub Actions workflow.
 
-2.  **End-to-End Local Node Tests**: These tests run against a full local Cardano node and using real Hydra Heads. They validate the entire system's behavior, including the lifecycle of Hydra Heads (opening, committing funds, disputing UTxOs, and closing).
+2. **End-to-End Local Node Tests**: These tests run against a full local Cardano node and using real Hydra Heads. They validate the entire system's behavior, including the lifecycle of Hydra Heads (opening, committing funds, disputing UTxOs, and closing).
