@@ -17,68 +17,68 @@ In this milestone, we consider two primary adversarial scenarios:
 
 ### Dispute in L2 and merge on L1
 
-In this scenario, a party (e.g., an intermediary) ceases cooperation after funds have already been wrapped. The dispute is initiated within the L2 Hydra Head, but final resolution occurs on L1 after the head is closed.
+In this scenario, a party (e.g., an intermediary) ceases cooperation with the adhoc-ledger protocol (but continues to participate in the Hydra Head) after funds have already been wrapped. The dispute is initiated within the L2 Hydra Head, but final resolution occurs on L1 after the head is closed.
 
-1.  **Setup**: Alice wraps `X` ADA in Head A. Ida wraps collateral `Y` ADA in Head B. Both UTxOs share the same `nonce`.
-2.  **Stall**: Ida stops responding (e.g., refusing to sign a `Verify` transaction).
-3.  **Dispute (L2)**: Alice invokes the `Dispute` redeemer on her Wrapped UTxO within Head A. This marks the UTxO as disputed and starts an internal timeout.
-4.  **Dispute (L2)**: Either Alice or Ida calls `Dispute` on the Collateral UTxO in Head B.
-5.  **Fanout**: The Hydra heads are closed. After the contestation period expires, the disputed UTxOs are fanned out to the L1 ledger.
-6.  **Merge (L1)**: On L1, the two fanned-out disputed UTxOs are spent together in a single `Merge` transaction.
-    *   Alice recovers her original `X` ADA.
-    *   Ida recovers her collateral `Y` ADA.
+1. **Setup**: Alice wraps `X` ADA in Head A. Intermediaries Ida and Jhon wrap their collateral in Head B. Both UTxOs share the same `nonce`.
+2. **Stall**: Jhon stops responding (e.g., refusing to sign a `Verify` transaction).
+3. **Dispute (L2)**: Alice invokes the `Dispute` redeemer on her Wrapped UTxO within Head A. This marks the UTxO as disputed and starts an internal timeout.
+4. **Dispute (L2)**: Ida calls `Dispute` on the Collateral UTxO in Head B to protect her funds from being locked by Jhon's inaction.
+5. **Fanout**: The Hydra heads are closed. After the contestation period expires, the disputed UTxOs are fanned out to the L1 ledger.
+6. **Merge (L1)**: On L1, the fanned-out disputed UTxOs are spent together in a single `Merge` transaction.
+    * Alice recovers her original `X` ADA.
+    * Ida and Jhon recover their respective collateral.
 
 ```mermaid
 sequenceDiagram
     participant AliceL2 as L2 (Head A)
-    participant IdaL2 as L2 (Head B)
+    participant CollatL2 as L2 (Head B)
     participant L1 as L1 Ledger
 
     AliceL2->>AliceL2: Wrap Funds (X ADA)
-    IdaL2->>IdaL2: Wrap Collateral (Y ADA)
+    CollatL2->>CollatL2: Wrap Collateral (Ida & Jhon)
 
-    Note over AliceL2, IdaL2: Intermediary Stalls
+    Note over AliceL2, CollatL2: Jhon Stalls
 
     AliceL2->>AliceL2: Dispute Wrapped UTxO
-    IdaL2->>IdaL2: Dispute Collateral UTxO
+    CollatL2->>CollatL2: Ida Disputes Collateral UTxO
 
     AliceL2->>L1: Fanout (Disputed UTxO)
-    IdaL2->>L1: Fanout (Disputed UTxO)
+    CollatL2->>L1: Fanout (Disputed UTxO)
 
     L1->>L1: Merge Disputed UTxOs
-    Note right of L1: Alice gets X ADA<br>Ida gets Y ADA
+    Note right of L1: Alice gets X ADA<br>Ida & Jhon get collateral
 ```
 
 ### Dispute and merge on L1
 
 In this scenario, an intermediary stops signing Hydra snapshots entirely, effectively freezing the L2 head and preventing even L2 transactions like `Dispute`. The participants must force-close the heads, moving the dispute logic to L1.
 
-1.  **Setup**: Alice wraps `X` ADA in Head A; Ida wraps collateral `Y` ADA in Head B.
-2.  **Stall**: Ida refuses to sign new snapshots. Head A can no longer progress.
-3.  **Fanout**: Participants close the heads. Once the contestation period ends, the Wrapped UTxOs fan out to L1 in their last valid state (non-disputed).
-4.  **Dispute (L1)**: On L1, Alice calls `Dispute` on her fanned-out Wrapped UTxO.
-5.  **Dispute (L1)**: Similarly, the Collateral UTxO is disputed on L1.
-6.  **Merge (L1)**: Once both replicas are marked as disputed on L1, they are merged in a single transaction, refunding both parties.
+1. **Setup**: Alice wraps `X` ADA in Head A. Intermediaries Ida and Jhon wrap their collateral in Head B.
+2. **Stall**: Jhon refuses to sign new snapshots. Head B can no longer progress.
+3. **Fanout**: Participants close the heads (i.e., Ida closes Head B to avoid losing collateral). Once the contestation period ends, the Wrapped UTxOs fan out to L.
+4. **Dispute (L1)**: On L1, Alice calls `Dispute` on her fanned-out Wrapped UTxO.
+5. **Dispute (L1)**: Similarly, Ida calls `Dispute` on the Collateral UTxO on L1.
+6. **Merge (L1)**: Once both replicas are marked as disputed on L1, they are merged in a single transaction, refunding all parties.
 
 ```mermaid
 sequenceDiagram
     participant AliceL2 as L2 (Head A)
-    participant IdaL2 as L2 (Head B)
+    participant CollatL2 as L2 (Head B)
     participant L1 as L1 Ledger
 
     AliceL2->>AliceL2: Wrap Funds (X ADA)
-    IdaL2->>IdaL2: Wrap Collateral (Y ADA)
+    CollatL2->>CollatL2: Wrap Collateral (Ida & Jhon)
 
-    Note over AliceL2, IdaL2: Ida stops signing snapshots
+    Note over AliceL2, CollatL2: Jhon stops signing snapshots
 
     AliceL2->>L1: Force Close (Fanout Wrapped UTxO)
-    IdaL2->>L1: Force Close (Fanout Collateral UTxO)
+    CollatL2->>L1: Ida Force Closes (Fanout Collateral UTxO)
 
     L1->>L1: Dispute Alice's UTxO
-    L1->>L1: Dispute Ida's UTxO
+    L1->>L1: Dispute Collateral UTxO
 
     L1->>L1: Merge Disputed UTxOs
-    Note right of L1: Alice gets X ADA<br>Ida gets Y ADA
+    Note right of L1: Alice gets X ADA<br>Ida & Jhon get collateral
 ```
 ### Midgard <> Hydra Scenarios
 
