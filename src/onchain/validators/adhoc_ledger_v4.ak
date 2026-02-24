@@ -151,12 +151,25 @@ validator wrapped {
           ),
         }
       }
-      Punish ->
-        // TODO: checks:
+      Punish -> {
+        // Checks:
+        // - UTxO is disputed
         // - timeout expired
         // - signed by owner
         // (no need to check payments, owner takes all, even collaterals)
-        True
+
+        expect WrappedDatum {
+          owner,
+          timeout: Some(timeout),
+          disputed: True,
+          ..
+        } = datum
+
+        and {
+          is_entirely_after(validity_range, timeout),
+          list.any(extra_signatories, fn(signer) { signer == owner }),
+        }
+      }
     }
   }
 
