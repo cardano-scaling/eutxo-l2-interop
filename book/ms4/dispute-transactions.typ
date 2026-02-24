@@ -237,13 +237,13 @@
         "": "V",
       ),
       datum: (
-        inputs: [List\<WrappedOutput\>],
-        outputs: [List\<WrappedOutput\>],
+        inputs: [List\<DesiredOutput\>],
+        outputs: [List\<DesiredOutput\>],
       ),
     ),
   ),
   signatures: (
-    "intermediary",
+    "all intermediaries from inputs",
   ),
   notes: [
     $
@@ -262,8 +262,8 @@
         "": "V",
       ),
       datum: (
-        inputs: [List\<WrappedOutput\>],
-        outputs: [List\<WrappedOutput\>],
+        inputs: [List\<DesiredOutput\>],
+        outputs: [List\<DesiredOutput\>],
       ),
       redeemer: "Revert",
     ),
@@ -299,9 +299,6 @@
       ),
     ),
   ),
-  signatures: (
-    "owner",
-  ),
   notes: [
     $
       V = sum_n V_i
@@ -319,8 +316,8 @@
         "": "V",
       ),
       datum: (
-        inputs: [List\<WrappedOutput\>],
-        outputs: [List\<WrappedOutput\>],
+        inputs: [List\<DesiredOutput\>],
+        outputs: [List\<DesiredOutput\>],
       ),
       redeemer: "Perform",
     ),
@@ -357,7 +354,7 @@
     ),
   ),
   signatures: (
-    "intermediary",
+    "all intermediaries from inputs",
   ),
   notes: [
     $ V = sum_n V_i$

@@ -82,7 +82,7 @@ sequenceDiagram
 ```
 ### Midgard <> Hydra Scenarios
 
-Scenarios involving Midgard follow a similar logic but benefit from different liveness guarantees. Unlike a Hydra Head, which can be stalled if a single participant stops signing, Midgard works by having multiple operators that take turns in a round-robin system validating transactions and modifying the ledger. 
+Scenarios involving Midgard follow a similar logic but benefit from different liveness guarantees. Unlike a Hydra Head, which can be stalled if a single participant stops signing, Midgard works by having multiple operators that take turns in a round-robin system validating transactions and modifying the ledger.
 
 If a specific operator refuses to validate transactions, the user simply waits for the next operator's shift to resubmit the transaction. This inherent robustness applies to both the `Dispute` transaction on L2 and the `Withdraw` event used to bridge UTxOs back to L1.
 
@@ -128,8 +128,8 @@ The verified validator stores the state of a verified transaction, including the
 * Address: Verified script
 * Value: the locked value
 * Datum:
-  * inputs: List\<WrappedOutput\> (for reverting to previous state)
-  * outputs: List\<WrappedOutput\> (for performing the intended state change)
+  * inputs: List\<DesiredOutput\> (for reverting to previous state)
+  * outputs: List\<DesiredOutput\> (for performing the intended state change)
 
 ### Verified script
 
@@ -197,13 +197,13 @@ Consumes a Wrapped UTxO with the `Verify` redeemer and pays to the Verified cont
 
 #### Revert
 
-Consumes a Verified UTxO with the `Revert` redeemer and restores the original Wrapped UTxOs. Must be signed by the owner of one of the inputs.
+Consumes a Verified UTxO with the `Revert` redeemer and restores the original Wrapped UTxOs.
 
 ![Revert](tx_revert_v4.svg)
 
 #### Perform
 
-Consumes a Verified UTxO with the `Perform` redeemer and produces the intended outputs as new Wrapped UTxOs.
+Consumes a Verified UTxO with the `Perform` redeemer and produces the intended outputs as new Wrapped UTxOs. Must be signed by all intermediaries
 
 ![Perform](tx_perform_v4.svg)
 
