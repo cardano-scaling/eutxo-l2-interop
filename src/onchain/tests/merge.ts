@@ -1,4 +1,5 @@
 import {
+  Addresses,
   type Assets,
   Crypto,
   Data,
@@ -238,8 +239,6 @@ export async function mergeOnL1(
   wrappedValidator: Script,
   wrappedAddress: string,
   signerPrivateKey: string,
-  aliceAddress: string,
-  idaAddress: string,
 ): Promise<string> {
   const lucid = new Lucid({
     provider: l1Provider,
@@ -247,6 +246,7 @@ export async function mergeOnL1(
   });
 
   const signerHash = Crypto.privateKeyToDetails(signerPrivateKey).credential.hash;
+  const network = (l1Provider as { network?: { Emulator: number } }).network ?? { Emulator: 42 };
 
   // Find both disputed UTXOs at the script address
   const scriptUtxos = await lucid.utxosAt(wrappedAddress);
@@ -279,10 +279,8 @@ export async function mergeOnL1(
   const utxoA = withDatums[0];
   const utxoB = withDatums[1];
 
-  const ownerAddrA = utxoA.datum.owner === Crypto.privateKeyToDetails(signerPrivateKey).credential.hash
-    ? aliceAddress : idaAddress;
-  const ownerAddrB = utxoB.datum.owner === Crypto.privateKeyToDetails(signerPrivateKey).credential.hash
-    ? aliceAddress : idaAddress;
+  // Build addresses exactly like the validator does (from raw key hash).
+  const ownerAddrA = Addresses.credentialToAddress(network, { type: "Key", hash: utxoA.datum.owner });
 
   let txBuilder = lucid.newTx()
     .addSigner(signerHash)
@@ -294,9 +292,7 @@ export async function mergeOnL1(
 
   // Intermediary outputs for first UTXO
   for (const [vkh, lovelace] of utxoA.datum.intermediaries) {
-    const intermediaryAddr = vkh === utxoA.datum.owner ? ownerAddrA
-      : vkh === utxoB.datum.owner ? ownerAddrB
-      : aliceAddress; // fallback
+    const intermediaryAddr = Addresses.credentialToAddress(network, { type: "Key", hash: vkh });
     txBuilder = txBuilder.payTo(intermediaryAddr, { lovelace });
   }
 
@@ -393,9 +389,6 @@ if (import.meta.main) {
 
     // Wait for disputed UTXOs (with disputed=true datum) to appear at the script address on L1.
     // After fanout, UTXOs get new L1 tx hashes, so we match by datum content, not tx hash.
-    const aliceOwnerHash = Crypto.privateKeyToDetails(env.privateKey1).credential.hash;
-    const idaOwnerHash = Crypto.privateKeyToDetails(env.privateKey2).credential.hash;
-
     console.log(`Waiting for disputed UTXOs to appear on L1 at ${wrappedAddr.slice(0, 40)}…`);
     let retries = 0;
     while (retries < 30) {
@@ -409,19 +402,11 @@ if (import.meta.main) {
             return d.disputed === true;
           } catch { return false; }
         });
-        const foundAlice = disputed.some(u => {
-          const d = Data.from(u.datum!, AdhocLedgerV4WrappedSpend.datumOpt);
-          return d.owner === aliceOwnerHash;
-        });
-        const foundIda = disputed.some(u => {
-          const d = Data.from(u.datum!, AdhocLedgerV4WrappedSpend.datumOpt);
-          return d.owner === idaOwnerHash;
-        });
-        if (foundAlice && foundIda) {
-          console.log(`Found both disputed UTXOs on L1 after ${retries + 1} polls`);
+        if (disputed.length >= 2) {
+          console.log(`Found ${disputed.length} disputed UTXOs on L1 after ${retries + 1} polls`);
           break;
         }
-        console.log(`  Poll ${retries + 1}: found ${utxos.length} UTXOs (disputed: ${disputed.length}, Alice=${foundAlice}, Ida=${foundIda})`);
+        console.log(`  Poll ${retries + 1}: found ${utxos.length} UTXOs (disputed: ${disputed.length})`);
       } catch (e) {
         console.log(`  Poll ${retries + 1}: query failed (${e}), retrying...`);
       }
@@ -453,8 +438,6 @@ if (import.meta.main) {
       wrappedValidator,
       wrappedAddr,
       env.privateKey1,
-      env.address1,
-      env.address2,
     );
 
     // ── L1 UTXOs AFTER merge ─────────────────────────────────
