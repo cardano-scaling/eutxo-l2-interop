@@ -1,8 +1,10 @@
-use cardano/transaction.{Output,  OutputReference, Transaction, InlineDatum, find_input}
-use cardano/assets.{PolicyId, quantity_of}
-use cardano/address.{Script}
 use aiken/collection/list
 use aiken/crypto.{VerificationKeyHash}
+use cardano/address.{Script}
+use cardano/assets.{PolicyId, quantity_of}
+use cardano/transaction.{
+  InlineDatum, Output, OutputReference, Transaction, find_input,
+}
 
 pub type LpDatum {
   owner: VerificationKeyHash,
@@ -39,27 +41,36 @@ validator lp_v2 {
         True
       Perform -> {
         // all verified tokens present in the inputs must be burnt
-        let verified_tokens_in_inputs_count, required_signatories <- list.foldl2(
-          inputs,
-          0,
-          [],
-          fn (input, verified_tokens_in_inputs_count, required_signatories, return) {
-            if (input.output.address.payment_credential == Script(script_hash)) {
-              expect InlineDatum(datum) = input.output.datum
-              expect LpDatum { intermediaries, owner } = datum
-              return(
-                verified_tokens_in_inputs_count + 1,
-                required_signatories |> list.concat(intermediaries) |> list.push(owner),
-              )
-            } else {
-              return(
-                verified_tokens_in_inputs_count,
-                required_signatories,
-              )
-            }
-          }
-        )
-        expect quantity_of(mint, script_hash, verified_token_name) == -verified_tokens_in_inputs_count
+        let
+          verified_tokens_in_inputs_count,
+          required_signatories,
+        <-
+          list.foldl2(
+            inputs,
+            0,
+            [],
+            fn(
+              input,
+              verified_tokens_in_inputs_count,
+              required_signatories,
+              return,
+            ) {
+              if input.output.address.payment_credential == Script(script_hash) {
+                expect InlineDatum(datum) = input.output.datum
+                expect LpDatum { intermediaries, owner } = datum
+                return(
+                  verified_tokens_in_inputs_count + 1,
+                  required_signatories
+                    |> list.concat(intermediaries)
+                    |> list.push(owner),
+                )
+              } else {
+                return(verified_tokens_in_inputs_count, required_signatories)
+              }
+            },
+          )
+        expect
+          quantity_of(mint, script_hash, verified_token_name) == -verified_tokens_in_inputs_count
         // intermediaries and owners must be in the signatories
         expect extra_signatories == required_signatories
         // ENHACEMENTS: incrementally add validations over the outputs. first version: blind trust on the intermediaries and owners
@@ -68,11 +79,7 @@ validator lp_v2 {
     }
   }
 
-  mint(
-    redeemer: LpMintRedeemer,
-    policy_id: PolicyId,
-    tx: Transaction,
-  ) {
+  mint(redeemer: LpMintRedeemer, policy_id: PolicyId, tx: Transaction) {
     when redeemer is {
       MintVerified -> {
         let Transaction { mint, outputs, extra_signatories, .. } = tx
@@ -80,15 +87,24 @@ validator lp_v2 {
         let minted_quantity = quantity_of(mint, policy_id, verified_token_name)
         expect minted_quantity > 0
         // all verified tokens must belong to own script outputs
-        let own_script_outputs_token_count, required_signatories <-
+        let
+          own_script_outputs_token_count,
+          required_signatories,
+        <-
           list.foldl2(
             outputs,
             0,
             [],
-            fn (output: Output, own_script_outputs_token_count, required_signatories, return) {
-              if (output.address.payment_credential == Script(policy_id)) {
+            fn(
+              output: Output,
+              own_script_outputs_token_count,
+              required_signatories,
+              return,
+            ) {
+              if output.address.payment_credential == Script(policy_id) {
                 // each own output must have one token
-                expect quantity_of(output.value, policy_id, verified_token_name) == 1
+                expect
+                  quantity_of(output.value, policy_id, verified_token_name) == 1
                 // and must have well formed datum
                 expect InlineDatum(datum) = output.datum
                 expect LpDatum { intermediaries, .. } = datum
@@ -97,18 +113,19 @@ validator lp_v2 {
                   required_signatories |> list.concat(intermediaries),
                 )
               } else {
-                return(
-                  own_script_outputs_token_count,
-                  required_signatories,
-                )
+                return(own_script_outputs_token_count, required_signatories)
               }
-            })
+            },
+          )
         expect minted_quantity == own_script_outputs_token_count
         expect extra_signatories == required_signatories
         True
       }
-      BurnVerified ->
-        True
+      BurnVerified -> True
     }
+  }
+
+  else(_) {
+    fail
   }
 }

@@ -273,10 +273,10 @@ export async function performWrapTransactions(
 
   // WRAP UTXO IN B: Ida wraps 5 ADA in head B on behalf of Alice
   const wrappedDatumB: AdhocLedgerV4WrappedDatum = {
-    owner: Crypto.privateKeyToDetails(privateKey2).credential.hash, // Ida address hash
+    owner: Crypto.privateKeyToDetails(privateKey1).credential.hash, // Alice address hash
     intermediaries: new Map([
-      [Crypto.privateKeyToDetails(privateKey1).credential.hash, 5_000_000n],
-    ]), // Alice as intermediary with 5 ADA
+      [Crypto.privateKeyToDetails(privateKey2).credential.hash, 5_000_000n],
+    ]), // Ida as intermediary with 5 ADA
     nonce: { transactionId: "", outputIndex: 0n }, // Empty nonce for now
     disputed: false, // Not disputed initially
     timeout: 1000000n, // Set a timeout slot
@@ -333,8 +333,8 @@ export async function assertWrapResults(
   if (datumA.owner !== aliceHash) {
     throw new Error(`Head A datum owner mismatch: expected Alice (${aliceHash}), got ${datumA.owner}`);
   }
-  if (datumB.owner !== idaHash) {
-    throw new Error(`Head B datum owner mismatch: expected Ida (${idaHash}), got ${datumB.owner}`);
+  if (datumB.owner !== aliceHash) {
+    throw new Error(`Head B datum owner mismatch: expected Alice (${aliceHash}), got ${datumB.owner}`);
   }
   if (datumA.disputed || datumB.disputed) {
     throw new Error("Freshly wrapped UTXOs should not be disputed");
