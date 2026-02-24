@@ -1,8 +1,9 @@
 use aiken/collection/list
+use aiken/collection/pairs.{keys}
 use aiken/crypto.{VerificationKeyHash}
 use aiken/interval.{is_entirely_after}
-use cardano/address.{from_verification_key}
-use cardano/assets.{from_lovelace}
+use cardano/address.{Address, from_verification_key}
+use cardano/assets.{AssetName, PolicyId, from_lovelace}
 use cardano/transaction.{InlineDatum, Output, OutputReference, Transaction}
 
 pub type WrappedDatum {
@@ -19,6 +20,12 @@ pub type WrappedRedeemer {
   Dispute
   Merge
   Punish
+}
+
+pub type DesiredOutput {
+  address: Address,
+  value: Pairs<PolicyId, Pairs<AssetName, Int>>,
+  datum: Option<Data>,
 }
 
 // Helper function to check if a VKH is in intermediaries list
@@ -38,7 +45,8 @@ validator wrapped {
   ) {
     expect Some(datum) = datum_opt
 
-    let Transaction { extra_signatories, validity_range, .. } = tx
+    let Transaction { extra_signatories, validity_range, inputs, outputs, .. } =
+      tx
 
     when redeemer is {
       Unwrap ->
@@ -58,12 +66,12 @@ validator wrapped {
         // Get own input for comparison
         expect Some(own_input) =
           list.find(
-            tx.inputs,
+            inputs,
             fn(input) { input.output_reference == own_input_ref },
           )
 
         // Use first output as continuing output
-        expect [continuing_output, ..] = tx.outputs
+        expect [continuing_output, ..] = outputs
 
         // Extract inline datum from continuing output
         expect InlineDatum(continuing_datum) = continuing_output.datum
@@ -89,15 +97,27 @@ validator wrapped {
           continuing_output.address == own_input.output.address,
         }
       }
-      Verify ->
-        // TODO: Verify implementation for future
-        True
+      Verify -> {
+        expect Some(own_input) =
+          list.find(
+            inputs,
+            fn(input) { input.output_reference == own_input_ref },
+          )
+
+        expect InlineDatum(i_datum) = own_input.output.datum
+        // Must not be disputed
+        expect WrappedDatum { intermediaries, disputed: False, .. } = i_datum
+
+        // Signed by intermediaries in self inputs
+        list.difference(keys(intermediaries), extra_signatories) == []
+      }
+
       // TODO: Add replica index in the redeemer
       Merge -> {
         // Get own input for comparison
         expect Some(own_input) =
           list.find(
-            tx.inputs,
+            inputs,
             fn(input) { input.output_reference == own_input_ref },
           )
 
@@ -107,7 +127,7 @@ validator wrapped {
         // Find replica input (must have same nonce)
         let replica_input =
           list.find(
-            tx.inputs,
+            inputs,
             fn(input) {
               input.output_reference != own_input_ref && input.output.address == own_input.output.address && when
                 input.output.datum
@@ -130,7 +150,7 @@ validator wrapped {
         expect replica_datum.disputed == True
 
         // Validate outputs structure
-        expect [unwrap_output, ..rest] = tx.outputs
+        expect [unwrap_output, ..rest] = outputs
 
         and {
           // Validate unwrap output sends to owner
@@ -178,16 +198,11 @@ validator wrapped {
   }
 }
 
-pub type WrappedOutput {
-  datum: WrappedDatum,
-  lovelace: Int,
-}
-
 pub type VerifiedDatum {
   // inputs of the verified tx, used to revert
-  inputs: List<WrappedOutput>,
+  inputs: List<DesiredOutput>,
   // ouputs of the verified tx, used to perform
-  outputs: List<WrappedOutput>,
+  outputs: List<DesiredOutput>,
 }
 
 pub type VerifiedRedeemer {
