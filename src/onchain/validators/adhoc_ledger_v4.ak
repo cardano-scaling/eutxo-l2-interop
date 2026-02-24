@@ -1,10 +1,12 @@
-use aiken/collection/list
+use aiken/collection/list.{concat, difference, foldr, length, unique, zip}
 use aiken/collection/pairs.{keys}
 use aiken/crypto.{VerificationKeyHash}
 use aiken/interval.{is_entirely_after}
 use cardano/address.{Address, from_verification_key}
-use cardano/assets.{AssetName, PolicyId, from_lovelace}
-use cardano/transaction.{InlineDatum, Output, OutputReference, Transaction}
+use cardano/assets.{AssetName, PolicyId, from_asset_list, from_lovelace}
+use cardano/transaction.{
+  InlineDatum, NoDatum, Output, OutputReference, Transaction,
+}
 
 pub type WrappedDatum {
   owner: VerificationKeyHash,
@@ -210,19 +212,77 @@ pub type VerifiedRedeemer {
   Perform
 }
 
+fn outputs_match(outputs: List<Output>, desired_outputs: List<DesiredOutput>) {
+  and {
+    list.reduce(
+      zip(outputs, desired_outputs),
+      True,
+      fn(acc, (output, des_output)) {
+        let Output { address: o_address, value: o_value, datum: o_datum, .. } =
+          output
+
+        let DesiredOutput {
+          address: des_address,
+          value: des_value,
+          datum: des_datum,
+        } = des_output
+
+        let datum_matches =
+          when des_datum is {
+            Some(dat) -> o_datum == InlineDatum(dat)
+            None -> o_datum == NoDatum
+          }
+
+        and {
+          acc,
+          o_address == des_address,
+          o_value == from_asset_list(des_value),
+          datum_matches,
+        }
+      },
+    ),
+    // Check sizes to make sure no desired outputs got dropped by zip
+    length(outputs) >= length(desired_outputs),
+  }
+}
+
 validator verified {
   spend(
     datum_opt: Option<VerifiedDatum>,
     redeemer: VerifiedRedeemer,
-    own_input_ref: OutputReference,
+    _own_input_ref: OutputReference,
     tx: Transaction,
   ) {
-    // TODO:
-    // - if reversing, check:
-    //   - must by signed by the owner of one of the inputs
-    //   - outputs must be like datum.inputs
-    // - if performing, check outputs with datum.outputs
-    True
+    let Transaction { outputs, extra_signatories, .. } = tx
+
+    expect Some(datum) = datum_opt
+    let VerifiedDatum { inputs: dat_inputs, outputs: dat_outputs } = datum
+
+    when redeemer is {
+      // Outputs must match
+      Revert -> outputs_match(outputs, dat_inputs)
+      Perform -> {
+        let intermediaries =
+          foldr(
+            dat_inputs,
+            [],
+            fn(output, acc) {
+              expect Some(dat) = output.datum
+              expect WrappedDatum { intermediaries, .. } = dat
+
+              concat(acc, keys(intermediaries))
+            },
+          )
+        let unique_intermediaries = unique(intermediaries)
+
+        and {
+          // Must by signed by all intermediaries
+          difference(unique_intermediaries, extra_signatories) == [],
+          // Outputs must match
+          outputs_match(outputs, dat_outputs),
+        }
+      }
+    }
   }
 
   else(_) {
