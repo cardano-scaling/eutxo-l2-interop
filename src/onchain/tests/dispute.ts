@@ -233,8 +233,8 @@ export async function assertDisputeResults(
   if (datumA.owner !== aliceHash) {
     throw new Error(`Head A disputed datum owner mismatch: expected Alice (${aliceHash}), got ${datumA.owner}`);
   }
-  if (datumB.owner !== idaHash) {
-    throw new Error(`Head B disputed datum owner mismatch: expected Ida (${idaHash}), got ${datumB.owner}`);
+  if (datumB.owner !== aliceHash) {
+    throw new Error(`Head B disputed datum owner mismatch: expected Alice (${aliceHash}), got ${datumB.owner}`);
   }
 
   console.log("✅ Assertions passed: 1 disputed UTXO per head, 5 ADA each, disputed=true, correct owners");

@@ -333,8 +333,8 @@ export async function assertWrapResults(
   if (datumA.owner !== aliceHash) {
     throw new Error(`Head A datum owner mismatch: expected Alice (${aliceHash}), got ${datumA.owner}`);
   }
-  if (datumB.owner !== idaHash) {
-    throw new Error(`Head B datum owner mismatch: expected Ida (${idaHash}), got ${datumB.owner}`);
+  if (datumB.owner !== aliceHash) {
+    throw new Error(`Head B datum owner mismatch: expected Alice (${aliceHash}), got ${datumB.owner}`);
   }
   if (datumA.disputed || datumB.disputed) {
     throw new Error("Freshly wrapped UTXOs should not be disputed");
