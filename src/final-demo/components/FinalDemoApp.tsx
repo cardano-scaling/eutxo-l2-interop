@@ -1,14 +1,31 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { QueryClient, QueryClientProvider, useMutation, useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 
-interface HeadsResponse {
-  headA: { status: string; detail?: string };
-  headB: { status: string; detail?: string };
-  headC: { status: string; detail?: string };
+interface HeadReadModel {
+  status: string;
+  detail: string;
   updatedAt: string;
+  ageMs: number;
+  isStale: boolean;
+}
+
+interface HeadsResponse {
+  headA: HeadReadModel;
+  headB: HeadReadModel;
+  headC: HeadReadModel;
+  updatedAt: string;
+  ageMs: number;
+  isStale: boolean;
+  staleThresholdMs: number;
+}
+
+interface ApiErrorEnvelope {
+  errorCode: string;
+  message: string;
+  requestId: string;
 }
 
 interface WorkflowResponse {
@@ -19,8 +36,15 @@ interface WorkflowResponse {
 }
 
 async function fetchHeads(): Promise<HeadsResponse> {
-  const r = await fetch("/api/state/heads");
-  if (!r.ok) throw new Error(await r.text());
+  const r = await fetch("/api/state/heads", { cache: "no-store" });
+  if (!r.ok) {
+    try {
+      const err = await r.json() as ApiErrorEnvelope;
+      throw new Error(`${err.message} (${err.errorCode}) [${err.requestId}]`);
+    } catch {
+      throw new Error(await r.text());
+    }
+  }
   return r.json();
 }
 
@@ -55,7 +79,13 @@ function FinalDemoInner() {
   const heads = useQuery({
     queryKey: ["heads"],
     queryFn: fetchHeads,
-    refetchInterval: 3000,
+    retry: 2,
+    // Keep polling aligned with backend staleness semantics.
+    refetchInterval: (q) => {
+      const thresholdMs = q.state.data?.staleThresholdMs ?? 60_000;
+      return Math.max(1000, Math.floor(thresholdMs / 2));
+    },
+    refetchIntervalInBackground: true,
   });
 
   const workflow = useQuery({
@@ -67,7 +97,14 @@ function FinalDemoInner() {
 
   const connect = useMutation({
     mutationFn: () => fetch("/api/state/heads/mock-connect", { method: "POST" }).then((r) => r.json()),
+    onSuccess: () => heads.refetch(),
   });
+
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const requestFunds = useMutation({
     mutationFn: () =>
@@ -121,11 +158,34 @@ function FinalDemoInner() {
 
       <section style={cardStyle}>
         <h2 style={{ marginTop: 0 }}>Head State</h2>
-        <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
-          <HeadCard title="Head A" status={heads.data?.headA.status} detail={heads.data?.headA.detail} />
-          <HeadCard title="Head B" status={heads.data?.headB.status} detail={heads.data?.headB.detail} />
-          <HeadCard title="Head C" status={heads.data?.headC.status} detail={heads.data?.headC.detail} />
-        </div>
+        {heads.isLoading ? <p>Loading head state...</p> : null}
+        {heads.isError ? (
+          <div style={{ display: "grid", gap: 8 }}>
+            <p style={{ color: "#b91c1c", margin: 0 }}>Failed to load head state: {heads.error.message}</p>
+            <div>
+              <Button variant="outline" onClick={() => heads.refetch()}>Retry Head State</Button>
+            </div>
+          </div>
+        ) : null}
+        {heads.data ? (
+          <>
+            <p
+              style={{
+                marginTop: 0,
+                color: (nowMs - new Date(heads.data.updatedAt).getTime()) > heads.data.staleThresholdMs ? "#b45309" : "#52525b",
+              }}
+            >
+              Last update: {new Date(heads.data.updatedAt).toLocaleString()} ({Math.floor(Math.max(0, nowMs - new Date(heads.data.updatedAt).getTime()) / 1000)}s ago)
+              {" · "}
+              {(nowMs - new Date(heads.data.updatedAt).getTime()) > heads.data.staleThresholdMs ? "STALE" : "FRESH"}
+            </p>
+            <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
+              <HeadCard title="Head A" head={heads.data.headA} nowMs={nowMs} staleThresholdMs={heads.data.staleThresholdMs} />
+              <HeadCard title="Head B" head={heads.data.headB} nowMs={nowMs} staleThresholdMs={heads.data.staleThresholdMs} />
+              <HeadCard title="Head C" head={heads.data.headC} nowMs={nowMs} staleThresholdMs={heads.data.staleThresholdMs} />
+            </div>
+          </>
+        ) : null}
         <div style={{ marginTop: 12 }}>
           <Button onClick={() => connect.mutate()} disabled={busy}>
             Mock Connect Heads
@@ -200,12 +260,21 @@ export function FinalDemoApp() {
   );
 }
 
-function HeadCard({ title, status, detail }: { title: string; status?: string; detail?: string }) {
+function HeadCard(
+  { title, head, nowMs, staleThresholdMs }: { title: string; head: HeadReadModel; nowMs: number; staleThresholdMs: number },
+) {
+  const ageMs = Math.max(0, nowMs - new Date(head.updatedAt).getTime());
+  const isStale = ageMs > staleThresholdMs;
   return (
     <div style={{ border: "1px solid #e4e4e7", borderRadius: 8, padding: 10, background: "#fafafa" }}>
       <h3 style={{ margin: "0 0 6px 0" }}>{title}</h3>
-      <p style={{ margin: "0 0 4px 0" }}>Status: {status || "unknown"}</p>
-      <p style={{ margin: 0 }}>{detail || "-"}</p>
+      <p style={{ margin: "0 0 4px 0" }}>
+        Status: {head.status} {isStale ? "· stale" : ""}
+      </p>
+      <p style={{ margin: "0 0 4px 0" }}>{head.detail || "-"}</p>
+      <p style={{ margin: 0, color: "#71717a", fontSize: 12 }}>
+        Updated: {new Date(head.updatedAt).toLocaleTimeString()} ({Math.floor(ageMs / 1000)}s ago)
+      </p>
     </div>
   );
 }
