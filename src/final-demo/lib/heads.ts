@@ -1,31 +1,57 @@
 import { prisma } from "./db";
-import type { HeadsState } from "./types";
+import { logger } from "./logger";
+import type { HeadReadModel, HeadStatus, HeadsStateReadModel } from "./types";
 
-const DEFAULT_HEADS: HeadsState = {
-  headA: { status: "disconnected", detail: "Not connected yet" },
-  headB: { status: "disconnected", detail: "Not connected yet" },
-  headC: { status: "disconnected", detail: "Not connected yet" },
-  updatedAt: new Date().toISOString(),
-};
+const NEVER_UPDATED_AT = new Date(0).toISOString();
+export const STALE_THRESHOLD_MS = Number(process.env.HEAD_STATE_STALE_MS ?? 60_000);
+const HEAD_NAMES = ["headA", "headB", "headC"] as const;
 
-export async function getHeadsState(): Promise<HeadsState> {
-  const rows = await prisma.headSnapshot.findMany();
-  if (rows.length === 0) return DEFAULT_HEADS;
-  const byHead = new Map(rows.map((r) => [r.headName, r]));
+function asHeadStatus(value: string | undefined): HeadStatus {
+  if (value === "connected" || value === "disconnected" || value === "idle" || value === "open" || value === "closed") {
+    return value;
+  }
+  logger.error({ value }, "unexpected head status");
+  return "disconnected";
+}
+
+function buildHeadReadModel(
+  row: { status: string; detail: string | null; updatedAt: Date } | undefined,
+  fallbackUpdatedAt: string,
+  nowMs: number,
+): HeadReadModel {
+  const updatedAt = row?.updatedAt.toISOString() ?? fallbackUpdatedAt;
+  const ageMs = Math.max(0, nowMs - new Date(updatedAt).getTime());
   return {
-    headA: {
-      status: (byHead.get("headA")?.status as HeadsState["headA"]["status"]) || "disconnected",
-      detail: byHead.get("headA")?.detail || "",
-    },
-    headB: {
-      status: (byHead.get("headB")?.status as HeadsState["headB"]["status"]) || "disconnected",
-      detail: byHead.get("headB")?.detail || "",
-    },
-    headC: {
-      status: (byHead.get("headC")?.status as HeadsState["headC"]["status"]) || "disconnected",
-      detail: byHead.get("headC")?.detail || "",
-    },
-    updatedAt: new Date().toISOString(),
+    status: asHeadStatus(row?.status),
+    detail: row?.detail ?? "Not connected yet",
+    updatedAt,
+    ageMs,
+    isStale: ageMs > STALE_THRESHOLD_MS,
+  };
+}
+
+export async function getHeadsState(): Promise<HeadsStateReadModel> {
+  const rows = await prisma.headSnapshot.findMany();
+  const nowMs = Date.now();
+  const byHead = new Map(rows.map((r) => [r.headName, r]));
+  const latestRowMs = rows.length > 0
+    ? Math.max(...rows.map((r) => r.updatedAt.getTime()))
+    : new Date(NEVER_UPDATED_AT).getTime();
+  const latestUpdatedAt = new Date(latestRowMs).toISOString();
+
+  const headA = buildHeadReadModel(byHead.get("headA"), latestUpdatedAt, nowMs);
+  const headB = buildHeadReadModel(byHead.get("headB"), latestUpdatedAt, nowMs);
+  const headC = buildHeadReadModel(byHead.get("headC"), latestUpdatedAt, nowMs);
+  const ageMs = Math.max(0, nowMs - latestRowMs);
+
+  return {
+    headA,
+    headB,
+    headC,
+    updatedAt: latestUpdatedAt,
+    ageMs,
+    isStale: ageMs > STALE_THRESHOLD_MS,
+    staleThresholdMs: STALE_THRESHOLD_MS,
   };
 }
 
@@ -35,4 +61,20 @@ export async function upsertHeadState(headName: "headA" | "headB" | "headC", sta
     create: { headName, status, detail },
     update: { status, detail },
   });
+}
+
+export async function syncHeadSnapshotsHeartbeat() {
+  const rows = await prisma.headSnapshot.findMany({
+    where: { headName: { in: [...HEAD_NAMES] } },
+  });
+  const byHead = new Map(rows.map((r) => [r.headName, r]));
+
+  for (const headName of HEAD_NAMES) {
+    const row = byHead.get(headName);
+    await upsertHeadState(
+      headName,
+      asHeadStatus(row?.status),
+      row?.detail ?? "Not connected yet",
+    );
+  }
 }
