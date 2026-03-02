@@ -1,0 +1,86 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum WorkflowType {
+  request_funds
+  buy_ticket
+  charlie_interact
+}
+
+enum WorkflowStatus {
+  pending
+  running
+  succeeded
+  failed
+  cancelled
+}
+
+model Workflow {
+  id             String         @id @default(cuid())
+  type           WorkflowType
+  status         WorkflowStatus @default(pending)
+  priority       Int            @default(0)
+  maxAttempts    Int            @default(5)
+  actor          String
+  correlationId  String
+  idempotencyKey String
+  lockedBy       String?
+  lockExpiresAt  DateTime?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  lastErrorCode  String?
+  payloadJson    String
+  resultJson     String?
+  errorMessage   String?
+  attemptCount   Int            @default(0)
+  nextRetryAt    DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  steps          WorkflowStep[]
+  events         WorkflowEvent[]
+
+  @@unique([idempotencyKey, type])
+  @@index([status, nextRetryAt])
+  @@index([priority, createdAt])
+}
+
+model WorkflowStep {
+  id          String         @id @default(cuid())
+  workflowId  String
+  name        String
+  status      WorkflowStatus @default(pending)
+  attempt     Int            @default(0)
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  errorDetail String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  workflow    Workflow       @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@index([workflowId, name])
+}
+
+model WorkflowEvent {
+  id         String   @id @default(cuid())
+  workflowId String
+  level      String
+  message    String
+  metaJson   String?
+  createdAt  DateTime @default(now())
+  workflow   Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@index([workflowId, createdAt])
+}
+
+model HeadSnapshot {
+  id        String   @id @default(cuid())
+  headName  String   @unique
+  status    String
+  detail    String?
+  updatedAt DateTime @updatedAt
+}

@@ -1,0 +1,73 @@
+services:
+  postgres:
+    profiles: ["dev", "full"]
+    image: postgres:16
+    container_name: final-demo-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: final_demo
+    ports:
+      - "5434:5432"
+    volumes:
+      - final_demo_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d final_demo"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+
+  init:
+    profiles: ["dev", "full"]
+    image: node:20
+    container_name: final-demo-init
+    depends_on:
+      postgres:
+        condition: service_healthy
+    working_dir: /workspace/src/final-demo
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/final_demo?schema=public
+    command: sh -c "npm install && npm run prisma:push && npm run prisma:generate"
+    volumes:
+      - ../../:/workspace
+
+  app:
+    profiles: ["full"]
+    image: node:20
+    container_name: final-demo-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      init:
+        condition: service_completed_successfully
+    working_dir: /workspace/src/final-demo
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/final_demo?schema=public
+      WORKER_POLL_MS: 2000
+    command: sh -c "npm run dev"
+    volumes:
+      - ../../:/workspace
+      - final_demo_next_cache:/workspace/src/final-demo/.next
+    ports:
+      - "3000:3000"
+
+  worker:
+    profiles: ["dev", "full"]
+    image: node:20
+    container_name: final-demo-worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      init:
+        condition: service_completed_successfully
+    working_dir: /workspace/src/final-demo
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/final_demo?schema=public
+      WORKER_POLL_MS: 2000
+    command: sh -c "npm run worker"
+    volumes:
+      - ../../:/workspace
+
+volumes:
+  final_demo_pg:
+  final_demo_next_cache:
