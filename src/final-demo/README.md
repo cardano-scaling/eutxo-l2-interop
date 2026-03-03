@@ -66,3 +66,5 @@ App runs on `http://localhost:3000` (UI + API).
 - Ticket buy is mocked for now (placeholder destination supported).
 - Workflow state is persisted in Postgres.
 - Worker processes queued workflows with retry metadata.
+- Worker logs queue health snapshots periodically (`WORKER_QUEUE_METRICS_LOG_MS`), including claim rate, retries, terminal failures, and stale lock recoveries.
+- Admin retry supports emergency override: `POST /api/admin/workflows/:id/retry` with body `{ "force": true, "reason": "..." }`.
