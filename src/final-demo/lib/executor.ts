@@ -2,6 +2,7 @@ import { WorkflowStatus, WorkflowType, type Workflow } from "@prisma/client";
 import { appendEvent, markWorkflowFailed, markWorkflowRunning, markWorkflowSucceeded, updateStep } from "./workflows";
 import { upsertHeadState } from "./heads";
 import { RequestFundsError, requestFunds, type RequestFundsPayload } from "./services/request-funds";
+import { TicketServiceError, buyTicket, type BuyTicketPayload } from "./services/ticket-service";
 
 function fakeTxHash(prefix: string): string {
   const rand = crypto.randomUUID().replaceAll("-", "");
@@ -16,6 +17,9 @@ type WorkflowExecutionError = {
 
 function asWorkflowExecutionError(error: unknown): WorkflowExecutionError {
   if (error instanceof RequestFundsError) {
+    return { message: error.message, errorCode: error.code, retryable: error.retryable };
+  }
+  if (error instanceof TicketServiceError) {
     return { message: error.message, errorCode: error.code, retryable: error.retryable };
   }
   if (error instanceof Error) {
@@ -37,6 +41,32 @@ async function executeRequestFundsStep(
   run: () => Promise<void>,
 ) {
   // Keep step status and event stream aligned so timeline can be rebuilt from DB only.
+  await updateStep(workflow.id, name, WorkflowStatus.running);
+  await appendEvent(workflow.id, "info", `Step ${name} started`, { step: name, attempt });
+  try {
+    await run();
+    await updateStep(workflow.id, name, WorkflowStatus.succeeded);
+    await appendEvent(workflow.id, "info", `Step ${name} succeeded`, { step: name, attempt });
+  } catch (error) {
+    const err = asWorkflowExecutionError(error);
+    await updateStep(workflow.id, name, WorkflowStatus.failed, err.message);
+    await appendEvent(workflow.id, "error", `Step ${name} failed`, {
+      step: name,
+      attempt,
+      errorCode: err.errorCode ?? null,
+      retryable: err.retryable ?? null,
+      reason: err.message,
+    });
+    throw error;
+  }
+}
+
+async function executeBuyTicketStep(
+  workflow: Workflow,
+  name: "prepare" | "submit" | "confirm",
+  attempt: number,
+  run: () => Promise<void>,
+) {
   await updateStep(workflow.id, name, WorkflowStatus.running);
   await appendEvent(workflow.id, "info", `Step ${name} started`, { step: name, attempt });
   try {
@@ -91,6 +121,40 @@ async function executeRequestFundsWorkflow(workflow: Workflow) {
   await markWorkflowSucceeded(workflow.id, result);
 }
 
+async function executeBuyTicketWorkflow(workflow: Workflow) {
+  const payload = JSON.parse(workflow.payloadJson || "{}") as Partial<BuyTicketPayload>;
+  const attempt = workflow.attemptCount + 1;
+
+  await executeBuyTicketStep(workflow, "prepare", attempt, async () => {
+    if (!payload.address || !payload.amountLovelace || !payload.placeholderAddress) {
+      throw new TicketServiceError("BUY_TICKET_INVALID_INPUT", "buy_ticket payload is incomplete", false);
+    }
+  });
+
+  let result: Record<string, unknown> = {};
+  await executeBuyTicketStep(workflow, "submit", attempt, async () => {
+    const serviceResult = await buyTicket(
+      {
+        address: payload.address!,
+        amountLovelace: payload.amountLovelace!,
+        placeholderAddress: payload.placeholderAddress!,
+      },
+      {
+        workflowId: workflow.id,
+        correlationId: workflow.correlationId,
+        attempt,
+      },
+    );
+    result = { ...serviceResult };
+  });
+
+  await executeBuyTicketStep(workflow, "confirm", attempt, async () => {
+    await upsertHeadState("headB", "open", "Mock ticket purchase accepted");
+  });
+
+  await markWorkflowSucceeded(workflow.id, result);
+}
+
 export async function executeWorkflow(workflow: Workflow) {
   try {
     await markWorkflowRunning(workflow.id);
@@ -99,16 +163,17 @@ export async function executeWorkflow(workflow: Workflow) {
       await executeRequestFundsWorkflow(workflow);
       return;
     }
+    if (workflow.type === WorkflowType.buy_ticket) {
+      await executeBuyTicketWorkflow(workflow);
+      return;
+    }
 
     const payload = JSON.parse(workflow.payloadJson || "{}") as Record<string, unknown>;
     let result: Record<string, unknown> = {};
     await executeStep(workflow.id, "prepare");
     await executeStep(workflow.id, "submit");
 
-    if (workflow.type === WorkflowType.buy_ticket) {
-      await upsertHeadState("headB", "open", "Mock ticket purchase accepted");
-      result = { txHash: fakeTxHash("tick"), head: "B", placeholderAddress: payload.placeholderAddress };
-    } else if (workflow.type === WorkflowType.charlie_interact) {
+    if (workflow.type === WorkflowType.charlie_interact) {
       await upsertHeadState("headC", "open", "Charlie interaction completed");
       result = { txHash: fakeTxHash("char"), head: "C", action: payload.action };
     }

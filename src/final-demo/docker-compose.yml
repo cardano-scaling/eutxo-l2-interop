@@ -44,6 +44,8 @@ services:
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/final_demo?schema=public
       WORKER_POLL_MS: 2000
+      REQUEST_FUNDS_MOCK_FAILURE_MODE: ${REQUEST_FUNDS_MOCK_FAILURE_MODE:-none}
+      BUY_TICKET_MOCK_FAILURE_MODE: ${BUY_TICKET_MOCK_FAILURE_MODE:-none}
     command: sh -c "npm run dev"
     volumes:
       - ../../:/workspace
@@ -64,6 +66,8 @@ services:
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/final_demo?schema=public
       WORKER_POLL_MS: 2000
+      REQUEST_FUNDS_MOCK_FAILURE_MODE: ${REQUEST_FUNDS_MOCK_FAILURE_MODE:-none}
+      BUY_TICKET_MOCK_FAILURE_MODE: ${BUY_TICKET_MOCK_FAILURE_MODE:-none}
     command: sh -c "npm run worker"
     volumes:
       - ../../:/workspace
