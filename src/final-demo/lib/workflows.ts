@@ -25,6 +25,7 @@ export async function appendEvent(
 }
 
 export async function createWorkflow(type: WorkflowType, actor: string, idempotencyKey: string, payload: JsonObj) {
+  // Idempotency is scoped by (type, idempotencyKey): return existing workflow when replayed.
   const existing = await prisma.workflow.findFirst({
     where: { type, idempotencyKey },
     include: { steps: true, events: { orderBy: { createdAt: "asc" } } },
@@ -82,6 +83,7 @@ export async function retryWorkflowNow(id: string) {
 export async function listPendingWorkflows(limit = 10) {
   return prisma.workflow.findMany({
     where: {
+      // Failed workflows re-enter the queue only after backoff delay expires.
       OR: [
         { status: WorkflowStatus.pending },
         {
@@ -93,6 +95,13 @@ export async function listPendingWorkflows(limit = 10) {
     orderBy: [{ priority: "desc" }, { createdAt: "asc" }],
     take: limit,
     include: { steps: { orderBy: { createdAt: "asc" } } },
+  });
+}
+
+export async function findWorkflowByIdempotency(type: WorkflowType, idempotencyKey: string) {
+  return prisma.workflow.findFirst({
+    where: { type, idempotencyKey },
+    include: { steps: { orderBy: { createdAt: "asc" } }, events: { orderBy: { createdAt: "asc" } } },
   });
 }
 
@@ -144,17 +153,25 @@ export async function markWorkflowSucceeded(id: string, result: JsonObj) {
   await appendEvent(id, "info", "Workflow execution completed", result);
 }
 
-export async function markWorkflowFailed(id: string, reason: string) {
+type FailureOptions = {
+  errorCode?: string;
+  retryable?: boolean;
+};
+
+export async function markWorkflowFailed(id: string, reason: string, options?: FailureOptions) {
   const current = await prisma.workflow.findUniqueOrThrow({ where: { id } });
   const attempt = current.attemptCount + 1;
-  const canRetry = attempt < current.maxAttempts;
+  const retryable = options?.retryable !== false;
+  // Non-retryable errors bypass backoff and become terminal immediately.
+  const canRetry = retryable && attempt < current.maxAttempts;
   const retryDelaySec = Math.min(60, Math.pow(2, attempt));
+  const errorCode = options?.errorCode ?? deriveErrorCode(reason);
   await prisma.workflow.update({
     where: { id },
     data: {
       status: canRetry ? WorkflowStatus.failed : WorkflowStatus.cancelled,
       errorMessage: reason,
-      lastErrorCode: deriveErrorCode(reason),
+      lastErrorCode: errorCode,
       attemptCount: attempt,
       nextRetryAt: canRetry ? new Date(Date.now() + retryDelaySec * 1000) : null,
       lockExpiresAt: null,
@@ -164,10 +181,12 @@ export async function markWorkflowFailed(id: string, reason: string) {
   });
   await appendEvent(id, "error", "Workflow execution failed", {
     reason,
+    errorCode,
     attempt,
     retryDelaySec: canRetry ? retryDelaySec : null,
     canRetry,
+    retryable,
     maxAttempts: current.maxAttempts,
   });
-  logger.error({ workflowId: id, reason }, "workflow failed");
+  logger.error({ workflowId: id, reason, errorCode, retryable, canRetry }, "workflow failed");
 }
