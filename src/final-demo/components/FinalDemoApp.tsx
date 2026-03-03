@@ -79,9 +79,13 @@ async function retryWorkflow(id: string) {
 function newBusinessId(): string {
   return `request_funds:user:${crypto.randomUUID()}`;
 }
+function newBuyTicketIntentId(): string {
+  return `buy_ticket:user:${crypto.randomUUID()}`;
+}
 
 const REQUEST_FUNDS_INTENT_TTL_MS = 10 * 60 * 1000;
 const REQUEST_FUNDS_INTENT_STORAGE_KEY = "final-demo.request-funds-intents.v1";
+const BUY_TICKET_INTENT_STORAGE_KEY = "final-demo.buy-ticket-intents.v1";
 
 type RequestFundsIntentRecord = {
   idempotencyKey: string;
@@ -90,6 +94,7 @@ type RequestFundsIntentRecord = {
 };
 
 type RequestFundsIntentStore = Record<string, RequestFundsIntentRecord>;
+type BuyTicketIntentStore = Record<string, RequestFundsIntentRecord>;
 
 function requestFundsPayloadFingerprint(actor: string, address: string, amountLovelace: string): string {
   return JSON.stringify({
@@ -166,10 +171,102 @@ function clearRequestFundsIntentByWorkflowId(workflowId: string): boolean {
   return removed;
 }
 
+function buyTicketPayloadFingerprint(
+  actor: string,
+  address: string,
+  amountLovelace: string,
+  placeholderAddress: string,
+): string {
+  return JSON.stringify({
+    actor: actor.trim().toLowerCase(),
+    address: address.trim(),
+    amountLovelace: amountLovelace.trim(),
+    placeholderAddress: placeholderAddress.trim(),
+  });
+}
+
+function loadBuyTicketIntentStore(nowMs: number): BuyTicketIntentStore {
+  try {
+    const raw = window.localStorage.getItem(BUY_TICKET_INTENT_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as BuyTicketIntentStore;
+    const pruned: BuyTicketIntentStore = {};
+    for (const [fingerprint, record] of Object.entries(parsed)) {
+      if (nowMs - record.createdAtMs < REQUEST_FUNDS_INTENT_TTL_MS) {
+        pruned[fingerprint] = record;
+      }
+    }
+    return pruned;
+  } catch {
+    return {};
+  }
+}
+
+function saveBuyTicketIntentStore(store: BuyTicketIntentStore) {
+  window.localStorage.setItem(BUY_TICKET_INTENT_STORAGE_KEY, JSON.stringify(store));
+}
+
+function getOrCreateBuyTicketIdempotencyKey(
+  actor: string,
+  address: string,
+  amountLovelace: string,
+  placeholderAddress: string,
+) {
+  const nowMs = Date.now();
+  const fingerprint = buyTicketPayloadFingerprint(actor, address, amountLovelace, placeholderAddress);
+  const store = loadBuyTicketIntentStore(nowMs);
+  const existing = store[fingerprint];
+  if (existing) {
+    return { fingerprint, idempotencyKey: existing.idempotencyKey };
+  }
+  const idempotencyKey = newBuyTicketIntentId();
+  store[fingerprint] = { idempotencyKey, createdAtMs: nowMs };
+  saveBuyTicketIntentStore(store);
+  return { fingerprint, idempotencyKey };
+}
+
+function rotateBuyTicketIdempotencyKey(
+  actor: string,
+  address: string,
+  amountLovelace: string,
+  placeholderAddress: string,
+) {
+  const nowMs = Date.now();
+  const fingerprint = buyTicketPayloadFingerprint(actor, address, amountLovelace, placeholderAddress);
+  const store = loadBuyTicketIntentStore(nowMs);
+  const idempotencyKey = newBuyTicketIntentId();
+  store[fingerprint] = { idempotencyKey, createdAtMs: nowMs };
+  saveBuyTicketIntentStore(store);
+  return idempotencyKey;
+}
+
+function bindBuyTicketIntentWorkflow(fingerprint: string, workflowId: string) {
+  const store = loadBuyTicketIntentStore(Date.now());
+  if (!store[fingerprint]) return;
+  store[fingerprint] = { ...store[fingerprint], workflowId };
+  saveBuyTicketIntentStore(store);
+}
+
+function clearBuyTicketIntentByWorkflowId(workflowId: string): boolean {
+  const store = loadBuyTicketIntentStore(Date.now());
+  let removed = false;
+  const next: BuyTicketIntentStore = {};
+  for (const [fingerprint, record] of Object.entries(store)) {
+    if (record.workflowId === workflowId) {
+      removed = true;
+      continue;
+    }
+    next[fingerprint] = record;
+  }
+  if (removed) saveBuyTicketIntentStore(next);
+  return removed;
+}
+
 function FinalDemoInner() {
   const [address, setAddress] = useState("addr_test1_demo_wallet");
   const [amount, setAmount] = useState("5000000");
   const [requestFundsIdempotencyKey, setRequestFundsIdempotencyKey] = useState(() => newBusinessId());
+  const [buyTicketIdempotencyKey, setBuyTicketIdempotencyKey] = useState(() => newBuyTicketIntentId());
   const [placeholderAddress, setPlaceholderAddress] = useState("addr_test1_placeholder_ticket");
   const [workflowId, setWorkflowId] = useState("");
 
@@ -226,6 +323,10 @@ function FinalDemoInner() {
     const intent = getOrCreateRequestFundsIdempotencyKey("user", address, amount);
     setRequestFundsIdempotencyKey(intent.idempotencyKey);
   }, [address, amount]);
+  useEffect(() => {
+    const intent = getOrCreateBuyTicketIdempotencyKey("user", address, amount, placeholderAddress);
+    setBuyTicketIdempotencyKey(intent.idempotencyKey);
+  }, [address, amount, placeholderAddress]);
 
   const requestFunds = useMutation({
     mutationFn: () =>
@@ -248,14 +349,22 @@ function FinalDemoInner() {
 
   const buyTicket = useMutation({
     mutationFn: () =>
-      createWorkflow("/api/workflows/buy-ticket", {
-        actor: "user",
-        idempotencyKey: crypto.randomUUID(),
-        address,
-        amountLovelace: amount,
-        placeholderAddress,
-      }),
-    onSuccess: (d) => setWorkflowId(d.workflowId),
+      {
+        const actor = "user";
+        const intent = getOrCreateBuyTicketIdempotencyKey(actor, address, amount, placeholderAddress);
+        return createWorkflow("/api/workflows/buy-ticket", {
+          actor,
+          idempotencyKey: intent.idempotencyKey,
+          address,
+          amountLovelace: amount,
+          placeholderAddress,
+        }).then((d) => ({ ...d, fingerprint: intent.fingerprint }));
+      },
+    onSuccess: (d) => {
+      setWorkflowId(d.workflowId);
+      bindBuyTicketIntentWorkflow(d.fingerprint, d.workflowId);
+      if (d.idempotencyKey) setBuyTicketIdempotencyKey(d.idempotencyKey);
+    },
   });
 
   const charlie = useMutation({
@@ -282,6 +391,14 @@ function FinalDemoInner() {
       setRequestFundsIdempotencyKey(rotateRequestFundsIdempotencyKey("user", address, amount));
     }
   }, [address, amount, workflow.data]);
+  useEffect(() => {
+    const data = workflow.data;
+    if (!data || data.type !== "buy_ticket") return;
+    if (data.status !== "succeeded" && data.status !== "cancelled") return;
+    if (clearBuyTicketIntentByWorkflowId(data.id)) {
+      setBuyTicketIdempotencyKey(rotateBuyTicketIdempotencyKey("user", address, amount, placeholderAddress));
+    }
+  }, [address, amount, placeholderAddress, workflow.data]);
 
   const busy = useMemo(
     () => connect.isPending || requestFunds.isPending || buyTicket.isPending || charlie.isPending,
@@ -357,10 +474,20 @@ function FinalDemoInner() {
             New Request Intent
           </Button>
           <Button onClick={() => buyTicket.mutate()} disabled={busy}>Buy Ticket (Mock)</Button>
+          <Button
+            variant="outline"
+            onClick={() => setBuyTicketIdempotencyKey(rotateBuyTicketIdempotencyKey("user", address, amount, placeholderAddress))}
+            disabled={busy}
+          >
+            New Ticket Intent
+          </Button>
           <Button onClick={() => charlie.mutate()} disabled={busy}>Charlie Interact</Button>
         </div>
         <p style={{ marginTop: 8, marginBottom: 0, color: "#71717a", fontSize: 12 }}>
           Request funds idempotencyKey: <code>{requestFundsIdempotencyKey}</code>
+        </p>
+        <p style={{ marginTop: 6, marginBottom: 0, color: "#71717a", fontSize: 12 }}>
+          Buy ticket idempotencyKey: <code>{buyTicketIdempotencyKey}</code>
         </p>
       </section>
 
