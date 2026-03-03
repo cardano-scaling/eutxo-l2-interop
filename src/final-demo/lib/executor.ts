@@ -1,5 +1,5 @@
 import { WorkflowStatus, WorkflowType, type Workflow } from "@prisma/client";
-import { appendEvent, markWorkflowFailed, markWorkflowRunning, markWorkflowSucceeded, updateStep } from "./workflows";
+import { markWorkflowFailed, markWorkflowSucceeded, setWorkflowDraftResult, updateStep, updateStepWithEvent } from "./workflows";
 import { upsertHeadState } from "./heads";
 import { RequestFundsError, requestFunds, type RequestFundsPayload } from "./services/request-funds";
 import { TicketServiceError, buyTicket, type BuyTicketPayload } from "./services/ticket-service";
@@ -28,6 +28,23 @@ function asWorkflowExecutionError(error: unknown): WorkflowExecutionError {
   return { message: String(error) };
 }
 
+type WorkflowWithSteps = Workflow & {
+  steps?: Array<{ name: string; status: WorkflowStatus }>;
+};
+
+function hasSucceededStep(workflow: WorkflowWithSteps, name: "prepare" | "submit" | "confirm"): boolean {
+  return workflow.steps?.some((step) => step.name === name && step.status === WorkflowStatus.succeeded) ?? false;
+}
+
+function parseDraftResult(workflow: Workflow): Record<string, unknown> | null {
+  if (!workflow.resultJson) return null;
+  try {
+    return JSON.parse(workflow.resultJson) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
 async function executeStep(workflowId: string, name: string) {
   await updateStep(workflowId, name, WorkflowStatus.running);
   await new Promise((r) => setTimeout(r, 250));
@@ -41,22 +58,37 @@ async function executeRequestFundsStep(
   run: () => Promise<void>,
 ) {
   // Keep step status and event stream aligned so timeline can be rebuilt from DB only.
-  await updateStep(workflow.id, name, WorkflowStatus.running);
-  await appendEvent(workflow.id, "info", `Step ${name} started`, { step: name, attempt });
+  await updateStepWithEvent(workflow.id, name, WorkflowStatus.running, {
+    level: "info",
+    message: `Step ${name} started`,
+    meta: { step: name, attempt },
+  });
   try {
     await run();
-    await updateStep(workflow.id, name, WorkflowStatus.succeeded);
-    await appendEvent(workflow.id, "info", `Step ${name} succeeded`, { step: name, attempt });
+    await updateStepWithEvent(workflow.id, name, WorkflowStatus.succeeded, {
+      level: "info",
+      message: `Step ${name} succeeded`,
+      meta: { step: name, attempt },
+    });
   } catch (error) {
     const err = asWorkflowExecutionError(error);
-    await updateStep(workflow.id, name, WorkflowStatus.failed, err.message);
-    await appendEvent(workflow.id, "error", `Step ${name} failed`, {
-      step: name,
-      attempt,
-      errorCode: err.errorCode ?? null,
-      retryable: err.retryable ?? null,
-      reason: err.message,
-    });
+    await updateStepWithEvent(
+      workflow.id,
+      name,
+      WorkflowStatus.failed,
+      {
+        level: "error",
+        message: `Step ${name} failed`,
+        meta: {
+          step: name,
+          attempt,
+          errorCode: err.errorCode ?? null,
+          retryable: err.retryable ?? null,
+          reason: err.message,
+        },
+      },
+      err.message,
+    );
     throw error;
   }
 }
@@ -67,97 +99,126 @@ async function executeBuyTicketStep(
   attempt: number,
   run: () => Promise<void>,
 ) {
-  await updateStep(workflow.id, name, WorkflowStatus.running);
-  await appendEvent(workflow.id, "info", `Step ${name} started`, { step: name, attempt });
+  await updateStepWithEvent(workflow.id, name, WorkflowStatus.running, {
+    level: "info",
+    message: `Step ${name} started`,
+    meta: { step: name, attempt },
+  });
   try {
     await run();
-    await updateStep(workflow.id, name, WorkflowStatus.succeeded);
-    await appendEvent(workflow.id, "info", `Step ${name} succeeded`, { step: name, attempt });
+    await updateStepWithEvent(workflow.id, name, WorkflowStatus.succeeded, {
+      level: "info",
+      message: `Step ${name} succeeded`,
+      meta: { step: name, attempt },
+    });
   } catch (error) {
     const err = asWorkflowExecutionError(error);
-    await updateStep(workflow.id, name, WorkflowStatus.failed, err.message);
-    await appendEvent(workflow.id, "error", `Step ${name} failed`, {
-      step: name,
-      attempt,
-      errorCode: err.errorCode ?? null,
-      retryable: err.retryable ?? null,
-      reason: err.message,
-    });
+    await updateStepWithEvent(
+      workflow.id,
+      name,
+      WorkflowStatus.failed,
+      {
+        level: "error",
+        message: `Step ${name} failed`,
+        meta: {
+          step: name,
+          attempt,
+          errorCode: err.errorCode ?? null,
+          retryable: err.retryable ?? null,
+          reason: err.message,
+        },
+      },
+      err.message,
+    );
     throw error;
   }
 }
 
-async function executeRequestFundsWorkflow(workflow: Workflow) {
+async function executeRequestFundsWorkflow(workflow: WorkflowWithSteps) {
   const payload = JSON.parse(workflow.payloadJson || "{}") as Partial<RequestFundsPayload>;
   const attempt = workflow.attemptCount + 1;
 
   // Fail fast on malformed payloads so these become terminal (non-retryable) errors.
-  await executeRequestFundsStep(workflow, "prepare", attempt, async () => {
-    if (!payload.address || !payload.amountLovelace) {
-      throw new RequestFundsError("REQUEST_FUNDS_INVALID_INPUT", "request_funds payload is incomplete", false);
-    }
-  });
+  if (!hasSucceededStep(workflow, "prepare")) {
+    await executeRequestFundsStep(workflow, "prepare", attempt, async () => {
+      if (!payload.address || !payload.amountLovelace) {
+        throw new RequestFundsError("REQUEST_FUNDS_INVALID_INPUT", "request_funds payload is incomplete", false);
+      }
+    });
+  }
 
-  let result: Record<string, unknown> = {};
-  await executeRequestFundsStep(workflow, "submit", attempt, async () => {
-    const serviceResult = await requestFunds(
-      {
-        address: payload.address!,
-        amountLovelace: payload.amountLovelace!,
-      },
-      {
-        workflowId: workflow.id,
-        correlationId: workflow.correlationId,
-        attempt,
-      },
-    );
-    result = { ...serviceResult };
-  });
+  let result: Record<string, unknown> = parseDraftResult(workflow) ?? {};
+  if (!hasSucceededStep(workflow, "submit")) {
+    await executeRequestFundsStep(workflow, "submit", attempt, async () => {
+      const serviceResult = await requestFunds(
+        {
+          address: payload.address!,
+          amountLovelace: payload.amountLovelace!,
+        },
+        {
+          workflowId: workflow.id,
+          correlationId: workflow.correlationId,
+          attempt,
+        },
+      );
+      result = { ...serviceResult };
+      // Persist submit output before confirm, so retries can resume without replaying side effects.
+      await setWorkflowDraftResult(workflow.id, result);
+    });
+  }
 
-  await executeRequestFundsStep(workflow, "confirm", attempt, async () => {
-    await upsertHeadState("headA", "open", "Custodial funding workflow completed");
-  });
+  if (!hasSucceededStep(workflow, "confirm")) {
+    await executeRequestFundsStep(workflow, "confirm", attempt, async () => {
+      await upsertHeadState("headA", "open", "Custodial funding workflow completed");
+    });
+  }
 
   await markWorkflowSucceeded(workflow.id, result);
 }
 
-async function executeBuyTicketWorkflow(workflow: Workflow) {
+async function executeBuyTicketWorkflow(workflow: WorkflowWithSteps) {
   const payload = JSON.parse(workflow.payloadJson || "{}") as Partial<BuyTicketPayload>;
   const attempt = workflow.attemptCount + 1;
 
-  await executeBuyTicketStep(workflow, "prepare", attempt, async () => {
-    if (!payload.address || !payload.amountLovelace || !payload.placeholderAddress) {
-      throw new TicketServiceError("BUY_TICKET_INVALID_INPUT", "buy_ticket payload is incomplete", false);
-    }
-  });
+  if (!hasSucceededStep(workflow, "prepare")) {
+    await executeBuyTicketStep(workflow, "prepare", attempt, async () => {
+      if (!payload.address || !payload.amountLovelace || !payload.placeholderAddress) {
+        throw new TicketServiceError("BUY_TICKET_INVALID_INPUT", "buy_ticket payload is incomplete", false);
+      }
+    });
+  }
 
-  let result: Record<string, unknown> = {};
-  await executeBuyTicketStep(workflow, "submit", attempt, async () => {
-    const serviceResult = await buyTicket(
-      {
-        address: payload.address!,
-        amountLovelace: payload.amountLovelace!,
-        placeholderAddress: payload.placeholderAddress!,
-      },
-      {
-        workflowId: workflow.id,
-        correlationId: workflow.correlationId,
-        attempt,
-      },
-    );
-    result = { ...serviceResult };
-  });
+  let result: Record<string, unknown> = parseDraftResult(workflow) ?? {};
+  if (!hasSucceededStep(workflow, "submit")) {
+    await executeBuyTicketStep(workflow, "submit", attempt, async () => {
+      const serviceResult = await buyTicket(
+        {
+          address: payload.address!,
+          amountLovelace: payload.amountLovelace!,
+          placeholderAddress: payload.placeholderAddress!,
+        },
+        {
+          workflowId: workflow.id,
+          correlationId: workflow.correlationId,
+          attempt,
+        },
+      );
+      result = { ...serviceResult };
+      await setWorkflowDraftResult(workflow.id, result);
+    });
+  }
 
-  await executeBuyTicketStep(workflow, "confirm", attempt, async () => {
-    await upsertHeadState("headB", "open", "Mock ticket purchase accepted");
-  });
+  if (!hasSucceededStep(workflow, "confirm")) {
+    await executeBuyTicketStep(workflow, "confirm", attempt, async () => {
+      await upsertHeadState("headB", "open", "Mock ticket purchase accepted");
+    });
+  }
 
   await markWorkflowSucceeded(workflow.id, result);
 }
 
-export async function executeWorkflow(workflow: Workflow) {
+export async function executeWorkflow(workflow: WorkflowWithSteps) {
   try {
-    await markWorkflowRunning(workflow.id);
     if (workflow.type === WorkflowType.request_funds) {
       // Request funds uses an explicit branch with richer error metadata and step events.
       await executeRequestFundsWorkflow(workflow);
