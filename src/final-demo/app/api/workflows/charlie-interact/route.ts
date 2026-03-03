@@ -6,7 +6,7 @@ import { createWorkflow } from "@/lib/workflows";
 const schema = z.object({
   actor: z.string().min(1),
   idempotencyKey: z.string().min(1),
-  wallet: z.string().min(8),
+  address: z.string().min(8),
   action: z.enum(["init_head_c", "interact_head_b"]),
 });
 
@@ -21,7 +21,7 @@ export async function POST(req: Request) {
     parsed.data.actor,
     parsed.data.idempotencyKey,
     {
-      wallet: parsed.data.wallet,
+      address: parsed.data.address,
       action: parsed.data.action,
     },
   );

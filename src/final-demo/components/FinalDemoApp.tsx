@@ -30,9 +30,15 @@ interface ApiErrorEnvelope {
 
 interface WorkflowResponse {
   id: string;
+  type: "request_funds" | "buy_ticket" | "charlie_interact";
   status: string;
+  attemptCount: number;
+  maxAttempts: number;
+  nextRetryAt: string | null;
+  lastErrorCode: string | null;
+  errorMessage: string | null;
   steps: Array<{ id: string; name: string; status: string; attempt: number }>;
-  events: Array<{ id: string; level: string; message: string }>;
+  events: Array<{ id: string; level: string; message: string; createdAt: string }>;
 }
 
 async function fetchHeads(): Promise<HeadsResponse> {
@@ -55,7 +61,7 @@ async function createWorkflow(path: string, body: Record<string, unknown>) {
     body: JSON.stringify(body),
   });
   if (!r.ok) throw new Error(await r.text());
-  return r.json() as Promise<{ workflowId: string }>;
+  return r.json() as Promise<{ workflowId: string; idempotencyKey?: string }>;
 }
 
 async function fetchWorkflow(id: string): Promise<WorkflowResponse> {
@@ -70,9 +76,100 @@ async function retryWorkflow(id: string) {
   return r.json();
 }
 
+function newBusinessId(): string {
+  return `request_funds:user:${crypto.randomUUID()}`;
+}
+
+const REQUEST_FUNDS_INTENT_TTL_MS = 10 * 60 * 1000;
+const REQUEST_FUNDS_INTENT_STORAGE_KEY = "final-demo.request-funds-intents.v1";
+
+type RequestFundsIntentRecord = {
+  idempotencyKey: string;
+  createdAtMs: number;
+  workflowId?: string;
+};
+
+type RequestFundsIntentStore = Record<string, RequestFundsIntentRecord>;
+
+function requestFundsPayloadFingerprint(actor: string, address: string, amountLovelace: string): string {
+  return JSON.stringify({
+    actor: actor.trim().toLowerCase(),
+    address: address.trim(),
+    amountLovelace: amountLovelace.trim(),
+  });
+}
+
+function loadRequestFundsIntentStore(nowMs: number): RequestFundsIntentStore {
+  try {
+    const raw = window.localStorage.getItem(REQUEST_FUNDS_INTENT_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as RequestFundsIntentStore;
+    const pruned: RequestFundsIntentStore = {};
+    for (const [fingerprint, record] of Object.entries(parsed)) {
+      if (nowMs - record.createdAtMs < REQUEST_FUNDS_INTENT_TTL_MS) {
+        pruned[fingerprint] = record;
+      }
+    }
+    return pruned;
+  } catch {
+    return {};
+  }
+}
+
+function saveRequestFundsIntentStore(store: RequestFundsIntentStore) {
+  window.localStorage.setItem(REQUEST_FUNDS_INTENT_STORAGE_KEY, JSON.stringify(store));
+}
+
+function getOrCreateRequestFundsIdempotencyKey(actor: string, address: string, amountLovelace: string) {
+  const nowMs = Date.now();
+  const fingerprint = requestFundsPayloadFingerprint(actor, address, amountLovelace);
+  const store = loadRequestFundsIntentStore(nowMs);
+  const existing = store[fingerprint];
+  if (existing) {
+    return { fingerprint, idempotencyKey: existing.idempotencyKey };
+  }
+  const idempotencyKey = newBusinessId();
+  store[fingerprint] = { idempotencyKey, createdAtMs: nowMs };
+  saveRequestFundsIntentStore(store);
+  return { fingerprint, idempotencyKey };
+}
+
+function rotateRequestFundsIdempotencyKey(actor: string, address: string, amountLovelace: string) {
+  const nowMs = Date.now();
+  const fingerprint = requestFundsPayloadFingerprint(actor, address, amountLovelace);
+  const store = loadRequestFundsIntentStore(nowMs);
+  const idempotencyKey = newBusinessId();
+  store[fingerprint] = { idempotencyKey, createdAtMs: nowMs };
+  saveRequestFundsIntentStore(store);
+  return idempotencyKey;
+}
+
+function bindRequestFundsIntentWorkflow(fingerprint: string, workflowId: string) {
+  const store = loadRequestFundsIntentStore(Date.now());
+  if (!store[fingerprint]) return;
+  store[fingerprint] = { ...store[fingerprint], workflowId };
+  saveRequestFundsIntentStore(store);
+}
+
+function clearRequestFundsIntentByWorkflowId(workflowId: string): boolean {
+  const store = loadRequestFundsIntentStore(Date.now());
+  let removed = false;
+  const next: RequestFundsIntentStore = {};
+  for (const [fingerprint, record] of Object.entries(store)) {
+    if (record.workflowId === workflowId) {
+      removed = true;
+      continue;
+    }
+    next[fingerprint] = record;
+  }
+  if (removed) saveRequestFundsIntentStore(next);
+  return removed;
+}
+
 function FinalDemoInner() {
-  const [wallet, setWallet] = useState("addr_test1_demo_wallet");
+  const [address, setAddress] = useState("addr_test1_demo_wallet");
   const [amount, setAmount] = useState("5000000");
+  const [requestFundsIdempotencyKey, setRequestFundsIdempotencyKey] = useState(() => newBusinessId());
   const [placeholderAddress, setPlaceholderAddress] = useState("addr_test1_placeholder_ticket");
   const [workflowId, setWorkflowId] = useState("");
 
@@ -92,7 +189,13 @@ function FinalDemoInner() {
     queryKey: ["workflow", workflowId],
     queryFn: () => fetchWorkflow(workflowId),
     enabled: Boolean(workflowId),
-    refetchInterval: (q) => (q.state.data?.status === "running" || q.state.data?.status === "pending" ? 1500 : false),
+    refetchInterval: (q) => {
+      const data = q.state.data;
+      if (!data) return false;
+      if (data.status === "running" || data.status === "pending") return 1500;
+      if (data.status === "failed" && data.nextRetryAt) return 1500;
+      return false;
+    },
   });
 
   const connect = useMutation({
@@ -105,16 +208,42 @@ function FinalDemoInner() {
     const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
+  useEffect(() => {
+    const search = new URLSearchParams(window.location.search);
+    const wf = search.get("workflowId");
+    if (wf) setWorkflowId(wf);
+  }, []);
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (workflowId) {
+      url.searchParams.set("workflowId", workflowId);
+    } else {
+      url.searchParams.delete("workflowId");
+    }
+    window.history.replaceState(null, "", url);
+  }, [workflowId]);
+  useEffect(() => {
+    const intent = getOrCreateRequestFundsIdempotencyKey("user", address, amount);
+    setRequestFundsIdempotencyKey(intent.idempotencyKey);
+  }, [address, amount]);
 
   const requestFunds = useMutation({
     mutationFn: () =>
-      createWorkflow("/api/workflows/request-funds", {
-        actor: "user",
-        idempotencyKey: crypto.randomUUID(),
-        wallet,
-        amountLovelace: amount,
-      }),
-    onSuccess: (d) => setWorkflowId(d.workflowId),
+      {
+        const actor = "user";
+        const intent = getOrCreateRequestFundsIdempotencyKey(actor, address, amount);
+        return createWorkflow("/api/workflows/request-funds", {
+          actor,
+          idempotencyKey: intent.idempotencyKey,
+          address,
+          amountLovelace: amount,
+        }).then((d) => ({ ...d, fingerprint: intent.fingerprint }));
+      },
+    onSuccess: (d) => {
+      setWorkflowId(d.workflowId);
+      bindRequestFundsIntentWorkflow(d.fingerprint, d.workflowId);
+      if (d.idempotencyKey) setRequestFundsIdempotencyKey(d.idempotencyKey);
+    },
   });
 
   const buyTicket = useMutation({
@@ -122,7 +251,7 @@ function FinalDemoInner() {
       createWorkflow("/api/workflows/buy-ticket", {
         actor: "user",
         idempotencyKey: crypto.randomUUID(),
-        wallet,
+        address,
         amountLovelace: amount,
         placeholderAddress,
       }),
@@ -134,7 +263,7 @@ function FinalDemoInner() {
       createWorkflow("/api/workflows/charlie-interact", {
         actor: "charlie",
         idempotencyKey: crypto.randomUUID(),
-        wallet,
+        address,
         action: "init_head_c",
       }),
     onSuccess: (d) => setWorkflowId(d.workflowId),
@@ -144,6 +273,15 @@ function FinalDemoInner() {
     mutationFn: () => retryWorkflow(workflowId),
     onSuccess: () => workflow.refetch(),
   });
+
+  useEffect(() => {
+    const data = workflow.data;
+    if (!data || data.type !== "request_funds") return;
+    if (data.status !== "succeeded" && data.status !== "cancelled") return;
+    if (clearRequestFundsIntentByWorkflowId(data.id)) {
+      setRequestFundsIdempotencyKey(rotateRequestFundsIdempotencyKey("user", address, amount));
+    }
+  }, [address, amount, workflow.data]);
 
   const busy = useMemo(
     () => connect.isPending || requestFunds.isPending || buyTicket.isPending || charlie.isPending,
@@ -197,8 +335,8 @@ function FinalDemoInner() {
         <h2 style={{ marginTop: 0 }}>Actions</h2>
         <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
           <label style={labelStyle}>
-            Wallet
-            <input style={inputStyle} value={wallet} onChange={(e) => setWallet(e.target.value)} />
+            Address
+            <input style={inputStyle} value={address} onChange={(e) => setAddress(e.target.value)} />
           </label>
           <label style={labelStyle}>
             Amount (lovelace)
@@ -211,9 +349,19 @@ function FinalDemoInner() {
         </div>
         <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
           <Button onClick={() => requestFunds.mutate()} disabled={busy}>Request Funds</Button>
+          <Button
+            variant="outline"
+            onClick={() => setRequestFundsIdempotencyKey(rotateRequestFundsIdempotencyKey("user", address, amount))}
+            disabled={busy}
+          >
+            New Request Intent
+          </Button>
           <Button onClick={() => buyTicket.mutate()} disabled={busy}>Buy Ticket (Mock)</Button>
           <Button onClick={() => charlie.mutate()} disabled={busy}>Charlie Interact</Button>
         </div>
+        <p style={{ marginTop: 8, marginBottom: 0, color: "#71717a", fontSize: 12 }}>
+          Request funds idempotencyKey: <code>{requestFundsIdempotencyKey}</code>
+        </p>
       </section>
 
       <section style={cardStyle}>
@@ -221,8 +369,28 @@ function FinalDemoInner() {
         <p>Current workflow: {workflowId || "none"}</p>
         {workflow.data ? (
           <>
-            <p>Status: <strong>{workflow.data.status}</strong></p>
-            {workflow.data.status === "failed" ? (
+            <p style={{ marginBottom: 4 }}>
+              Type: <strong>{workflow.data.type}</strong>
+            </p>
+            <p style={{ marginTop: 0, marginBottom: 8 }}>
+              Status: <strong>{workflow.data.status}</strong>{" "}
+              (attempt {workflow.data.attemptCount}/{workflow.data.maxAttempts})
+            </p>
+            {workflow.data.status === "failed" && workflow.data.nextRetryAt ? (
+              <p style={{ marginTop: 0, color: "#b45309" }}>
+                Retry scheduled in{" "}
+                {Math.max(0, Math.floor((new Date(workflow.data.nextRetryAt).getTime() - nowMs) / 1000))}s
+                {" · "}
+                next retry at {new Date(workflow.data.nextRetryAt).toLocaleTimeString()}
+              </p>
+            ) : null}
+            {workflow.data.status === "cancelled" ? (
+              <p style={{ marginTop: 0, color: "#b91c1c" }}>
+                Terminal failure: {workflow.data.lastErrorCode ?? "WORKFLOW_ERROR"}
+                {workflow.data.errorMessage ? ` - ${workflow.data.errorMessage}` : ""}
+              </p>
+            ) : null}
+            {workflow.data.status === "failed" || workflow.data.status === "cancelled" ? (
               <Button variant="destructive" onClick={() => retry.mutate()}>Retry Workflow</Button>
             ) : null}
             <h3>Steps</h3>
@@ -234,7 +402,9 @@ function FinalDemoInner() {
             <h3>Events</h3>
             <ul>
               {workflow.data.events.map((event) => (
-                <li key={event.id}>[{event.level}] {event.message}</li>
+                <li key={event.id}>
+                  [{event.level}] {event.message} ({new Date(event.createdAt).toLocaleTimeString()})
+                </li>
               ))}
             </ul>
           </>
