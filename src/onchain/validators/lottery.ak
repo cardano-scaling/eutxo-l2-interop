@@ -118,46 +118,46 @@ validator lottery {
 
               and {
                 // Output address matches desired output address
-                o.address == w_i_d_desired_output.address,
+                (o.address == w_i_d_desired_output.address)?,
                 // Output datum matches desired output datum
-                out_datum_opt == w_i_d_desired_output.datum,
+                (out_datum_opt == w_i_d_desired_output.datum)?,
                 // Output value matches lottery prize
-                match(o.value, from_lovelace(i_d_prize), >=),
+                match(o.value, from_lovelace(i_d_prize), >=)?,
               }
             },
           )
 
         and {
           // Token is our own
-          pol == own_script_hash,
+          (pol == own_script_hash)?,
           // Ticket paid the correct cost
-          lovelace_of(w_i_value) >= i_d_ticket_cost,
+          (lovelace_of(w_i_value) >= i_d_ticket_cost)?,
           // Winner played our lottery
-          tn == w_i_d_lottery_id,
+          (tn == w_i_d_lottery_id)?,
           // Signed by Admin
-          list.has(extra_signatories, i_d_admin),
+          list.has(extra_signatories, i_d_admin)?,
           // Close timestamp has passed
-          is_entirely_after(validity_range, i_d_close_timestamp),
+          is_entirely_after(validity_range, i_d_close_timestamp)?,
           // Lottery token is not stolen
-          match(i_value, o_value, fn(i_l, o_l) { o_l >= i_l - i_d_prize }),
+          match(i_value, o_value, fn(i_l, o_l) { o_l >= i_l - i_d_prize })?,
           // Datum only updates paid_winner field
-          LotteryDatum { ..i_datum, paid_winner: True } == o_datum,
+          (LotteryDatum { ..i_datum, paid_winner: True } == o_datum)?,
           // Winner has not been paid yet
-          i_d_paid_winner == False,
+          (i_d_paid_winner == False)?,
           // Desired output created
-          output_created,
+          output_created?,
         }
       }
       Close -> and {
-          i_d_paid_winner == True,
+          (i_d_paid_winner == True)?,
           // Signed by Admin
-          list.has(extra_signatories, i_d_admin),
+          list.has(extra_signatories, i_d_admin)?,
           // Token is burnt
-          mint == (
+          (mint == (
             i_value
               |> without_lovelace()
               |> negate()
-          ),
+          ))?,
         }
     }
   }
@@ -203,19 +203,20 @@ validator lottery {
 
         and {
           // OutputRef from redeemer is being consumed
-          list.any(inputs, fn(i) { i.output_reference == ref }),
+          list.any(inputs, fn(i) { i.output_reference == ref })?,
           // Only one token is minted
-          flatten(mint) == [(own_policy, expected_tn, 1)],
+          (flatten(mint) == [(own_policy, expected_tn, 1)])?,
           // Only one token is in the output
-          non_ada_tokens(o_value) == [(own_policy, expected_tn, 1)],
+          (non_ada_tokens(o_value) == [(own_policy, expected_tn, 1)])?,
           // Timestamp in the future
-          is_entirely_before(validity_range, o_d_close_timestamp),
+          is_entirely_before(validity_range, o_d_close_timestamp)?,
           // Ticket cost and prize > 0
-          o_d_ticket_cost > 0 && o_d_prize > 0,
+          (o_d_ticket_cost > 0)?,
+          (o_d_prize > 0)?,
           // Prize is covered by the output
-          lovelace_of(o_value) >= o_d_prize,
+          (lovelace_of(o_value) >= o_d_prize)?,
           // Admin is signing the tx
-          list.has(extra_signatories, o_d_admin),
+          list.has(extra_signatories, o_d_admin)?,
         }
       }
 
@@ -223,7 +224,7 @@ validator lottery {
         // Only one token is being burned
         let minted = flatten(mint)
         when minted is {
-          [(policy, _, qty)] -> policy == own_policy && qty == -1
+          [(policy, _, qty)] -> (policy == own_policy)? && (qty == -1)?
           _ -> False
         }
       }
@@ -261,7 +262,6 @@ validator ticket(lottery_script_hash: ByteArray) {
       ..
     } = tx
     let TicketDatum { lottery_id: i_d_lottery_id, .. } = datum
-
     when redeemer is {
       Win -> {
         // Lottery with correct token is being consumed
@@ -279,7 +279,7 @@ validator ticket(lottery_script_hash: ByteArray) {
           get_first(redeemers, Spend(lottery_in.output_reference))
         expect PayWinner(winner): LotteryRedeemer = lottery_redeemer
 
-        winner == input
+        (winner == input)?
       }
 
       Lose -> {
@@ -303,9 +303,9 @@ validator ticket(lottery_script_hash: ByteArray) {
 
         and {
           // Winner already paid
-          l_d_paid_winner == True,
+          (l_d_paid_winner == True)?,
           // Signed by lottery admin
-          list.has(extra_signatories, l_d_admin),
+          list.has(extra_signatories, l_d_admin)?,
         }
       }
     }
