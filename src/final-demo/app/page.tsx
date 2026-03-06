@@ -1,5 +1,5 @@
 import { FinalDemoApp } from "@/components/FinalDemoApp";
 
 export default function Page() {
-  return <FinalDemoApp />;
+  return <FinalDemoApp view="user" />;
 }

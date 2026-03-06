@@ -3,6 +3,13 @@ import { createHash } from "node:crypto";
 import { WorkflowType } from "@prisma/client";
 import { z } from "zod";
 import { logger } from "@/lib/logger";
+import {
+  deriveSourceHead,
+  getClosedRequiredHeads,
+  requiredHeadsForBuyTicket,
+  resolveActorByAddress,
+  validateBuyTicketActor,
+} from "@/lib/interaction-policy";
 import { createWorkflow, findWorkflowByIdempotency } from "@/lib/workflows";
 
 const MAX_AMOUNT_LOVELACE = 10_000_000n;
@@ -12,20 +19,22 @@ const schema = z.object({
   idempotencyKey: z.string().min(1),
   address: z.string().min(8),
   amountLovelace: z.string().regex(/^\d+$/),
-  placeholderAddress: z.string().min(8),
+  desiredOutput: z.string().min(8),
 });
 
 function buildBuyTicketHash(
   actor: string,
   address: string,
   amountLovelace: string,
-  placeholderAddress: string,
+  desiredOutput: string,
+  sourceHead: string,
 ): string {
   const normalized = JSON.stringify({
     actor: actor.trim().toLowerCase(),
     address: address.trim(),
     amountLovelace: amountLovelace.trim(),
-    placeholderAddress: placeholderAddress.trim(),
+    desiredOutput: desiredOutput.trim(),
+    sourceHead: sourceHead.trim().toLowerCase(),
   });
   return createHash("sha256").update(normalized).digest("hex");
 }
@@ -50,12 +59,80 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
+  const desiredOutput = parsed.data.desiredOutput.trim();
+  if (!desiredOutput) {
+    logger.warn({ requestId }, "buy-ticket desired output missing");
+    return NextResponse.json(
+      {
+        error: "desiredOutput is required",
+        requestId,
+      },
+      { status: 400 },
+    );
+  }
+
+  if (!validateBuyTicketActor(parsed.data.actor)) {
+    logger.warn({ requestId, actor: parsed.data.actor }, "buy-ticket actor not allowed");
+    return NextResponse.json(
+      {
+        errorCode: "BUY_TICKET_FORBIDDEN_ACTOR",
+        message: "buy_ticket is only allowed for user and charlie wallets",
+        requestId,
+      },
+      { status: 403 },
+    );
+  }
+
+  const resolvedActor = resolveActorByAddress(parsed.data.address);
+  if (!resolvedActor) {
+    logger.warn({ requestId, address: parsed.data.address }, "buy-ticket unknown wallet address");
+    return NextResponse.json(
+      {
+        errorCode: "WALLET_ADDRESS_UNKNOWN",
+        message: "address is not recognized by the demo wallet registry",
+        requestId,
+      },
+      { status: 403 },
+    );
+  }
+  if (resolvedActor !== parsed.data.actor) {
+    logger.warn(
+      { requestId, actor: parsed.data.actor, resolvedActor, address: parsed.data.address },
+      "buy-ticket actor/address mismatch",
+    );
+    return NextResponse.json(
+      {
+        errorCode: "ACTOR_ADDRESS_MISMATCH",
+        message: "actor does not match the connected wallet address",
+        requestId,
+      },
+      { status: 403 },
+    );
+  }
+
+  const sourceHead = deriveSourceHead(parsed.data.actor);
+  const requiredHeads = requiredHeadsForBuyTicket(parsed.data.actor);
+  const closedHeads = await getClosedRequiredHeads(requiredHeads);
+  if (closedHeads.length > 0) {
+    logger.warn({ requestId, actor: parsed.data.actor, closedHeads }, "buy-ticket blocked by closed heads");
+    return NextResponse.json(
+      {
+        errorCode: "HEADS_NOT_OPEN",
+        message: "Required heads are not open",
+        requiredHeads,
+        closedHeads,
+        requestId,
+      },
+      { status: 409 },
+    );
+  }
 
   const requestHash = buildBuyTicketHash(
     parsed.data.actor,
     parsed.data.address,
     parsed.data.amountLovelace,
-    parsed.data.placeholderAddress,
+    desiredOutput,
+    sourceHead,
   );
   const existing = await findWorkflowByIdempotency(WorkflowType.buy_ticket, parsed.data.idempotencyKey);
   if (existing) {
@@ -66,7 +143,8 @@ export async function POST(req: Request) {
         existing.actor,
         String(existingPayload.address ?? ""),
         String(existingPayload.amountLovelace ?? ""),
-        String(existingPayload.placeholderAddress ?? ""),
+        String(existingPayload.desiredOutput ?? ""),
+        String(existingPayload.sourceHead ?? deriveSourceHead(existing.actor as "user" | "charlie" | "ida")),
       );
     if (existingHash !== requestHash) {
       logger.warn(
@@ -99,7 +177,8 @@ export async function POST(req: Request) {
       requestHash,
       address: parsed.data.address,
       amountLovelace: parsed.data.amountLovelace,
-      placeholderAddress: parsed.data.placeholderAddress,
+      desiredOutput,
+      sourceHead,
     },
   );
   const idempotencyReplay = Boolean(existing);
