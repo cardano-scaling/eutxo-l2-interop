@@ -9,7 +9,6 @@ datasource db {
 enum WorkflowType {
   request_funds
   buy_ticket
-  charlie_interact
 }
 
 enum WorkflowStatus {

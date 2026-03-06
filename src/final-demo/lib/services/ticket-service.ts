@@ -1,7 +1,8 @@
 export interface BuyTicketPayload {
   address: string;
   amountLovelace: string;
-  placeholderAddress: string;
+  sourceHead: "headA" | "headC";
+  desiredOutput: string;
 }
 
 export interface BuyTicketContext {
@@ -11,9 +12,10 @@ export interface BuyTicketContext {
 }
 
 export interface BuyTicketResult {
-  txHash: string;
-  head: "B";
-  placeholderAddress: string;
+  sourceHead: "headA" | "headC";
+  sourceHtlcRef: string;
+  headBHtlcRef: string;
+  desiredOutput: string;
   amountLovelace: string;
 }
 
@@ -31,9 +33,9 @@ export class TicketServiceError extends Error {
   }
 }
 
-function mockTxHash(prefix: string): string {
+function mockRef(prefix: string): string {
   const rand = crypto.randomUUID().replaceAll("-", "");
-  return `${prefix}${rand}`.slice(0, 64);
+  return `${prefix}_${rand}`.slice(0, 64);
 }
 
 function getFailureMode(): FailureMode {
@@ -49,8 +51,11 @@ function validatePayload(payload: BuyTicketPayload) {
   if (amount <= 0n) {
     throw new TicketServiceError("BUY_TICKET_INVALID_INPUT", "amountLovelace must be positive", false);
   }
-  if (!payload.placeholderAddress.trim()) {
-    throw new TicketServiceError("BUY_TICKET_INVALID_INPUT", "placeholderAddress is required", false);
+  if (payload.sourceHead !== "headA" && payload.sourceHead !== "headC") {
+    throw new TicketServiceError("BUY_TICKET_INVALID_INPUT", "sourceHead must be headA or headC", false);
+  }
+  if (!payload.desiredOutput.trim()) {
+    throw new TicketServiceError("BUY_TICKET_INVALID_INPUT", "desiredOutput is required", false);
   }
 }
 
@@ -72,9 +77,10 @@ export async function buyTicket(payload: BuyTicketPayload, ctx: BuyTicketContext
   maybeFail(ctx);
 
   return {
-    txHash: mockTxHash("tick"),
-    head: "B",
-    placeholderAddress: payload.placeholderAddress,
+    sourceHead: payload.sourceHead,
+    sourceHtlcRef: mockRef(payload.sourceHead === "headA" ? "htlc_a" : "htlc_c"),
+    headBHtlcRef: mockRef("htlc_b"),
+    desiredOutput: payload.desiredOutput,
     amountLovelace: payload.amountLovelace,
   };
 }
