@@ -3,6 +3,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { QueryClient, QueryClientProvider, useMutation, useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import {
+  connectWallet,
+  disconnectWallet,
+  ensureMockCip30WalletsInjected,
+  getWalletOptions,
+  restoreWalletSession,
+  type WalletSession,
+} from "@/lib/wallet/cip30";
+
+type FinalDemoView = "user" | "charlie" | "all";
 
 interface HeadReadModel {
   status: string;
@@ -30,7 +40,7 @@ interface ApiErrorEnvelope {
 
 interface WorkflowResponse {
   id: string;
-  type: "request_funds" | "buy_ticket" | "charlie_interact";
+  type: "request_funds" | "buy_ticket";
   status: string;
   attemptCount: number;
   maxAttempts: number;
@@ -77,10 +87,10 @@ async function retryWorkflow(id: string) {
 }
 
 function newBusinessId(): string {
-  return `request_funds:user:${crypto.randomUUID()}`;
+  return `request_funds:${crypto.randomUUID()}`;
 }
 function newBuyTicketIntentId(): string {
-  return `buy_ticket:user:${crypto.randomUUID()}`;
+  return `buy_ticket:${crypto.randomUUID()}`;
 }
 
 const REQUEST_FUNDS_INTENT_TTL_MS = 10 * 60 * 1000;
@@ -133,7 +143,7 @@ function getOrCreateRequestFundsIdempotencyKey(actor: string, address: string, a
   if (existing) {
     return { fingerprint, idempotencyKey: existing.idempotencyKey };
   }
-  const idempotencyKey = newBusinessId();
+  const idempotencyKey = `${actor}:${newBusinessId()}`;
   store[fingerprint] = { idempotencyKey, createdAtMs: nowMs };
   saveRequestFundsIntentStore(store);
   return { fingerprint, idempotencyKey };
@@ -143,7 +153,7 @@ function rotateRequestFundsIdempotencyKey(actor: string, address: string, amount
   const nowMs = Date.now();
   const fingerprint = requestFundsPayloadFingerprint(actor, address, amountLovelace);
   const store = loadRequestFundsIntentStore(nowMs);
-  const idempotencyKey = newBusinessId();
+  const idempotencyKey = `${actor}:${newBusinessId()}`;
   store[fingerprint] = { idempotencyKey, createdAtMs: nowMs };
   saveRequestFundsIntentStore(store);
   return idempotencyKey;
@@ -175,13 +185,13 @@ function buyTicketPayloadFingerprint(
   actor: string,
   address: string,
   amountLovelace: string,
-  placeholderAddress: string,
+  desiredOutput: string,
 ): string {
   return JSON.stringify({
     actor: actor.trim().toLowerCase(),
     address: address.trim(),
     amountLovelace: amountLovelace.trim(),
-    placeholderAddress: placeholderAddress.trim(),
+    desiredOutput: desiredOutput.trim(),
   });
 }
 
@@ -210,16 +220,16 @@ function getOrCreateBuyTicketIdempotencyKey(
   actor: string,
   address: string,
   amountLovelace: string,
-  placeholderAddress: string,
+  desiredOutput: string,
 ) {
   const nowMs = Date.now();
-  const fingerprint = buyTicketPayloadFingerprint(actor, address, amountLovelace, placeholderAddress);
+  const fingerprint = buyTicketPayloadFingerprint(actor, address, amountLovelace, desiredOutput);
   const store = loadBuyTicketIntentStore(nowMs);
   const existing = store[fingerprint];
   if (existing) {
     return { fingerprint, idempotencyKey: existing.idempotencyKey };
   }
-  const idempotencyKey = newBuyTicketIntentId();
+  const idempotencyKey = `${actor}:${newBuyTicketIntentId()}`;
   store[fingerprint] = { idempotencyKey, createdAtMs: nowMs };
   saveBuyTicketIntentStore(store);
   return { fingerprint, idempotencyKey };
@@ -229,12 +239,12 @@ function rotateBuyTicketIdempotencyKey(
   actor: string,
   address: string,
   amountLovelace: string,
-  placeholderAddress: string,
+  desiredOutput: string,
 ) {
   const nowMs = Date.now();
-  const fingerprint = buyTicketPayloadFingerprint(actor, address, amountLovelace, placeholderAddress);
+  const fingerprint = buyTicketPayloadFingerprint(actor, address, amountLovelace, desiredOutput);
   const store = loadBuyTicketIntentStore(nowMs);
-  const idempotencyKey = newBuyTicketIntentId();
+  const idempotencyKey = `${actor}:${newBuyTicketIntentId()}`;
   store[fingerprint] = { idempotencyKey, createdAtMs: nowMs };
   saveBuyTicketIntentStore(store);
   return idempotencyKey;
@@ -262,12 +272,20 @@ function clearBuyTicketIntentByWorkflowId(workflowId: string): boolean {
   return removed;
 }
 
-function FinalDemoInner() {
+function FinalDemoInner({ view }: { view: FinalDemoView }) {
+  const walletOptions = useMemo(() => {
+    const all = getWalletOptions();
+    if (view === "all") return all;
+    return all.filter((wallet) => wallet.actor === view);
+  }, [view]);
+  const [selectedWalletKey, setSelectedWalletKey] = useState(walletOptions[0]?.key ?? "");
+  const [walletSession, setWalletSession] = useState<WalletSession | null>(null);
+  const actionActor = walletSession?.actor ?? (view === "charlie" ? "charlie" : "user");
   const [address, setAddress] = useState("addr_test1_demo_wallet");
   const [amount, setAmount] = useState("5000000");
   const [requestFundsIdempotencyKey, setRequestFundsIdempotencyKey] = useState(() => newBusinessId());
   const [buyTicketIdempotencyKey, setBuyTicketIdempotencyKey] = useState(() => newBuyTicketIntentId());
-  const [placeholderAddress, setPlaceholderAddress] = useState("addr_test1_placeholder_ticket");
+  const [desiredOutput, setDesiredOutput] = useState("addr_test1_lottery_contract");
   const [workflowId, setWorkflowId] = useState("");
 
   const heads = useQuery({
@@ -299,12 +317,33 @@ function FinalDemoInner() {
     mutationFn: () => fetch("/api/state/heads/mock-connect", { method: "POST" }).then((r) => r.json()),
     onSuccess: () => heads.refetch(),
   });
+  const walletConnect = useMutation({
+    mutationFn: () => connectWallet(selectedWalletKey),
+    onSuccess: (session) => {
+      setWalletSession(session);
+      setAddress(session.changeAddress);
+    },
+  });
 
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
     const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
+  useEffect(() => {
+    ensureMockCip30WalletsInjected();
+    restoreWalletSession()
+      .then((session) => {
+        if (!session) return;
+        if (view !== "all" && session.actor !== view) return;
+        setWalletSession(session);
+        setSelectedWalletKey(session.walletKey);
+        setAddress(session.changeAddress);
+      })
+      .catch(() => {
+        // Keep UI usable even if restore fails for mock wallet state.
+      });
+  }, [view]);
   useEffect(() => {
     const search = new URLSearchParams(window.location.search);
     const wf = search.get("workflowId");
@@ -320,18 +359,18 @@ function FinalDemoInner() {
     window.history.replaceState(null, "", url);
   }, [workflowId]);
   useEffect(() => {
-    const intent = getOrCreateRequestFundsIdempotencyKey("user", address, amount);
+    const intent = getOrCreateRequestFundsIdempotencyKey(actionActor, address, amount);
     setRequestFundsIdempotencyKey(intent.idempotencyKey);
-  }, [address, amount]);
+  }, [actionActor, address, amount]);
   useEffect(() => {
-    const intent = getOrCreateBuyTicketIdempotencyKey("user", address, amount, placeholderAddress);
+    const intent = getOrCreateBuyTicketIdempotencyKey(actionActor, address, amount, desiredOutput);
     setBuyTicketIdempotencyKey(intent.idempotencyKey);
-  }, [address, amount, placeholderAddress]);
+  }, [actionActor, address, amount, desiredOutput]);
 
   const requestFunds = useMutation({
     mutationFn: () =>
       {
-        const actor = "user";
+        const actor = actionActor;
         const intent = getOrCreateRequestFundsIdempotencyKey(actor, address, amount);
         return createWorkflow("/api/workflows/request-funds", {
           actor,
@@ -350,14 +389,14 @@ function FinalDemoInner() {
   const buyTicket = useMutation({
     mutationFn: () =>
       {
-        const actor = "user";
-        const intent = getOrCreateBuyTicketIdempotencyKey(actor, address, amount, placeholderAddress);
+        const actor = actionActor;
+        const intent = getOrCreateBuyTicketIdempotencyKey(actor, address, amount, desiredOutput);
         return createWorkflow("/api/workflows/buy-ticket", {
           actor,
           idempotencyKey: intent.idempotencyKey,
           address,
           amountLovelace: amount,
-          placeholderAddress,
+          desiredOutput,
         }).then((d) => ({ ...d, fingerprint: intent.fingerprint }));
       },
     onSuccess: (d) => {
@@ -365,17 +404,6 @@ function FinalDemoInner() {
       bindBuyTicketIntentWorkflow(d.fingerprint, d.workflowId);
       if (d.idempotencyKey) setBuyTicketIdempotencyKey(d.idempotencyKey);
     },
-  });
-
-  const charlie = useMutation({
-    mutationFn: () =>
-      createWorkflow("/api/workflows/charlie-interact", {
-        actor: "charlie",
-        idempotencyKey: crypto.randomUUID(),
-        address,
-        action: "init_head_c",
-      }),
-    onSuccess: (d) => setWorkflowId(d.workflowId),
   });
 
   const retry = useMutation({
@@ -388,27 +416,50 @@ function FinalDemoInner() {
     if (!data || data.type !== "request_funds") return;
     if (data.status !== "succeeded" && data.status !== "cancelled") return;
     if (clearRequestFundsIntentByWorkflowId(data.id)) {
-      setRequestFundsIdempotencyKey(rotateRequestFundsIdempotencyKey("user", address, amount));
+      setRequestFundsIdempotencyKey(rotateRequestFundsIdempotencyKey(actionActor, address, amount));
     }
-  }, [address, amount, workflow.data]);
+  }, [actionActor, address, amount, workflow.data]);
   useEffect(() => {
     const data = workflow.data;
     if (!data || data.type !== "buy_ticket") return;
     if (data.status !== "succeeded" && data.status !== "cancelled") return;
     if (clearBuyTicketIntentByWorkflowId(data.id)) {
-      setBuyTicketIdempotencyKey(rotateBuyTicketIdempotencyKey("user", address, amount, placeholderAddress));
+      setBuyTicketIdempotencyKey(rotateBuyTicketIdempotencyKey(actionActor, address, amount, desiredOutput));
     }
-  }, [address, amount, placeholderAddress, workflow.data]);
+  }, [actionActor, address, amount, desiredOutput, workflow.data]);
 
   const busy = useMemo(
-    () => connect.isPending || requestFunds.isPending || buyTicket.isPending || charlie.isPending,
-    [connect.isPending, requestFunds.isPending, buyTicket.isPending, charlie.isPending],
+    () => connect.isPending || walletConnect.isPending || requestFunds.isPending || buyTicket.isPending,
+    [connect.isPending, walletConnect.isPending, requestFunds.isPending, buyTicket.isPending],
   );
-
+  const headsOpen = {
+    headA: heads.data?.headA.status === "open",
+    headB: heads.data?.headB.status === "open",
+    headC: heads.data?.headC.status === "open",
+  };
+  const hasWalletConnection = Boolean(walletSession);
+  const requestFundsDisabledReason = !hasWalletConnection
+    ? "Connect a wallet first."
+    : !headsOpen.headA
+      ? "Head A must be open."
+      : actionActor !== "user"
+        ? "Request funds is only enabled for connected user wallets."
+        : null;
+  const buyTicketDisabledReason = !hasWalletConnection
+    ? "Connect a wallet first."
+    : actionActor === "ida"
+      ? "Buy ticket is only enabled for user and charlie wallets."
+    : (actionActor === "charlie" && (!headsOpen.headB || !headsOpen.headC))
+      ? "Head B and Head C must be open for Charlie buy ticket path."
+      : (actionActor === "user" && (!headsOpen.headA || !headsOpen.headB))
+        ? "Head A and Head B must be open for user buy ticket path."
+        : null;
   return (
     <main style={{ maxWidth: 1100, margin: "0 auto", padding: 24, display: "grid", gap: 16 }}>
       <section style={cardStyle}>
-        <h1 style={{ margin: 0 }}>eUTxO L2 Interop Final Demo</h1>
+        <h1 style={{ margin: 0 }}>
+          eUTxO L2 Interop Final Demo {view === "charlie" ? "· Charlie View" : view === "user" ? "· User View" : ""}
+        </h1>
       </section>
 
       <section style={cardStyle}>
@@ -449,40 +500,108 @@ function FinalDemoInner() {
       </section>
 
       <section style={cardStyle}>
+        <h2 style={{ marginTop: 0 }}>Wallet (CIP-30 Mock)</h2>
+        <p style={{ marginTop: 0, color: "#52525b" }}>
+          This demo injects mock providers into <code>window.cardano.*</code> with CIP-30-like methods (<code>isEnabled</code>, <code>enable</code>, <code>getNetworkId</code>, <code>getUsedAddresses</code>, <code>getChangeAddress</code>).
+        </p>
+        <div style={{ display: "grid", gap: 8, gridTemplateColumns: "2fr 1fr 1fr" }}>
+          <label style={labelStyle}>
+            Wallet Provider
+            <select
+              style={inputStyle}
+              value={selectedWalletKey}
+              onChange={(e) => setSelectedWalletKey(e.target.value)}
+              disabled={busy || Boolean(walletSession)}
+            >
+              {walletOptions.map((wallet) => (
+                <option key={wallet.key} value={wallet.key}>
+                  {wallet.name} ({wallet.actor})
+                </option>
+              ))}
+            </select>
+          </label>
+          <div style={{ display: "flex", alignItems: "end", gap: 8 }}>
+            <Button onClick={() => walletConnect.mutate()} disabled={busy || Boolean(walletSession) || !selectedWalletKey}>
+              Connect Wallet
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                disconnectWallet();
+                setWalletSession(null);
+              }}
+              disabled={busy || !walletSession}
+            >
+              Disconnect
+            </Button>
+          </div>
+        </div>
+        {walletConnect.isError ? (
+          <p style={{ marginTop: 8, color: "#b91c1c" }}>Wallet connect failed: {walletConnect.error.message}</p>
+        ) : null}
+        {walletSession ? (
+          <p style={{ marginTop: 8, marginBottom: 0, color: "#52525b" }}>
+            Connected: <strong>{walletSession.walletName}</strong> · actor <strong>{walletSession.actor}</strong> · network <strong>{walletSession.networkId}</strong>
+          </p>
+        ) : (
+          <p style={{ marginTop: 8, marginBottom: 0, color: "#71717a" }}>
+            No wallet connected yet.
+          </p>
+        )}
+      </section>
+
+      <section style={cardStyle}>
         <h2 style={{ marginTop: 0 }}>Actions</h2>
+        <p style={{ marginTop: 0, color: "#52525b" }}>
+          Current actor context: <strong>{actionActor}</strong>
+        </p>
         <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
           <label style={labelStyle}>
             Address
-            <input style={inputStyle} value={address} onChange={(e) => setAddress(e.target.value)} />
+            <input
+              style={inputStyle}
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              disabled={Boolean(walletSession)}
+            />
           </label>
           <label style={labelStyle}>
             Amount (lovelace)
             <input style={inputStyle} value={amount} onChange={(e) => setAmount(e.target.value)} />
           </label>
           <label style={labelStyle}>
-            Placeholder Address
-            <input style={inputStyle} value={placeholderAddress} onChange={(e) => setPlaceholderAddress(e.target.value)} />
+            Desired Output (Lottery Contract)
+            <input style={inputStyle} value={desiredOutput} onChange={(e) => setDesiredOutput(e.target.value)} />
           </label>
         </div>
         <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <Button onClick={() => requestFunds.mutate()} disabled={busy}>Request Funds</Button>
+          <Button onClick={() => requestFunds.mutate()} disabled={busy || Boolean(requestFundsDisabledReason)}>Request Funds</Button>
           <Button
             variant="outline"
-            onClick={() => setRequestFundsIdempotencyKey(rotateRequestFundsIdempotencyKey("user", address, amount))}
-            disabled={busy}
+            onClick={() => setRequestFundsIdempotencyKey(rotateRequestFundsIdempotencyKey(actionActor, address, amount))}
+            disabled={busy || Boolean(requestFundsDisabledReason)}
           >
             New Request Intent
           </Button>
-          <Button onClick={() => buyTicket.mutate()} disabled={busy}>Buy Ticket (Mock)</Button>
+          <Button onClick={() => buyTicket.mutate()} disabled={busy || Boolean(buyTicketDisabledReason)}>Buy Ticket (Mock)</Button>
           <Button
             variant="outline"
-            onClick={() => setBuyTicketIdempotencyKey(rotateBuyTicketIdempotencyKey("user", address, amount, placeholderAddress))}
-            disabled={busy}
+            onClick={() => setBuyTicketIdempotencyKey(rotateBuyTicketIdempotencyKey(actionActor, address, amount, desiredOutput))}
+            disabled={busy || Boolean(buyTicketDisabledReason)}
           >
             New Ticket Intent
           </Button>
-          <Button onClick={() => charlie.mutate()} disabled={busy}>Charlie Interact</Button>
         </div>
+        {requestFundsDisabledReason ? (
+          <p style={{ marginTop: 8, marginBottom: 0, color: "#b45309", fontSize: 12 }}>
+            Request funds unavailable: {requestFundsDisabledReason}
+          </p>
+        ) : null}
+        {buyTicketDisabledReason ? (
+          <p style={{ marginTop: 6, marginBottom: 0, color: "#b45309", fontSize: 12 }}>
+            Buy ticket unavailable: {buyTicketDisabledReason}
+          </p>
+        ) : null}
         <p style={{ marginTop: 8, marginBottom: 0, color: "#71717a", fontSize: 12 }}>
           Request funds idempotencyKey: <code>{requestFundsIdempotencyKey}</code>
         </p>
@@ -549,10 +668,10 @@ const queryClient = new QueryClient({
   },
 });
 
-export function FinalDemoApp() {
+export function FinalDemoApp({ view = "user" }: { view?: FinalDemoView }) {
   return (
     <QueryClientProvider client={queryClient}>
-      <FinalDemoInner />
+      <FinalDemoInner view={view} />
     </QueryClientProvider>
   );
 }
