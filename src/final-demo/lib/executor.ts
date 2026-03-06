@@ -1,13 +1,8 @@
 import { WorkflowStatus, WorkflowType, type Workflow } from "@prisma/client";
-import { markWorkflowFailed, markWorkflowSucceeded, setWorkflowDraftResult, updateStep, updateStepWithEvent } from "./workflows";
+import { appendEvent, markWorkflowFailed, markWorkflowSucceeded, setWorkflowDraftResult, updateStep, updateStepWithEvent } from "./workflows";
 import { upsertHeadState } from "./heads";
 import { RequestFundsError, requestFunds, type RequestFundsPayload } from "./services/request-funds";
 import { TicketServiceError, buyTicket, type BuyTicketPayload } from "./services/ticket-service";
-
-function fakeTxHash(prefix: string): string {
-  const rand = crypto.randomUUID().replaceAll("-", "");
-  return `${prefix}${rand}`.slice(0, 64);
-}
 
 type WorkflowExecutionError = {
   message: string;
@@ -182,7 +177,7 @@ async function executeBuyTicketWorkflow(workflow: WorkflowWithSteps) {
 
   if (!hasSucceededStep(workflow, "prepare")) {
     await executeBuyTicketStep(workflow, "prepare", attempt, async () => {
-      if (!payload.address || !payload.amountLovelace || !payload.placeholderAddress) {
+      if (!payload.address || !payload.amountLovelace || !payload.desiredOutput || !payload.sourceHead) {
         throw new TicketServiceError("BUY_TICKET_INVALID_INPUT", "buy_ticket payload is incomplete", false);
       }
     });
@@ -195,7 +190,8 @@ async function executeBuyTicketWorkflow(workflow: WorkflowWithSteps) {
         {
           address: payload.address!,
           amountLovelace: payload.amountLovelace!,
-          placeholderAddress: payload.placeholderAddress!,
+          sourceHead: payload.sourceHead!,
+          desiredOutput: payload.desiredOutput!,
         },
         {
           workflowId: workflow.id,
@@ -210,7 +206,21 @@ async function executeBuyTicketWorkflow(workflow: WorkflowWithSteps) {
 
   if (!hasSucceededStep(workflow, "confirm")) {
     await executeBuyTicketStep(workflow, "confirm", attempt, async () => {
-      await upsertHeadState("headB", "open", "Mock ticket purchase accepted");
+      const sourceHead = payload.sourceHead!;
+      const ticketOutputRef = `ticket_out_b_${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`;
+      await appendEvent(workflow.id, "info", "IDA automated HTLC processing started", {
+        sourceHead,
+        sourceHtlcRef: result.sourceHtlcRef ?? null,
+        headBHtlcRef: result.headBHtlcRef ?? null,
+      });
+      result = {
+        ...result,
+        ticketOutputRef,
+        status: "ticket_output_created_head_b",
+      };
+      await setWorkflowDraftResult(workflow.id, result);
+      await upsertHeadState(sourceHead, "open", `HTLC created for buy ticket from ${sourceHead}`);
+      await upsertHeadState("headB", "open", `Ticket output created: ${ticketOutputRef}`);
     });
   }
 
@@ -233,11 +243,6 @@ export async function executeWorkflow(workflow: WorkflowWithSteps) {
     let result: Record<string, unknown> = {};
     await executeStep(workflow.id, "prepare");
     await executeStep(workflow.id, "submit");
-
-    if (workflow.type === WorkflowType.charlie_interact) {
-      await upsertHeadState("headC", "open", "Charlie interaction completed");
-      result = { txHash: fakeTxHash("char"), head: "C", action: payload.action };
-    }
 
     await executeStep(workflow.id, "confirm");
     await markWorkflowSucceeded(workflow.id, result);

@@ -48,6 +48,10 @@ npm run dev
 
 App runs on `http://localhost:3000` (UI + API).
 
+UI routes:
+- User view: `http://localhost:3000/`
+- Charlie demo view: `http://localhost:3000/charlie`
+
 ## Current endpoints
 
 - `GET /api/health`
@@ -56,15 +60,17 @@ App runs on `http://localhost:3000` (UI + API).
 - `POST /api/state/heads/mock-connect`
 - `POST /api/workflows/request-funds`
 - `POST /api/workflows/buy-ticket`
-- `POST /api/workflows/charlie-interact`
 - `GET /api/workflows/:id`
 - `POST /api/admin/workflows/:id/retry`
 - `POST /api/admin/reconcile`
 
 ## Notes
 
-- Ticket buy is mocked for now (placeholder destination supported).
+- Ticket buy is mocked for now (desired output destination supported).
 - Workflow state is persisted in Postgres.
 - Worker processes queued workflows with retry metadata.
 - Worker logs queue health snapshots periodically (`WORKER_QUEUE_METRICS_LOG_MS`), including claim rate, retries, terminal failures, and stale lock recoveries.
 - Admin retry supports emergency override: `POST /api/admin/workflows/:id/retry` with body `{ "force": true, "reason": "..." }`.
+- App runtime assumes Hydra heads are already committed/opened externally (CLI scripts). If heads are not open, UI shows readiness warnings and interaction actions remain gated.
+- Wallet connection is mocked through a CIP-30-like browser API (`window.cardano.*`) exposing `isEnabled`, `enable`, `getNetworkId`, `getUsedAddresses`, and `getChangeAddress` so a real wallet extension can replace the mock adapter in a future slice.
+- Mock wallet address methods return hex-like address bytes (CIP-30-style), and backend routes enforce actor/address mapping plus required-head-open preconditions before workflow creation.
