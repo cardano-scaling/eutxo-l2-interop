@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { WorkflowType } from "@prisma/client";
 import { z } from "zod";
 import { logger } from "@/lib/logger";
+import { apiError, readJsonBody } from "@/lib/api-error";
 import {
   getClosedRequiredHeads,
   requiredHeadsForRequestFunds,
@@ -31,77 +32,53 @@ function buildRequestFundsHash(actor: string, address: string, amountLovelace: s
 
 export async function POST(req: Request) {
   const requestId = crypto.randomUUID();
-  const body = await req.json();
+  const bodyResult = await readJsonBody(req);
+  if (!bodyResult.ok) {
+    return apiError(400, requestId, "INVALID_JSON_BODY", "Request body must be valid JSON");
+  }
+  const body = bodyResult.data;
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
     logger.warn({ requestId, issues: parsed.error.issues }, "request-funds validation failed");
-    return NextResponse.json({ error: parsed.error.issues, requestId }, { status: 400 });
+    return apiError(400, requestId, "REQUEST_VALIDATION_FAILED", "Request payload validation failed", parsed.error.issues);
   }
 
   const amount = BigInt(parsed.data.amountLovelace);
   if (amount <= 0n || amount > MAX_AMOUNT_LOVELACE) {
     logger.warn({ requestId, amountLovelace: parsed.data.amountLovelace }, "request-funds invalid amount");
-    return NextResponse.json(
-      {
-        error: "amountLovelace must be a positive numeric string within bounds",
-        requestId,
-      },
-      { status: 400 },
+    return apiError(
+      400,
+      requestId,
+      "REQUEST_FUNDS_INVALID_AMOUNT",
+      "amountLovelace must be a positive numeric string within bounds",
     );
   }
 
   if (!validateRequestFundsActor(parsed.data.actor)) {
     logger.warn({ requestId, actor: parsed.data.actor }, "request-funds actor not allowed");
-    return NextResponse.json(
-      {
-        errorCode: "REQUEST_FUNDS_FORBIDDEN_ACTOR",
-        message: "request_funds is only allowed for user wallets",
-        requestId,
-      },
-      { status: 403 },
-    );
+    return apiError(403, requestId, "REQUEST_FUNDS_FORBIDDEN_ACTOR", "request_funds is only allowed for user wallets");
   }
 
   const resolvedActor = resolveActorByAddress(parsed.data.address);
   if (!resolvedActor) {
     logger.warn({ requestId, address: parsed.data.address }, "request-funds unknown wallet address");
-    return NextResponse.json(
-      {
-        errorCode: "WALLET_ADDRESS_UNKNOWN",
-        message: "address is not recognized by the demo wallet registry",
-        requestId,
-      },
-      { status: 403 },
-    );
+    return apiError(403, requestId, "WALLET_ADDRESS_UNKNOWN", "address is not recognized by the demo wallet registry");
   }
   if (resolvedActor !== parsed.data.actor) {
     logger.warn(
       { requestId, actor: parsed.data.actor, resolvedActor, address: parsed.data.address },
       "request-funds actor/address mismatch",
     );
-    return NextResponse.json(
-      {
-        errorCode: "ACTOR_ADDRESS_MISMATCH",
-        message: "actor does not match the connected wallet address",
-        requestId,
-      },
-      { status: 403 },
-    );
+    return apiError(403, requestId, "ACTOR_ADDRESS_MISMATCH", "actor does not match the connected wallet address");
   }
 
   const closedHeads = await getClosedRequiredHeads(requiredHeadsForRequestFunds());
   if (closedHeads.length > 0) {
     logger.warn({ requestId, closedHeads }, "request-funds blocked by closed heads");
-    return NextResponse.json(
-      {
-        errorCode: "HEADS_NOT_OPEN",
-        message: "Required heads are not open",
-        requiredHeads: requiredHeadsForRequestFunds(),
-        closedHeads,
-        requestId,
-      },
-      { status: 409 },
-    );
+    return apiError(409, requestId, "HEADS_NOT_OPEN", "Required heads are not open", {
+      requiredHeads: requiredHeadsForRequestFunds(),
+      closedHeads,
+    });
   }
 
   // idempotencyKey is the intent identifier. Retries reuse it; new intents rotate it.
@@ -129,14 +106,12 @@ export async function POST(req: Request) {
         },
         "request-funds idempotency key payload mismatch",
       );
-      return NextResponse.json(
-        {
-          errorCode: "IDEMPOTENCY_KEY_PAYLOAD_MISMATCH",
-          message: "The idempotencyKey is already bound to a different request payload",
-          requestId,
-          workflowId: existing.id,
-        },
-        { status: 409 },
+      return apiError(
+        409,
+        requestId,
+        "IDEMPOTENCY_KEY_PAYLOAD_MISMATCH",
+        "The idempotencyKey is already bound to a different request payload",
+        { workflowId: existing.id },
       );
     }
   }

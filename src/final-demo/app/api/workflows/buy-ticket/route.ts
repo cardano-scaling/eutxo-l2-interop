@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { WorkflowType } from "@prisma/client";
 import { z } from "zod";
 import { logger } from "@/lib/logger";
+import { apiError, readJsonBody } from "@/lib/api-error";
 import {
   deriveSourceHead,
   getClosedRequiredHeads,
@@ -48,84 +49,59 @@ function buildBuyTicketHash(
 
 export async function POST(req: Request) {
   const requestId = crypto.randomUUID();
-  const body = await req.json();
+  const bodyResult = await readJsonBody(req);
+  if (!bodyResult.ok) {
+    return apiError(400, requestId, "INVALID_JSON_BODY", "Request body must be valid JSON");
+  }
+  const body = bodyResult.data;
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
     logger.warn({ requestId, issues: parsed.error.issues }, "buy-ticket validation failed");
-    return NextResponse.json({ error: parsed.error.issues, requestId }, { status: 400 });
+    return apiError(400, requestId, "REQUEST_VALIDATION_FAILED", "Request payload validation failed", parsed.error.issues);
   }
 
   const amount = BigInt(parsed.data.amountLovelace);
   if (amount <= 0n || amount > MAX_AMOUNT_LOVELACE) {
     logger.warn({ requestId, amountLovelace: parsed.data.amountLovelace }, "buy-ticket invalid amount");
-    return NextResponse.json(
-      {
-        error: "amountLovelace must be a positive numeric string within bounds",
-        requestId,
-      },
-      { status: 400 },
+    return apiError(
+      400,
+      requestId,
+      "BUY_TICKET_INVALID_AMOUNT",
+      "amountLovelace must be a positive numeric string within bounds",
     );
   }
   const desiredOutput = parsed.data.desiredOutput.trim();
   if (!desiredOutput) {
     logger.warn({ requestId }, "buy-ticket desired output missing");
-    return NextResponse.json(
-      {
-        error: "desiredOutput is required",
-        requestId,
-      },
-      { status: 400 },
-    );
+    return apiError(400, requestId, "BUY_TICKET_MISSING_DESIRED_OUTPUT", "desiredOutput is required");
   }
   const timeoutMinutes = Number(parsed.data.timeoutMinutes);
   if (!Number.isFinite(timeoutMinutes) || timeoutMinutes <= 0) {
     logger.warn({ requestId, timeoutMinutes: parsed.data.timeoutMinutes }, "buy-ticket invalid timeout");
-    return NextResponse.json(
-      {
-        error: "timeoutMinutes must be a positive integer string",
-        requestId,
-      },
-      { status: 400 },
-    );
+    return apiError(400, requestId, "BUY_TICKET_INVALID_TIMEOUT", "timeoutMinutes must be a positive integer string");
   }
 
   if (!validateBuyTicketActor(parsed.data.actor)) {
     logger.warn({ requestId, actor: parsed.data.actor }, "buy-ticket actor not allowed");
-    return NextResponse.json(
-      {
-        errorCode: "BUY_TICKET_FORBIDDEN_ACTOR",
-        message: "buy_ticket is only allowed for user and charlie wallets",
-        requestId,
-      },
-      { status: 403 },
+    return apiError(
+      403,
+      requestId,
+      "BUY_TICKET_FORBIDDEN_ACTOR",
+      "buy_ticket is only allowed for user and charlie wallets",
     );
   }
 
   const resolvedActor = resolveActorByAddress(parsed.data.address);
   if (!resolvedActor) {
     logger.warn({ requestId, address: parsed.data.address }, "buy-ticket unknown wallet address");
-    return NextResponse.json(
-      {
-        errorCode: "WALLET_ADDRESS_UNKNOWN",
-        message: "address is not recognized by the demo wallet registry",
-        requestId,
-      },
-      { status: 403 },
-    );
+    return apiError(403, requestId, "WALLET_ADDRESS_UNKNOWN", "address is not recognized by the demo wallet registry");
   }
   if (resolvedActor !== parsed.data.actor) {
     logger.warn(
       { requestId, actor: parsed.data.actor, resolvedActor, address: parsed.data.address },
       "buy-ticket actor/address mismatch",
     );
-    return NextResponse.json(
-      {
-        errorCode: "ACTOR_ADDRESS_MISMATCH",
-        message: "actor does not match the connected wallet address",
-        requestId,
-      },
-      { status: 403 },
-    );
+    return apiError(403, requestId, "ACTOR_ADDRESS_MISMATCH", "actor does not match the connected wallet address");
   }
 
   const sourceHead = deriveSourceHead(parsed.data.actor);
@@ -133,16 +109,7 @@ export async function POST(req: Request) {
   const closedHeads = await getClosedRequiredHeads(requiredHeads);
   if (closedHeads.length > 0) {
     logger.warn({ requestId, actor: parsed.data.actor, closedHeads }, "buy-ticket blocked by closed heads");
-    return NextResponse.json(
-      {
-        errorCode: "HEADS_NOT_OPEN",
-        message: "Required heads are not open",
-        requiredHeads,
-        closedHeads,
-        requestId,
-      },
-      { status: 409 },
-    );
+    return apiError(409, requestId, "HEADS_NOT_OPEN", "Required heads are not open", { requiredHeads, closedHeads });
   }
 
   const requestHash = buildBuyTicketHash(
@@ -179,14 +146,12 @@ export async function POST(req: Request) {
         },
         "buy-ticket idempotency key payload mismatch",
       );
-      return NextResponse.json(
-        {
-          errorCode: "IDEMPOTENCY_KEY_PAYLOAD_MISMATCH",
-          message: "The idempotencyKey is already bound to a different request payload",
-          requestId,
-          workflowId: existing.id,
-        },
-        { status: 409 },
+      return apiError(
+        409,
+        requestId,
+        "IDEMPOTENCY_KEY_PAYLOAD_MISMATCH",
+        "The idempotencyKey is already bound to a different request payload",
+        { workflowId: existing.id },
       );
     }
   }

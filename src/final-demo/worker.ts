@@ -9,14 +9,15 @@ const pollMs = Number(process.env.WORKER_POLL_MS || 2000);
 const snapshotSyncMs = Number(process.env.HEAD_SNAPSHOT_SYNC_MS || Math.max(1000, Math.floor(STALE_THRESHOLD_MS / 2)));
 const queueMetricsLogMs = Number(process.env.WORKER_QUEUE_METRICS_LOG_MS || 30000);
 let tickInFlight = false;
+const workerId = `worker-${process.pid}`;
 
 async function tick() {
   if (tickInFlight) return;
   tickInFlight = true;
   try {
-    const workflows = await claimDueWorkflows(10, `worker-${process.pid}`);
+    const workflows = await claimDueWorkflows(10, workerId);
     for (const wf of workflows) {
-      await executeWorkflow(wf);
+      await executeWorkflow(wf, workerId);
     }
   } finally {
     tickInFlight = false;
