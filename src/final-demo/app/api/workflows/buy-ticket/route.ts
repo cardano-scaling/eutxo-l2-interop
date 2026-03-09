@@ -20,6 +20,9 @@ const schema = z.object({
   address: z.string().min(8),
   amountLovelace: z.string().regex(/^\d+$/),
   desiredOutput: z.string().min(8),
+  htlcHash: z.string().regex(/^[0-9a-fA-F]+$/),
+  timeoutMinutes: z.string().regex(/^\d+$/),
+  preimage: z.string().optional(),
 });
 
 function buildBuyTicketHash(
@@ -27,6 +30,8 @@ function buildBuyTicketHash(
   address: string,
   amountLovelace: string,
   desiredOutput: string,
+  htlcHash: string,
+  timeoutMinutes: string,
   sourceHead: string,
 ): string {
   const normalized = JSON.stringify({
@@ -34,6 +39,8 @@ function buildBuyTicketHash(
     address: address.trim(),
     amountLovelace: amountLovelace.trim(),
     desiredOutput: desiredOutput.trim(),
+    htlcHash: htlcHash.trim().toLowerCase(),
+    timeoutMinutes: timeoutMinutes.trim(),
     sourceHead: sourceHead.trim().toLowerCase(),
   });
   return createHash("sha256").update(normalized).digest("hex");
@@ -65,6 +72,17 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         error: "desiredOutput is required",
+        requestId,
+      },
+      { status: 400 },
+    );
+  }
+  const timeoutMinutes = Number(parsed.data.timeoutMinutes);
+  if (!Number.isFinite(timeoutMinutes) || timeoutMinutes <= 0) {
+    logger.warn({ requestId, timeoutMinutes: parsed.data.timeoutMinutes }, "buy-ticket invalid timeout");
+    return NextResponse.json(
+      {
+        error: "timeoutMinutes must be a positive integer string",
         requestId,
       },
       { status: 400 },
@@ -132,6 +150,8 @@ export async function POST(req: Request) {
     parsed.data.address,
     parsed.data.amountLovelace,
     desiredOutput,
+    parsed.data.htlcHash,
+    parsed.data.timeoutMinutes,
     sourceHead,
   );
   const existing = await findWorkflowByIdempotency(WorkflowType.buy_ticket, parsed.data.idempotencyKey);
@@ -144,6 +164,8 @@ export async function POST(req: Request) {
         String(existingPayload.address ?? ""),
         String(existingPayload.amountLovelace ?? ""),
         String(existingPayload.desiredOutput ?? ""),
+        String(existingPayload.htlcHash ?? ""),
+        String(existingPayload.timeoutMinutes ?? ""),
         String(existingPayload.sourceHead ?? deriveSourceHead(existing.actor as "user" | "charlie" | "ida")),
       );
     if (existingHash !== requestHash) {
@@ -178,6 +200,9 @@ export async function POST(req: Request) {
       address: parsed.data.address,
       amountLovelace: parsed.data.amountLovelace,
       desiredOutput,
+      htlcHash: parsed.data.htlcHash.trim().toLowerCase(),
+      timeoutMinutes: parsed.data.timeoutMinutes,
+      preimage: parsed.data.preimage?.trim() || null,
       sourceHead,
     },
   );

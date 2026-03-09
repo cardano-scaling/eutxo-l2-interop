@@ -42,6 +42,7 @@ interface WorkflowResponse {
   id: string;
   type: "request_funds" | "buy_ticket";
   status: string;
+  resultJson: string | null;
   attemptCount: number;
   maxAttempts: number;
   nextRetryAt: string | null;
@@ -186,12 +187,16 @@ function buyTicketPayloadFingerprint(
   address: string,
   amountLovelace: string,
   desiredOutput: string,
+  htlcHash: string,
+  timeoutMinutes: string,
 ): string {
   return JSON.stringify({
     actor: actor.trim().toLowerCase(),
     address: address.trim(),
     amountLovelace: amountLovelace.trim(),
     desiredOutput: desiredOutput.trim(),
+    htlcHash: htlcHash.trim().toLowerCase(),
+    timeoutMinutes: timeoutMinutes.trim(),
   });
 }
 
@@ -221,9 +226,11 @@ function getOrCreateBuyTicketIdempotencyKey(
   address: string,
   amountLovelace: string,
   desiredOutput: string,
+  htlcHash: string,
+  timeoutMinutes: string,
 ) {
   const nowMs = Date.now();
-  const fingerprint = buyTicketPayloadFingerprint(actor, address, amountLovelace, desiredOutput);
+  const fingerprint = buyTicketPayloadFingerprint(actor, address, amountLovelace, desiredOutput, htlcHash, timeoutMinutes);
   const store = loadBuyTicketIntentStore(nowMs);
   const existing = store[fingerprint];
   if (existing) {
@@ -240,9 +247,11 @@ function rotateBuyTicketIdempotencyKey(
   address: string,
   amountLovelace: string,
   desiredOutput: string,
+  htlcHash: string,
+  timeoutMinutes: string,
 ) {
   const nowMs = Date.now();
-  const fingerprint = buyTicketPayloadFingerprint(actor, address, amountLovelace, desiredOutput);
+  const fingerprint = buyTicketPayloadFingerprint(actor, address, amountLovelace, desiredOutput, htlcHash, timeoutMinutes);
   const store = loadBuyTicketIntentStore(nowMs);
   const idempotencyKey = `${actor}:${newBuyTicketIntentId()}`;
   store[fingerprint] = { idempotencyKey, createdAtMs: nowMs };
@@ -286,6 +295,9 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
   const [requestFundsIdempotencyKey, setRequestFundsIdempotencyKey] = useState(() => newBusinessId());
   const [buyTicketIdempotencyKey, setBuyTicketIdempotencyKey] = useState(() => newBuyTicketIntentId());
   const [desiredOutput, setDesiredOutput] = useState("addr_test1_lottery_contract");
+  const [htlcHash, setHtlcHash] = useState("aabbccddeeff00112233445566778899");
+  const [timeoutMinutes, setTimeoutMinutes] = useState("60");
+  const [preimage, setPreimage] = useState("00112233445566778899aabbccddeeff");
   const [workflowId, setWorkflowId] = useState("");
 
   const heads = useQuery({
@@ -363,9 +375,9 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
     setRequestFundsIdempotencyKey(intent.idempotencyKey);
   }, [actionActor, address, amount]);
   useEffect(() => {
-    const intent = getOrCreateBuyTicketIdempotencyKey(actionActor, address, amount, desiredOutput);
+    const intent = getOrCreateBuyTicketIdempotencyKey(actionActor, address, amount, desiredOutput, htlcHash, timeoutMinutes);
     setBuyTicketIdempotencyKey(intent.idempotencyKey);
-  }, [actionActor, address, amount, desiredOutput]);
+  }, [actionActor, address, amount, desiredOutput, htlcHash, timeoutMinutes]);
 
   const requestFunds = useMutation({
     mutationFn: () =>
@@ -390,13 +402,23 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
     mutationFn: () =>
       {
         const actor = actionActor;
-        const intent = getOrCreateBuyTicketIdempotencyKey(actor, address, amount, desiredOutput);
+        const intent = getOrCreateBuyTicketIdempotencyKey(
+          actor,
+          address,
+          amount,
+          desiredOutput,
+          htlcHash,
+          timeoutMinutes,
+        );
         return createWorkflow("/api/workflows/buy-ticket", {
           actor,
           idempotencyKey: intent.idempotencyKey,
           address,
           amountLovelace: amount,
           desiredOutput,
+          htlcHash,
+          timeoutMinutes,
+          preimage,
         }).then((d) => ({ ...d, fingerprint: intent.fingerprint }));
       },
     onSuccess: (d) => {
@@ -424,9 +446,11 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
     if (!data || data.type !== "buy_ticket") return;
     if (data.status !== "succeeded" && data.status !== "cancelled") return;
     if (clearBuyTicketIntentByWorkflowId(data.id)) {
-      setBuyTicketIdempotencyKey(rotateBuyTicketIdempotencyKey(actionActor, address, amount, desiredOutput));
+      setBuyTicketIdempotencyKey(
+        rotateBuyTicketIdempotencyKey(actionActor, address, amount, desiredOutput, htlcHash, timeoutMinutes),
+      );
     }
-  }, [actionActor, address, amount, desiredOutput, workflow.data]);
+  }, [actionActor, address, amount, desiredOutput, htlcHash, timeoutMinutes, workflow.data]);
 
   const busy = useMemo(
     () => connect.isPending || walletConnect.isPending || requestFunds.isPending || buyTicket.isPending,
@@ -455,7 +479,16 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
         ? "Head A and Head B must be open for user buy ticket path."
         : null;
   return (
-    <main style={{ maxWidth: 1100, margin: "0 auto", padding: 24, display: "grid", gap: 16 }}>
+    <main
+      style={{
+        width: "100%",
+        maxWidth: "clamp(320px, 88vw, 720px)",
+        margin: "0 auto",
+        padding: "clamp(12px, 2.5vw, 20px)",
+        display: "grid",
+        gap: 16,
+      }}
+    >
       <section style={cardStyle}>
         <h1 style={{ margin: 0 }}>
           eUTxO L2 Interop Final Demo {view === "charlie" ? "· Charlie View" : view === "user" ? "· User View" : ""}
@@ -504,7 +537,7 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
         <p style={{ marginTop: 0, color: "#52525b" }}>
           This demo injects mock providers into <code>window.cardano.*</code> with CIP-30-like methods (<code>isEnabled</code>, <code>enable</code>, <code>getNetworkId</code>, <code>getUsedAddresses</code>, <code>getChangeAddress</code>).
         </p>
-        <div style={{ display: "grid", gap: 8, gridTemplateColumns: "2fr 1fr 1fr" }}>
+        <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
           <label style={labelStyle}>
             Wallet Provider
             <select
@@ -555,7 +588,7 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
         <p style={{ marginTop: 0, color: "#52525b" }}>
           Current actor context: <strong>{actionActor}</strong>
         </p>
-        <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
+        <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
           <label style={labelStyle}>
             Address
             <input
@@ -573,6 +606,18 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
             Desired Output (Lottery Contract)
             <input style={inputStyle} value={desiredOutput} onChange={(e) => setDesiredOutput(e.target.value)} />
           </label>
+          <label style={labelStyle}>
+            HTLC Hash (hex)
+            <input style={inputStyle} value={htlcHash} onChange={(e) => setHtlcHash(e.target.value)} />
+          </label>
+          <label style={labelStyle}>
+            HTLC Timeout (minutes)
+            <input style={inputStyle} value={timeoutMinutes} onChange={(e) => setTimeoutMinutes(e.target.value)} />
+          </label>
+          <label style={labelStyle}>
+            HTLC Preimage (hex, demo)
+            <input style={inputStyle} value={preimage} onChange={(e) => setPreimage(e.target.value)} />
+          </label>
         </div>
         <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
           <Button onClick={() => requestFunds.mutate()} disabled={busy || Boolean(requestFundsDisabledReason)}>Request Funds</Button>
@@ -586,7 +631,10 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
           <Button onClick={() => buyTicket.mutate()} disabled={busy || Boolean(buyTicketDisabledReason)}>Buy Ticket (Mock)</Button>
           <Button
             variant="outline"
-            onClick={() => setBuyTicketIdempotencyKey(rotateBuyTicketIdempotencyKey(actionActor, address, amount, desiredOutput))}
+            onClick={() =>
+              setBuyTicketIdempotencyKey(
+                rotateBuyTicketIdempotencyKey(actionActor, address, amount, desiredOutput, htlcHash, timeoutMinutes),
+              )}
             disabled={busy || Boolean(buyTicketDisabledReason)}
           >
             New Ticket Intent
@@ -603,16 +651,22 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
           </p>
         ) : null}
         <p style={{ marginTop: 8, marginBottom: 0, color: "#71717a", fontSize: 12 }}>
-          Request funds idempotencyKey: <code>{requestFundsIdempotencyKey}</code>
+          Request funds idempotencyKey:
+          <code style={{ display: "block", overflowWrap: "anywhere", wordBreak: "break-word" }}>
+            {requestFundsIdempotencyKey}
+          </code>
         </p>
         <p style={{ marginTop: 6, marginBottom: 0, color: "#71717a", fontSize: 12 }}>
-          Buy ticket idempotencyKey: <code>{buyTicketIdempotencyKey}</code>
+          Buy ticket idempotencyKey:
+          <code style={{ display: "block", overflowWrap: "anywhere", wordBreak: "break-word" }}>
+            {buyTicketIdempotencyKey}
+          </code>
         </p>
       </section>
 
       <section style={cardStyle}>
         <h2 style={{ marginTop: 0 }}>Workflow Timeline</h2>
-        <p>Current workflow: {workflowId || "none"}</p>
+        <p style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>Current workflow: {workflowId || "none"}</p>
         {workflow.data ? (
           <>
             <p style={{ marginBottom: 4 }}>
@@ -648,11 +702,26 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
             <h3>Events</h3>
             <ul>
               {workflow.data.events.map((event) => (
-                <li key={event.id}>
+                <li key={event.id} style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>
                   [{event.level}] {event.message} ({new Date(event.createdAt).toLocaleTimeString()})
                 </li>
               ))}
             </ul>
+            {workflow.data.resultJson ? (
+              <>
+                <h3>Result</h3>
+                <pre
+                  style={{
+                    fontSize: 12,
+                    whiteSpace: "pre-wrap",
+                    overflowWrap: "anywhere",
+                    wordBreak: "break-word",
+                  }}
+                >
+                  {workflow.data.resultJson}
+                </pre>
+              </>
+            ) : null}
           </>
         ) : (
           <p>No workflow selected yet.</p>
