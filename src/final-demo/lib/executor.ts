@@ -177,7 +177,14 @@ async function executeBuyTicketWorkflow(workflow: WorkflowWithSteps) {
 
   if (!hasSucceededStep(workflow, "prepare")) {
     await executeBuyTicketStep(workflow, "prepare", attempt, async () => {
-      if (!payload.address || !payload.amountLovelace || !payload.desiredOutput || !payload.sourceHead) {
+      if (
+        !payload.address ||
+        !payload.amountLovelace ||
+        !payload.desiredOutput ||
+        !payload.sourceHead ||
+        !payload.htlcHash ||
+        !payload.timeoutMinutes
+      ) {
         throw new TicketServiceError("BUY_TICKET_INVALID_INPUT", "buy_ticket payload is incomplete", false);
       }
     });
@@ -192,6 +199,9 @@ async function executeBuyTicketWorkflow(workflow: WorkflowWithSteps) {
           amountLovelace: payload.amountLovelace!,
           sourceHead: payload.sourceHead!,
           desiredOutput: payload.desiredOutput!,
+          htlcHash: payload.htlcHash!,
+          timeoutMinutes: payload.timeoutMinutes!,
+          preimage: payload.preimage,
         },
         {
           workflowId: workflow.id,
@@ -200,6 +210,15 @@ async function executeBuyTicketWorkflow(workflow: WorkflowWithSteps) {
         },
       );
       result = { ...serviceResult };
+      await appendEvent(workflow.id, "info", "htlc_source_locked", {
+        sourceHead: serviceResult.sourceHead,
+        hashRef: serviceResult.hashRef,
+        sourceHtlcRef: serviceResult.sourceHtlcRef,
+      });
+      await appendEvent(workflow.id, "info", "htlc_head_b_locked", {
+        hashRef: serviceResult.hashRef,
+        headBHtlcRef: serviceResult.headBHtlcRef,
+      });
       await setWorkflowDraftResult(workflow.id, result);
     });
   }
@@ -208,8 +227,9 @@ async function executeBuyTicketWorkflow(workflow: WorkflowWithSteps) {
     await executeBuyTicketStep(workflow, "confirm", attempt, async () => {
       const sourceHead = payload.sourceHead!;
       const ticketOutputRef = `ticket_out_b_${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`;
-      await appendEvent(workflow.id, "info", "IDA automated HTLC processing started", {
+      await appendEvent(workflow.id, "info", "ida_claimed_both_htlcs", {
         sourceHead,
+        hashRef: result.hashRef ?? payload.htlcHash ?? null,
         sourceHtlcRef: result.sourceHtlcRef ?? null,
         headBHtlcRef: result.headBHtlcRef ?? null,
       });
