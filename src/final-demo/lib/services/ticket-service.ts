@@ -3,6 +3,9 @@ export interface BuyTicketPayload {
   amountLovelace: string;
   sourceHead: "headA" | "headC";
   desiredOutput: string;
+  htlcHash: string;
+  timeoutMinutes: string;
+  preimage?: string;
 }
 
 export interface BuyTicketContext {
@@ -13,6 +16,7 @@ export interface BuyTicketContext {
 
 export interface BuyTicketResult {
   sourceHead: "headA" | "headC";
+  hashRef: string;
   sourceHtlcRef: string;
   headBHtlcRef: string;
   desiredOutput: string;
@@ -57,6 +61,13 @@ function validatePayload(payload: BuyTicketPayload) {
   if (!payload.desiredOutput.trim()) {
     throw new TicketServiceError("BUY_TICKET_INVALID_INPUT", "desiredOutput is required", false);
   }
+  if (!/^[0-9a-fA-F]+$/.test(payload.htlcHash.trim())) {
+    throw new TicketServiceError("BUY_TICKET_INVALID_INPUT", "htlcHash must be a hex string", false);
+  }
+  const timeoutMinutes = Number(payload.timeoutMinutes);
+  if (!Number.isFinite(timeoutMinutes) || timeoutMinutes <= 0) {
+    throw new TicketServiceError("BUY_TICKET_INVALID_INPUT", "timeoutMinutes must be positive", false);
+  }
 }
 
 function maybeFail(ctx: BuyTicketContext) {
@@ -78,6 +89,7 @@ export async function buyTicket(payload: BuyTicketPayload, ctx: BuyTicketContext
 
   return {
     sourceHead: payload.sourceHead,
+    hashRef: payload.htlcHash.trim().toLowerCase(),
     sourceHtlcRef: mockRef(payload.sourceHead === "headA" ? "htlc_a" : "htlc_c"),
     headBHtlcRef: mockRef("htlc_b"),
     desiredOutput: payload.desiredOutput,
