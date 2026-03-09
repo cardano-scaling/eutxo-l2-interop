@@ -42,7 +42,7 @@ export async function updateStepWithEvent(
   errorDetail?: string,
 ) {
   await prisma.$transaction(async (tx) => {
-    const step = await tx.workflowStep.findFirst({ where: { workflowId, name } });
+    const step = await tx.workflowStep.findUnique({ where: { workflowId_name: { workflowId, name } } });
     if (!step) return;
     await tx.workflowStep.update({
       where: { id: step.id },
@@ -120,6 +120,41 @@ export async function setWorkflowDraftResult(id: string, result: JsonObj) {
     where: { id },
     data: { resultJson: asJson(result) },
   });
+}
+
+export class WorkflowLockError extends Error {
+  code: string;
+  constructor(message = "WORKFLOW_LOCK_OWNERSHIP_LOST") {
+    super(message);
+    this.name = "WorkflowLockError";
+    this.code = "WORKFLOW_LOCK_OWNERSHIP_LOST";
+  }
+}
+
+export async function refreshWorkflowLock(id: string, workerId: string) {
+  const now = new Date();
+  const count = await prisma.workflow.updateMany({
+    where: {
+      id,
+      status: WorkflowStatus.running,
+      lockedBy: workerId,
+      lockExpiresAt: { gt: now },
+    },
+    data: { lockExpiresAt: new Date(now.getTime() + WORKFLOW_LOCK_MS) },
+  });
+  if (count.count !== 1) {
+    throw new WorkflowLockError();
+  }
+}
+
+export async function setWorkflowDraftResultLocked(id: string, result: JsonObj, workerId: string) {
+  const count = await prisma.workflow.updateMany({
+    where: { id, status: WorkflowStatus.running, lockedBy: workerId },
+    data: { resultJson: asJson(result) },
+  });
+  if (count.count !== 1) {
+    throw new WorkflowLockError();
+  }
 }
 
 export async function claimDueWorkflows(limit = 10, workerId = `worker-${process.pid}`) {
@@ -269,7 +304,7 @@ export async function findWorkflowByIdempotency(type: WorkflowType, idempotencyK
 }
 
 export async function updateStep(workflowId: string, name: string, status: WorkflowStatus, errorDetail?: string) {
-  const step = await prisma.workflowStep.findFirst({ where: { workflowId, name } });
+  const step = await prisma.workflowStep.findUnique({ where: { workflowId_name: { workflowId, name } } });
   if (!step) return;
   await prisma.workflowStep.update({
     where: { id: step.id },
@@ -300,6 +335,26 @@ export async function markWorkflowSucceeded(id: string, result: JsonObj) {
   await appendEvent(id, "info", "Workflow execution completed", result);
 }
 
+export async function markWorkflowSucceededLocked(id: string, result: JsonObj, workerId: string) {
+  const count = await prisma.workflow.updateMany({
+    where: { id, status: WorkflowStatus.running, lockedBy: workerId },
+    data: {
+      status: WorkflowStatus.succeeded,
+      resultJson: asJson(result),
+      nextRetryAt: null,
+      errorMessage: null,
+      lastErrorCode: null,
+      lockExpiresAt: null,
+      lockedBy: null,
+      completedAt: new Date(),
+    },
+  });
+  if (count.count !== 1) {
+    throw new WorkflowLockError();
+  }
+  await appendEvent(id, "info", "Workflow execution completed", result);
+}
+
 type FailureOptions = {
   errorCode?: string;
   retryable?: boolean;
@@ -326,6 +381,53 @@ export async function markWorkflowFailed(id: string, reason: string, options?: F
       completedAt: canRetry ? null : new Date(),
     },
   });
+  await appendEvent(id, "error", "Workflow execution failed", {
+    reason,
+    errorCode,
+    attempt,
+    retryDelaySec: canRetry ? retryDelaySec : null,
+    canRetry,
+    retryable,
+    maxAttempts: current.maxAttempts,
+  });
+  recordFailureOutcome(canRetry);
+  logger.error({ workflowId: id, reason, errorCode, retryable, canRetry }, "workflow failed");
+}
+
+export async function markWorkflowFailedLocked(
+  id: string,
+  reason: string,
+  workerId: string,
+  options?: FailureOptions,
+) {
+  const current = await prisma.workflow.findFirst({
+    where: { id, status: WorkflowStatus.running, lockedBy: workerId },
+  });
+  if (!current) {
+    throw new WorkflowLockError();
+  }
+  const attempt = current.attemptCount + 1;
+  const retryable = options?.retryable !== false;
+  const canRetry = retryable && attempt < current.maxAttempts;
+  const retryDelaySec = Math.min(60, Math.pow(2, attempt));
+  const errorCode = options?.errorCode ?? deriveErrorCode(reason);
+
+  const count = await prisma.workflow.updateMany({
+    where: { id, status: WorkflowStatus.running, lockedBy: workerId },
+    data: {
+      status: canRetry ? WorkflowStatus.failed : WorkflowStatus.cancelled,
+      errorMessage: reason,
+      lastErrorCode: errorCode,
+      attemptCount: attempt,
+      nextRetryAt: canRetry ? new Date(Date.now() + retryDelaySec * 1000) : null,
+      lockExpiresAt: null,
+      lockedBy: null,
+      completedAt: canRetry ? null : new Date(),
+    },
+  });
+  if (count.count !== 1) {
+    throw new WorkflowLockError();
+  }
   await appendEvent(id, "error", "Workflow execution failed", {
     reason,
     errorCode,

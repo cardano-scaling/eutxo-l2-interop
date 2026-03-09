@@ -1,25 +1,28 @@
 import { NextResponse } from "next/server";
+import { apiError, readJsonBody } from "@/lib/api-error";
 import { retryWorkflowNow } from "@/lib/workflows";
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const requestId = crypto.randomUUID();
   try {
     const { id } = await params;
-    const parsedBody = (await req.json().catch(() => ({}))) as {
+    const bodyResult = await readJsonBody(req);
+    const parsedBody = (bodyResult.ok ? bodyResult.data : {}) as {
       force?: boolean;
       reason?: string;
     };
     const force = parsedBody.force === true;
     const reason = typeof parsedBody.reason === "string" ? parsedBody.reason.slice(0, 300) : undefined;
     await retryWorkflowNow(id, { force, reason });
-    return NextResponse.json({ ok: true, workflowId: id, force });
+    return NextResponse.json({ ok: true, workflowId: id, force, requestId });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (message === "WORKFLOW_NOT_FOUND") {
-      return NextResponse.json({ error: "WORKFLOW_NOT_FOUND" }, { status: 404 });
+      return apiError(404, requestId, "WORKFLOW_NOT_FOUND", "Workflow not found");
     }
     if (message.startsWith("WORKFLOW_RETRY_CONFLICT")) {
-      return NextResponse.json({ error: message }, { status: 409 });
+      return apiError(409, requestId, message, "Workflow retry conflict");
     }
-    return NextResponse.json({ error: "INTERNAL_ERROR", message }, { status: 500 });
+    return apiError(500, requestId, "INTERNAL_ERROR", "Unexpected internal error", { reason: message });
   }
 }

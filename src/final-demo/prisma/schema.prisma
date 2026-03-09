@@ -61,6 +61,7 @@ model WorkflowStep {
   updatedAt   DateTime       @updatedAt
   workflow    Workflow       @relation(fields: [workflowId], references: [id], onDelete: Cascade)
 
+  @@unique([workflowId, name])
   @@index([workflowId, name])
 }
 
