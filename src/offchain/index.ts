@@ -28,7 +28,7 @@ const bobFundsAddrPath = join(process.cwd(), '../infra/credentials/bob/bob-funds
 const bobFundsAddr = readFileSync(bobFundsAddrPath, 'utf8');
 
 // instantiate the hydra handler, provider, and lucid
-const handler = new HydraHandler('http://127.0.0.1:4001');
+const handler = new HydraHandler('http://127.0.0.1:4011');
 const lucid = await Lucid(new HydraProvider(handler), "Custom");
 
 // create private key from the signing key
@@ -66,7 +66,7 @@ logger.info(snapshotBeforeTx);
 
 const submittedTx = await txSigned.submit();
 logger.info(submittedTx);
-while (!await lucid.awaitTx(submittedTx, 3000)) {}
+while (!await lucid.awaitTx(submittedTx, 3000)) { }
 
 const snapshotAfterTx = await handler.getSnapshot();
 logger.info('Snapshot after tx');

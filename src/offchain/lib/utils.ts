@@ -178,13 +178,13 @@ function getUserNodeAndKeys(
   { name, head }: { name: "alice" | "bob" | "ida", head: 1 | 2 },
 ): { nodeUrl: string, sk: CML.PrivateKey, vk: CML.PublicKey } {
   const nodeUrl = name === "alice"
-    ? "http://127.0.0.1:4001"
+    ? "http://127.0.0.1:4011"
     : name === "bob"
-      ? "http://127.0.0.1:4002"
+      ? "http://127.0.0.1:4022"
       : name === "ida" && head === 1
-        ? "http://127.0.0.1:4003"
+        ? "http://127.0.0.1:4019"
         : name === "ida" && head === 2
-          ? "http://127.0.0.1:4004"
+          ? "http://127.0.0.1:4029"
           : undefined;
   if (!nodeUrl) {
     throw new Error(`Invalid name: ${name} and head: ${head}`);
