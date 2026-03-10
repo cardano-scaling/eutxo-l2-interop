@@ -28,7 +28,9 @@ docker compose -f docker-compose.hub-and-spoke.yaml up
 
 ![Hub-and-spoke topology](./hub_and_spoke.png)
 
-To start the infrastructure with the lottery topology: 3 nodes for a custodial head, a lottery contract head, and a charlie non-custodial head, run:
+To start the infrastructure with the lottery topology: 3 nodes for a custodial head, a lottery contract head, and a charlie non-custodial head.
+
+**Note:** The lottery topology runs connected to the Cardano Preprod testnet via Blockfrost. Before starting it, you must create a file named `blockfrost.txt` in this directory (`src/infra/`) containing your Blockfrost Preprod API key.
 
 ```bash
 docker compose -f docker-compose.lottery.yaml up

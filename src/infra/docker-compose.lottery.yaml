@@ -9,12 +9,10 @@
 #   User IDs: Alice=1, Bob=2, Charlie=3, Jon=8, Ida=9
 #   ipv4 address: 172.16.23X.YZ (each topology gets its own /24 subnet)
 #
-# This compose file runs Hydra nodes in OFFLINE mode (no L1).
-# For online-private mode (with Cardano L1), see:
-#   src/onchain/tests/infra/docker-compose.yaml
+# This compose file runs Hydra nodes connected to Cardano Preprod via Blockfrost.
 
 x-hydra-node-base: &hydra-node-base
-  image: ghcr.io/cardano-scaling/hydra-node:1.0.0
+  image: ghcr.io/cardano-scaling/hydra-node:1.3.0
   networks:
     hydra_net:
   restart: always
@@ -38,11 +36,13 @@ services:
         "--api-port", "4311",
         "--peer", "172.16.233.19:5319",
         "--hydra-signing-key", "/devnet/credentials/alice/alice-hydra.sk",
+        "--cardano-signing-key", "/devnet/credentials/alice/alice-funds.sk",
         "--hydra-verification-key", "/devnet/credentials/ida/ida-hydra.vk",
+        "--cardano-verification-key", "/devnet/credentials/ida/ida-funds.vk",
         "--persistence-dir", "/devnet/persistence/alice-lt",
-        "--offline-head-seed", "0000000000000000000000000000000000000000000000000000000000000001",
+        "--network", "preprod",
+        "--blockfrost", "/devnet/blockfrost.txt",
         "--ledger-protocol-parameters", "/devnet/protocol-parameters.json",
-        "--initial-utxo", "/devnet/initial-utxos/lottery/utxo-1.json"
       ]
     networks:
       hydra_net:
@@ -65,11 +65,13 @@ services:
         "--api-port", "4319",
         "--peer", "172.16.233.11:5311",
         "--hydra-signing-key", "/devnet/credentials/ida/ida-hydra.sk",
+        "--cardano-signing-key", "/devnet/credentials/ida/ida-funds.sk",
         "--hydra-verification-key", "/devnet/credentials/alice/alice-hydra.vk",
+        "--cardano-verification-key", "/devnet/credentials/alice/alice-funds.vk",
         "--persistence-dir", "/devnet/persistence/ida-1-lt",
-        "--offline-head-seed", "0000000000000000000000000000000000000000000000000000000000000001",
+        "--network", "preprod",
+        "--blockfrost", "/devnet/blockfrost.txt",
         "--ledger-protocol-parameters", "/devnet/protocol-parameters.json",
-        "--initial-utxo", "/devnet/initial-utxos/lottery/utxo-1.json"
       ]
     networks:
       hydra_net:
@@ -94,12 +96,15 @@ services:
         "--peer", "172.16.233.29:5329",
         "--peer", "172.16.233.28:5328",
         "--hydra-signing-key", "/devnet/credentials/bob/bob-hydra.sk",
+        "--cardano-signing-key", "/devnet/credentials/bob/bob-funds.sk",
         "--hydra-verification-key", "/devnet/credentials/ida/ida-hydra.vk",
+        "--cardano-verification-key", "/devnet/credentials/ida/ida-funds.vk",
         "--hydra-verification-key", "/devnet/credentials/jon/jon-hydra.vk",
+        "--cardano-verification-key", "/devnet/credentials/jon/jon-funds.vk",
         "--persistence-dir", "/devnet/persistence/bob-lt",
-        "--offline-head-seed", "0000000000000000000000000000000000000000000000000000000000000002",
+          "--network", "preprod",
+        "--blockfrost", "/devnet/blockfrost.txt",
         "--ledger-protocol-parameters", "/devnet/protocol-parameters.json",
-        "--initial-utxo", "/devnet/initial-utxos/lottery/utxo-2.json"
       ]
     networks:
       hydra_net:
@@ -123,12 +128,15 @@ services:
         "--peer", "172.16.233.22:5322",
         "--peer", "172.16.233.28:5328",
         "--hydra-signing-key", "/devnet/credentials/ida/ida-hydra.sk",
+        "--cardano-signing-key", "/devnet/credentials/ida/ida-funds.sk",
         "--hydra-verification-key", "/devnet/credentials/bob/bob-hydra.vk",
+        "--cardano-verification-key", "/devnet/credentials/bob/bob-funds.vk",
         "--hydra-verification-key", "/devnet/credentials/jon/jon-hydra.vk",
+        "--cardano-verification-key", "/devnet/credentials/jon/jon-funds.vk",
         "--persistence-dir", "/devnet/persistence/ida-2-lt",
-        "--offline-head-seed", "0000000000000000000000000000000000000000000000000000000000000002",
+        "--network", "preprod",
+        "--blockfrost", "/devnet/blockfrost.txt",
         "--ledger-protocol-parameters", "/devnet/protocol-parameters.json",
-        "--initial-utxo", "/devnet/initial-utxos/lottery/utxo-2.json"
       ]
     networks:
       hydra_net:
@@ -152,12 +160,15 @@ services:
         "--peer", "172.16.233.22:5322",
         "--peer", "172.16.233.29:5329",
         "--hydra-signing-key", "/devnet/credentials/jon/jon-hydra.sk",
+        "--cardano-signing-key", "/devnet/credentials/jon/jon-funds.sk",
         "--hydra-verification-key", "/devnet/credentials/bob/bob-hydra.vk",
+        "--cardano-verification-key", "/devnet/credentials/bob/bob-funds.vk",
         "--hydra-verification-key", "/devnet/credentials/ida/ida-hydra.vk",
+        "--cardano-verification-key", "/devnet/credentials/ida/ida-funds.vk",
         "--persistence-dir", "/devnet/persistence/jon-lt",
-        "--offline-head-seed", "0000000000000000000000000000000000000000000000000000000000000002",
+        "--network", "preprod",
+        "--blockfrost", "/devnet/blockfrost.txt",
         "--ledger-protocol-parameters", "/devnet/protocol-parameters.json",
-        "--initial-utxo", "/devnet/initial-utxos/lottery/utxo-2.json"
       ]
     networks:
       hydra_net:
@@ -181,11 +192,13 @@ services:
         "--api-port", "4333",
         "--peer", "172.16.233.39:5339",
         "--hydra-signing-key", "/devnet/credentials/charlie/charlie-hydra.sk",
+        "--cardano-signing-key", "/devnet/credentials/charlie/charlie-funds.sk",
         "--hydra-verification-key", "/devnet/credentials/ida/ida-hydra.vk",
+        "--cardano-verification-key", "/devnet/credentials/ida/ida-funds.vk",
         "--persistence-dir", "/devnet/persistence/charlie-lt",
-        "--offline-head-seed", "0000000000000000000000000000000000000000000000000000000000000003",
+        "--network", "preprod",
+        "--blockfrost", "/devnet/blockfrost.txt",
         "--ledger-protocol-parameters", "/devnet/protocol-parameters.json",
-        "--initial-utxo", "/devnet/initial-utxos/lottery/utxo-3.json"
       ]
     networks:
       hydra_net:
@@ -200,7 +213,7 @@ services:
       - "4339:4339"
       - "5339:5339"
     command:
-      [s
+      [
         "--node-id", "7",
         "--api-host", "0.0.0.0",
         "--listen", "172.16.233.39:5339",
@@ -208,11 +221,13 @@ services:
         "--api-port", "4339",
         "--peer", "172.16.233.33:5333",
         "--hydra-signing-key", "/devnet/credentials/ida/ida-hydra.sk",
+        "--cardano-signing-key", "/devnet/credentials/ida/ida-funds.sk",
         "--hydra-verification-key", "/devnet/credentials/charlie/charlie-hydra.vk",
+        "--cardano-verification-key", "/devnet/credentials/charlie/charlie-funds.vk",
         "--persistence-dir", "/devnet/persistence/ida-3-lt",
-        "--offline-head-seed", "0000000000000000000000000000000000000000000000000000000000000003",
+        "--network", "preprod",
+        "--blockfrost", "/devnet/blockfrost.txt",
         "--ledger-protocol-parameters", "/devnet/protocol-parameters.json",
-        "--initial-utxo", "/devnet/initial-utxos/lottery/utxo-3.json"
       ]
     networks:
       hydra_net:
