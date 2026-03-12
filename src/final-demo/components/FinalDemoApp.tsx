@@ -6,9 +6,9 @@ import { Button } from "@/components/ui/button";
 import {
   connectWallet,
   disconnectWallet,
-  ensureMockCip30WalletsInjected,
   getWalletOptions,
   restoreWalletSession,
+  signDummyTxWithConnectedWallet,
   type WalletSession,
 } from "@/lib/wallet/cip30";
 
@@ -282,14 +282,11 @@ function clearBuyTicketIntentByWorkflowId(workflowId: string): boolean {
 }
 
 function FinalDemoInner({ view }: { view: FinalDemoView }) {
-  const walletOptions = useMemo(() => {
-    const all = getWalletOptions();
-    if (view === "all") return all;
-    return all.filter((wallet) => wallet.actor === view);
-  }, [view]);
+  const defaultActor = view === "charlie" ? "charlie" : "user";
+  const [walletOptions, setWalletOptions] = useState(() => getWalletOptions());
   const [selectedWalletKey, setSelectedWalletKey] = useState(walletOptions[0]?.key ?? "");
   const [walletSession, setWalletSession] = useState<WalletSession | null>(null);
-  const actionActor = walletSession?.actor ?? (view === "charlie" ? "charlie" : "user");
+  const actionActor = walletSession?.actor ?? defaultActor;
   const [address, setAddress] = useState("addr_test1_demo_wallet");
   const [amount, setAmount] = useState("5000000");
   const [requestFundsIdempotencyKey, setRequestFundsIdempotencyKey] = useState(() => newBusinessId());
@@ -330,7 +327,7 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
     onSuccess: () => heads.refetch(),
   });
   const walletConnect = useMutation({
-    mutationFn: () => connectWallet(selectedWalletKey),
+    mutationFn: () => connectWallet(selectedWalletKey, defaultActor),
     onSuccess: (session) => {
       setWalletSession(session);
       setAddress(session.changeAddress);
@@ -343,19 +340,28 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
     return () => window.clearInterval(timer);
   }, []);
   useEffect(() => {
-    ensureMockCip30WalletsInjected();
-    restoreWalletSession()
+    setWalletOptions(getWalletOptions());
+    restoreWalletSession(defaultActor)
       .then((session) => {
         if (!session) return;
-        if (view !== "all" && session.actor !== view) return;
+        if (view !== "all" && session.actor !== defaultActor) return;
         setWalletSession(session);
         setSelectedWalletKey(session.walletKey);
         setAddress(session.changeAddress);
       })
       .catch(() => {
-        // Keep UI usable even if restore fails for mock wallet state.
+        // Keep UI usable even if wallet restore fails.
       });
-  }, [view]);
+  }, [defaultActor, view]);
+  useEffect(() => {
+    if (!selectedWalletKey) {
+      setSelectedWalletKey(walletOptions[0]?.key ?? "");
+      return;
+    }
+    if (!walletOptions.some((wallet) => wallet.key === selectedWalletKey)) {
+      setSelectedWalletKey(walletOptions[0]?.key ?? "");
+    }
+  }, [walletOptions, selectedWalletKey]);
   useEffect(() => {
     const search = new URLSearchParams(window.location.search);
     const wf = search.get("workflowId");
@@ -382,14 +388,21 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
   const requestFunds = useMutation({
     mutationFn: () =>
       {
+        if (!walletSession) {
+          throw new Error("Connect a wallet first.");
+        }
         const actor = actionActor;
         const intent = getOrCreateRequestFundsIdempotencyKey(actor, address, amount);
-        return createWorkflow("/api/workflows/request-funds", {
-          actor,
-          idempotencyKey: intent.idempotencyKey,
-          address,
-          amountLovelace: amount,
-        }).then((d) => ({ ...d, fingerprint: intent.fingerprint }));
+        return signDummyTxWithConnectedWallet(walletSession).then((proof) =>
+          createWorkflow("/api/workflows/request-funds", {
+            actor,
+            idempotencyKey: intent.idempotencyKey,
+            address,
+            amountLovelace: amount,
+            dummyTxCborHex: proof.txCborHex,
+            dummyTxWitnessHex: proof.witnessHex,
+          }).then((d) => ({ ...d, fingerprint: intent.fingerprint }))
+        );
       },
     onSuccess: (d) => {
       setWorkflowId(d.workflowId);
@@ -401,6 +414,9 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
   const buyTicket = useMutation({
     mutationFn: () =>
       {
+        if (!walletSession) {
+          throw new Error("Connect a wallet first.");
+        }
         const actor = actionActor;
         const intent = getOrCreateBuyTicketIdempotencyKey(
           actor,
@@ -410,16 +426,20 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
           htlcHash,
           timeoutMinutes,
         );
-        return createWorkflow("/api/workflows/buy-ticket", {
-          actor,
-          idempotencyKey: intent.idempotencyKey,
-          address,
-          amountLovelace: amount,
-          desiredOutput,
-          htlcHash,
-          timeoutMinutes,
-          preimage,
-        }).then((d) => ({ ...d, fingerprint: intent.fingerprint }));
+        return signDummyTxWithConnectedWallet(walletSession).then((proof) =>
+          createWorkflow("/api/workflows/buy-ticket", {
+            actor,
+            idempotencyKey: intent.idempotencyKey,
+            address,
+            amountLovelace: amount,
+            desiredOutput,
+            htlcHash,
+            timeoutMinutes,
+            preimage,
+            dummyTxCborHex: proof.txCborHex,
+            dummyTxWitnessHex: proof.witnessHex,
+          }).then((d) => ({ ...d, fingerprint: intent.fingerprint }))
+        );
       },
     onSuccess: (d) => {
       setWorkflowId(d.workflowId);
@@ -533,9 +553,9 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
       </section>
 
       <section style={cardStyle}>
-        <h2 style={{ marginTop: 0 }}>Wallet (CIP-30 Mock)</h2>
+        <h2 style={{ marginTop: 0 }}>Wallet (CIP-30)</h2>
         <p style={{ marginTop: 0, color: "#52525b" }}>
-          This demo injects mock providers into <code>window.cardano.*</code> with CIP-30-like methods (<code>isEnabled</code>, <code>enable</code>, <code>getNetworkId</code>, <code>getUsedAddresses</code>, <code>getChangeAddress</code>).
+          Connect a detected CIP-30 wallet extension. If none are installed, actions stay disabled.
         </p>
         <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
           <label style={labelStyle}>
@@ -544,17 +564,26 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
               style={inputStyle}
               value={selectedWalletKey}
               onChange={(e) => setSelectedWalletKey(e.target.value)}
-              disabled={busy || Boolean(walletSession)}
+              disabled={busy || Boolean(walletSession) || walletOptions.length === 0}
             >
+              {walletOptions.length === 0 ? (
+                <option value="">No wallet extensions detected</option>
+              ) : null}
               {walletOptions.map((wallet) => (
                 <option key={wallet.key} value={wallet.key}>
-                  {wallet.name} ({wallet.actor})
+                  {wallet.name}
                 </option>
               ))}
             </select>
           </label>
           <div style={{ display: "flex", alignItems: "end", gap: 8 }}>
-            <Button onClick={() => walletConnect.mutate()} disabled={busy || Boolean(walletSession) || !selectedWalletKey}>
+            <Button
+              onClick={() => {
+                setWalletOptions(getWalletOptions());
+                walletConnect.mutate();
+              }}
+              disabled={busy || Boolean(walletSession) || !selectedWalletKey || walletOptions.length === 0}
+            >
               Connect Wallet
             </Button>
             <Button
@@ -572,9 +601,15 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
         {walletConnect.isError ? (
           <p style={{ marginTop: 8, color: "#b91c1c" }}>Wallet connect failed: {walletConnect.error.message}</p>
         ) : null}
+        {walletOptions.length === 0 ? (
+          <p style={{ marginTop: 8, marginBottom: 0, color: "#b45309" }}>
+            No CIP-30 wallet extension detected in this browser.
+          </p>
+        ) : null}
         {walletSession ? (
           <p style={{ marginTop: 8, marginBottom: 0, color: "#52525b" }}>
             Connected: <strong>{walletSession.walletName}</strong> · actor <strong>{walletSession.actor}</strong> · network <strong>{walletSession.networkId}</strong>
+            {" · "}signTx <strong>{walletSession.supportsSignTx ? "yes" : "no"}</strong>
           </p>
         ) : (
           <p style={{ marginTop: 8, marginBottom: 0, color: "#71717a" }}>
@@ -628,7 +663,7 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
           >
             New Request Intent
           </Button>
-          <Button onClick={() => buyTicket.mutate()} disabled={busy || Boolean(buyTicketDisabledReason)}>Buy Ticket (Mock)</Button>
+          <Button onClick={() => buyTicket.mutate()} disabled={busy || Boolean(buyTicketDisabledReason)}>Buy Ticket</Button>
           <Button
             variant="outline"
             onClick={() =>
