@@ -1,4 +1,5 @@
 import { prisma } from "./db";
+import { fetchHydraSnapshot, isRealHydraMode } from "./hydra-client";
 import { logger } from "./logger";
 import type { HeadReadModel, HeadStatus, HeadsStateReadModel } from "./types";
 
@@ -64,6 +65,19 @@ export async function upsertHeadState(headName: "headA" | "headB" | "headC", sta
 }
 
 export async function syncHeadSnapshotsHeartbeat() {
+  if (isRealHydraMode()) {
+    // In real mode, heartbeat is a live probe against Hydra APIs so stale/open state reflects topology health.
+    for (const headName of HEAD_NAMES) {
+      const probe = await fetchHydraSnapshot(headName);
+      if (probe.ok) {
+        await upsertHeadState(headName, "open", "Hydra snapshot endpoint reachable");
+      } else {
+        await upsertHeadState(headName, "disconnected", probe.reason);
+      }
+    }
+    return;
+  }
+
   const rows = await prisma.headSnapshot.findMany({
     where: { headName: { in: [...HEAD_NAMES] } },
   });
