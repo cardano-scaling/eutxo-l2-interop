@@ -1,3 +1,5 @@
+import { fetchHydraSnapshot, isRealHydraMode } from "@/lib/hydra-client";
+
 export interface BuyTicketPayload {
   address: string;
   amountLovelace: string;
@@ -85,7 +87,29 @@ function maybeFail(ctx: BuyTicketContext) {
 
 export async function buyTicket(payload: BuyTicketPayload, ctx: BuyTicketContext): Promise<BuyTicketResult> {
   validatePayload(payload);
-  maybeFail(ctx);
+  if (!isRealHydraMode()) {
+    maybeFail(ctx);
+  }
+
+  if (isRealHydraMode()) {
+    const sourceHead = payload.sourceHead;
+    const sourceProbe = await fetchHydraSnapshot(sourceHead);
+    if (!sourceProbe.ok) {
+      throw new TicketServiceError(
+        "BUY_TICKET_SOURCE_HEAD_UNAVAILABLE",
+        `${sourceHead} is not reachable: ${sourceProbe.reason}`,
+        true,
+      );
+    }
+    const headBProbe = await fetchHydraSnapshot("headB");
+    if (!headBProbe.ok) {
+      throw new TicketServiceError(
+        "BUY_TICKET_HEAD_B_UNAVAILABLE",
+        `headB is not reachable: ${headBProbe.reason}`,
+        true,
+      );
+    }
+  }
 
   return {
     sourceHead: payload.sourceHead,
