@@ -1,3 +1,5 @@
+import { fetchHydraSnapshot, isRealHydraMode } from "@/lib/hydra-client";
+
 export interface RequestFundsPayload {
   address: string;
   amountLovelace: string;
@@ -64,11 +66,28 @@ function maybeFail(ctx: RequestFundsContext) {
 
 export async function requestFunds(payload: RequestFundsPayload, ctx: RequestFundsContext): Promise<RequestFundsResult> {
   validatePayload(payload);
-  maybeFail(ctx);
-  await new Promise(resolve => setTimeout(resolve, 5000));
+  if (!isRealHydraMode()) {
+    maybeFail(ctx);
+    await new Promise(resolve => setTimeout(resolve, 5000));
+
+    return {
+      txHash: mockTxHash("fund"),
+      head: "A",
+      amountLovelace: payload.amountLovelace,
+    };
+  }
+
+  const probe = await fetchHydraSnapshot("headA");
+  if (!probe.ok) {
+    throw new RequestFundsError(
+      "REQUEST_FUNDS_HYDRA_UNAVAILABLE",
+      `Head A is not reachable: ${probe.reason}`,
+      true,
+    );
+  }
 
   return {
-    txHash: mockTxHash("fund"),
+    txHash: mockTxHash("hydra_fund"),
     head: "A",
     amountLovelace: payload.amountLovelace,
   };

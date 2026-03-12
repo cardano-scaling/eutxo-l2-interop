@@ -22,3 +22,5 @@ node_modules
 src/onchain/tests/infra/l1-utxos.json
 src/onchain/tests/infra/l1-utxos.ready
 src/onchain/tests/infra/persistence/**
+src/infra/l1-utxos.json
+src/infra/l1-utxos.ready
