@@ -24,6 +24,8 @@ const schema = z.object({
   htlcHash: z.string().regex(/^[0-9a-fA-F]+$/),
   timeoutMinutes: z.string().regex(/^\d+$/),
   preimage: z.string().optional(),
+  dummyTxCborHex: z.string().regex(/^[0-9a-fA-F]+$/).optional(),
+  dummyTxWitnessHex: z.string().regex(/^[0-9a-fA-F]+$/).optional(),
 });
 
 function buildBuyTicketHash(
@@ -92,11 +94,8 @@ export async function POST(req: Request) {
   }
 
   const resolvedActor = resolveActorByAddress(parsed.data.address);
-  if (!resolvedActor) {
-    logger.warn({ requestId, address: parsed.data.address }, "buy-ticket unknown wallet address");
-    return apiError(403, requestId, "WALLET_ADDRESS_UNKNOWN", "address is not recognized by the demo wallet registry");
-  }
-  if (resolvedActor !== parsed.data.actor) {
+  // Keep strict mismatch checks for known demo addresses, but allow unknown CIP-30 addresses.
+  if (resolvedActor && resolvedActor !== parsed.data.actor) {
     logger.warn(
       { requestId, actor: parsed.data.actor, resolvedActor, address: parsed.data.address },
       "buy-ticket actor/address mismatch",
@@ -169,6 +168,8 @@ export async function POST(req: Request) {
       timeoutMinutes: parsed.data.timeoutMinutes,
       preimage: parsed.data.preimage?.trim() || null,
       sourceHead,
+      dummyTxCborHex: parsed.data.dummyTxCborHex ?? null,
+      dummyTxWitnessHex: parsed.data.dummyTxWitnessHex ?? null,
     },
   );
   const idempotencyReplay = Boolean(existing);
