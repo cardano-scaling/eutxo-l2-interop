@@ -1,6 +1,5 @@
 "use client";
 
-import { Wallet } from "@cardano-foundation/cardano-connect-with-wallet-core";
 import type { DemoActor } from "./mock-wallets";
 
 type Cip30Extension = { cip: number };
@@ -22,12 +21,6 @@ type Cip30Wallet = {
   isEnabled(): Promise<boolean>;
   enable(): Promise<Cip30Api>;
 };
-
-declare global {
-  interface Window {
-    cardano?: Record<string, Cip30Wallet>;
-  }
-}
 
 const ENABLED_WALLET_STORAGE_KEY = "final-demo.cip30.enabled-wallet.v1";
 const DUMMY_SIGNER_PLACEHOLDER_PKH = "00000000000000000000000000000000000000000000000000000000";
@@ -52,6 +45,25 @@ export type WalletSession = {
   supportsSubmitTx: boolean;
 };
 
+async function normalizeAddressForUi(address: string): Promise<string> {
+  const trimmed = address.trim();
+  if (trimmed.startsWith("addr")) return trimmed;
+  if (!/^[0-9a-fA-F]+$/.test(trimmed)) return trimmed;
+  try {
+    const response = await fetch("/api/wallet/normalize-address", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ address: trimmed }),
+    });
+    if (!response.ok) return trimmed;
+    const payload = await response.json() as { address?: string };
+    return payload.address?.trim() || trimmed;
+  } catch {
+    return trimmed;
+  }
+  return trimmed;
+}
+
 function setEnabledWalletKey(walletKey: string) {
   window.localStorage.setItem(ENABLED_WALLET_STORAGE_KEY, walletKey);
 }
@@ -68,24 +80,19 @@ function inferWalletName(walletKey: string): string {
   return walletKey.replace(/[_-]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+function getCardanoProviders(): Record<string, Cip30Wallet> {
+  if (typeof window === "undefined") return {};
+  return ((window as unknown as { cardano?: Record<string, Cip30Wallet> }).cardano ?? {});
+}
+
 function getRealWalletOptions(): WalletOption[] {
   if (typeof window === "undefined") return [];
-  const installed = new Set<string>();
-  try {
-    for (const name of Wallet.getInstalledWalletExtensions()) {
-      installed.add(name);
-    }
-  } catch {
-    // Fallback to direct window.cardano scan.
-  }
-  for (const key of Object.keys(window.cardano ?? {})) {
-    installed.add(key);
-  }
-  return [...installed]
+  const providers = getCardanoProviders();
+  return Object.keys(providers)
     .filter((key) => key !== "cardano")
     .map((key) => ({
       key,
-      name: window.cardano?.[key]?.name || inferWalletName(key),
+      name: providers[key]?.name || inferWalletName(key),
     }));
 }
 
@@ -94,16 +101,18 @@ export function getWalletOptions(): WalletOption[] {
 }
 
 export async function connectWallet(walletKey: string, actor: DemoActor): Promise<WalletSession> {
-  const wallet = window.cardano?.[walletKey];
+  const wallet = getCardanoProviders()[walletKey];
   if (!wallet) {
     throw new Error(`Wallet provider ${walletKey} not found`);
   }
   const api = await wallet.enable();
-  const [networkId, usedAddresses, changeAddress] = await Promise.all([
+  const [networkId, usedAddressesRaw, changeAddressRaw] = await Promise.all([
     api.getNetworkId(),
     api.getUsedAddresses(),
     api.getChangeAddress(),
   ]);
+  const usedAddresses = await Promise.all(usedAddressesRaw.map((a) => normalizeAddressForUi(a)));
+  const changeAddress = await normalizeAddressForUi(changeAddressRaw);
   return {
     walletKey: walletKey,
     walletName: wallet.name,
@@ -123,25 +132,29 @@ export function disconnectWallet() {
 export async function restoreWalletSession(actor: DemoActor): Promise<WalletSession | null> {
   const walletKey = getEnabledWalletKey();
   if (!walletKey) return null;
-  const wallet = window.cardano?.[walletKey];
+  const wallet = getCardanoProviders()[walletKey];
   if (!wallet) return null;
   const enabled = await wallet.isEnabled();
   if (!enabled) return null;
   const api = await wallet.enable();
+  const usedAddressesRaw = await api.getUsedAddresses();
+  const changeAddressRaw = await api.getChangeAddress();
+  const usedAddresses = await Promise.all(usedAddressesRaw.map((a) => normalizeAddressForUi(a)));
+  const changeAddress = await normalizeAddressForUi(changeAddressRaw);
   return {
     walletKey,
     walletName: wallet.name,
     actor,
     networkId: await api.getNetworkId(),
-    usedAddresses: await api.getUsedAddresses(),
-    changeAddress: await api.getChangeAddress(),
+    usedAddresses,
+    changeAddress,
     supportsSignTx: typeof api.signTx === "function",
     supportsSubmitTx: typeof api.submitTx === "function",
   };
 }
 
 export async function signTxWithConnectedWallet(session: WalletSession, txCborHex: string, partialSign = true): Promise<string> {
-  const wallet = window.cardano?.[session.walletKey];
+  const wallet = getCardanoProviders()[session.walletKey];
   if (!wallet) {
     throw new Error(`Wallet provider ${session.walletKey} not found`);
   }
@@ -187,7 +200,7 @@ export async function signDummyTxWithConnectedWallet(session: WalletSession): Pr
 }
 
 export async function submitTxWithConnectedWallet(session: WalletSession, txCborHex: string): Promise<string> {
-  const wallet = window.cardano?.[session.walletKey];
+  const wallet = getCardanoProviders()[session.walletKey];
   if (!wallet) {
     throw new Error(`Wallet provider ${session.walletKey} not found`);
   }

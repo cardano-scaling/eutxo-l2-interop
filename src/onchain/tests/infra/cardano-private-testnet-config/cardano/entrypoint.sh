@@ -90,11 +90,13 @@ echo "Cardano query API started on port 1442"
 alice_address=$(cat /devnet/credentials/alice/alice-funds.addr | tr -d '\n\r')
 bob_address=$(cat /devnet/credentials/bob/bob-funds.addr | tr -d '\n\r')
 ida_address=$(cat /devnet/credentials/ida/ida-funds.addr | tr -d '\n\r')
+jon_address=$(cat /devnet/credentials/jon/jon-funds.addr | tr -d '\n\r')
 genesis_address=$(cat /shared/shelley/genesis-utxo.addr | tr -d '\n\r')
 
 echo "Alice address: $alice_address"
 echo "Bob address: $bob_address"
 echo "Ida address: $ida_address"
+echo "Jon address: $jon_address"
 echo "Genesis address: $genesis_address"
 
 # Define the UTXO details and amounts
@@ -109,8 +111,8 @@ tx_in_amount=29993040000000000
 tx_fuel=9000000000     # 9.000 Ada fuel (for on-chain Hydra tx fees)
 tx_commit=1000000000   # 1.000 Ada to commit into the head
 
-# Alice: 2, Bob: 2, Ida: 4 = 10 UTXOs total (but 4 unique pairs)
-total_output=$(( (tx_fuel + tx_commit) * 4 ))
+# Alice: 2, Bob: 2, Jon: 2, Ida: 4 = 10 UTXOs total (5 unique pairs)
+total_output=$(( (tx_fuel + tx_commit) * 5 ))
 
 fee=1000000
 
@@ -120,6 +122,7 @@ change=$((tx_in_amount - total_output - fee))
 # Build the raw transaction
 # Alice: 2 UTXOs (fuel + commit) — for Head A
 # Bob:   2 UTXOs (fuel + commit) — for Head B
+# Jon:   2 UTXOs (fuel + commit) — for Head B
 # Ida:   4 UTXOs (fuel + commit for Head A, fuel + commit for Head B)
 cardano-cli latest transaction build-raw \
   --tx-in $tx_in1 \
@@ -127,6 +130,8 @@ cardano-cli latest transaction build-raw \
   --tx-out "$alice_address+$tx_commit" \
   --tx-out "$bob_address+$tx_fuel" \
   --tx-out "$bob_address+$tx_commit" \
+  --tx-out "$jon_address+$tx_fuel" \
+  --tx-out "$jon_address+$tx_commit" \
   --tx-out "$ida_address+$tx_fuel" \
   --tx-out "$ida_address+$tx_commit" \
   --tx-out "$ida_address+$tx_fuel" \
@@ -149,7 +154,7 @@ cardano-cli latest transaction submit \
   --tx-file /data/tx.signed \
   --testnet-magic 42
 
-echo "Transaction submitted to fund Alice, Bob, and Ida addresses. Waiting 20 seconds for transaction to process..."
+echo "Transaction submitted to fund Alice, Bob, Jon, and Ida addresses. Waiting 20 seconds for transaction to process..."
 sleep 20
 echo "Balance:"
 
@@ -168,10 +173,16 @@ cardano-cli latest query utxo \
   --testnet-magic 42 \
   --address $ida_address
 
+echo "Querying UTXO for Jon address:"
+cardano-cli latest query utxo \
+  --testnet-magic 42 \
+  --address $jon_address
+
 # Save individual first-UTXO refs (legacy, used by Hydra nodes)
 cardano-cli latest query utxo --testnet-magic 42 --address "${alice_address}" | /busybox awk 'NR>2 { print $1 "#" $2; exit }' > /shared/alice.utxo
 cardano-cli latest query utxo --testnet-magic 42 --address "${bob_address}" | /busybox awk 'NR>2 { print $1 "#" $2; exit }' > /shared/bob.utxo
 cardano-cli latest query utxo --testnet-magic 42 --address "${ida_address}" | /busybox awk 'NR>2 { print $1 "#" $2; exit }' > /shared/ida.utxo
+cardano-cli latest query utxo --testnet-magic 42 --address "${jon_address}" | /busybox awk 'NR>2 { print $1 "#" $2; exit }' > /shared/jon.utxo
 cardano-cli latest query utxo --testnet-magic 42 --address "${genesis_address}" | /busybox awk 'NR>2 { print $1 "#" $2; exit }' > /shared/genesis.utxo
 
 # Write full UTXO JSON for each participant (consumed by commit script on host)
@@ -183,6 +194,9 @@ echo "Writing initial L1 UTXOs JSON to /devnet/l1-utxos.json..."
   echo '  ,'
   echo '  "bob":'
   cardano-cli latest query utxo --testnet-magic 42 --address "${bob_address}" --output-json
+  echo '  ,'
+  echo '  "jon":'
+  cardano-cli latest query utxo --testnet-magic 42 --address "${jon_address}" --output-json
   echo '  ,'
   echo '  "ida":'
   cardano-cli latest query utxo --testnet-magic 42 --address "${ida_address}" --output-json
@@ -207,6 +221,7 @@ touch /shared/cardano.ready
   alice_addr=$(cat /devnet/credentials/alice/alice-funds.addr | tr -d '\n\r')
   bob_addr=$(cat /devnet/credentials/bob/bob-funds.addr | tr -d '\n\r')
   ida_addr=$(cat /devnet/credentials/ida/ida-funds.addr | tr -d '\n\r')
+  jon_addr=$(cat /devnet/credentials/jon/jon-funds.addr | tr -d '\n\r')
 
   # --- Split Alice's single UTXO into fuel + commit ---
   echo "[utxo-refresh] Querying Alice's current UTXOs..."
@@ -249,6 +264,9 @@ touch /shared/cardano.ready
     echo '  ,'
     echo '  "bob":'
     cardano-cli latest query utxo --testnet-magic 42 --address "${bob_addr}" --output-json
+    echo '  ,'
+    echo '  "jon":'
+    cardano-cli latest query utxo --testnet-magic 42 --address "${jon_addr}" --output-json
     echo '  ,'
     echo '  "ida":'
     cardano-cli latest query utxo --testnet-magic 42 --address "${ida_addr}" --output-json
