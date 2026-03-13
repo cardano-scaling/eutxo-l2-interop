@@ -28,6 +28,14 @@ docker compose -f docker-compose.hub-and-spoke.yaml up
 
 ![Hub-and-spoke topology](./hub_and_spoke.png)
 
+To start the infrastructure with the lottery topology: 3 nodes for a custodial head, a lottery contract head, and a charlie non-custodial head.
+
+**Note:** The lottery topology runs connected to the Cardano Preprod testnet via Blockfrost. Before starting it, you must create a file named `blockfrost.txt` in this directory (`src/infra/`) containing your Blockfrost Preprod API key.
+
+```bash
+docker compose -f docker-compose.lottery.yaml up
+```
+
 ## Topologies Explanation
 
 ### Two-heads topology
@@ -48,6 +56,16 @@ The hub-and-spoke topology is a topology where the heads are connected in a hub 
 
 The use case for this topology is HTLC-based payments between two parties from different heads using two hops, with Ida acting as intermediary by being present in all heads.
 
+### Lottery topology
+
+The lottery topology is a topology with three specialised heads, each serving a distinct role:
+
+- **Head A** (custodial): Ida and Alice — a custodial head for managing funds.
+- **Head B** (lottery contract): Ida, Bob and Jon — the head running the lottery smart contract.
+- **Head C** (charlie): Ida and Charlie — Charlie's head for interacting with the lottery.
+
+Ida is present in all three heads, acting as the cross-head intermediary.
+
 ## Port numbering schema
 
 To maintain certain order and avoid clashes, the port number and ipv4 of each hydra node is defined as per the following schema:
@@ -55,7 +73,7 @@ To maintain certain order and avoid clashes, the port number and ipv4 of each hy
 * api-port: `4XYZ`
 * ws-port: `5XYZ`
 * monitoring-port: `6XYZ`
-* ipv4 address: `171.16.238.XYZ` (`171.16.238.YZ` if X = 0)
+* ipv4 address: `172.16.23X.YZ`
 
 where
 
@@ -69,9 +87,9 @@ Z = UserId (A1Z26 encoded)
 
 ### Topology IDs
 
-| Two-heads | Single-path | Hub-and-spoke |
-|-----------|-------------|---------------|
-| 0         | 1           | 2             |
+| Two-heads | Single-path | Hub-and-spoke | Lottery |
+|-----------|-------------|---------------|---------|
+| 0         | 1           | 2             | 3       |
 
 ---
 
@@ -102,4 +120,6 @@ Two-heads topology────┐
                      ▲ ▲
                      │ │
             API-port─┘ └───Head B
+
+172.16.230.22         ← ipv4 (172.16.23 X . YZ)
 ```
