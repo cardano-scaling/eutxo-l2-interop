@@ -12,6 +12,7 @@ import {
   validateBuyTicketActor,
 } from "@/lib/interaction-policy";
 import { createWorkflow, findWorkflowByIdempotency } from "@/lib/workflows";
+import { getActiveLotteryForHead } from "@/lib/lottery-instances";
 
 const MAX_AMOUNT_LOVELACE = 10_000_000n;
 
@@ -20,19 +21,18 @@ const schema = z.object({
   idempotencyKey: z.string().min(1),
   address: z.string().min(8),
   amountLovelace: z.string().regex(/^\d+$/),
-  desiredOutput: z.string().min(8),
   htlcHash: z.string().regex(/^[0-9a-fA-F]+$/),
   timeoutMinutes: z.string().regex(/^\d+$/),
   preimage: z.string().optional(),
-  dummyTxCborHex: z.string().regex(/^[0-9a-fA-F]+$/).optional(),
-  dummyTxWitnessHex: z.string().regex(/^[0-9a-fA-F]+$/).optional(),
+  submittedSourceTxHash: z.string().regex(/^[0-9a-fA-F]+$/).optional(),
+  submittedSourceHtlcRef: z.string().min(1).optional(),
+  submittedHeadBHtlcRef: z.string().min(1).optional(),
 });
 
 function buildBuyTicketHash(
   actor: string,
   address: string,
   amountLovelace: string,
-  desiredOutput: string,
   htlcHash: string,
   timeoutMinutes: string,
   sourceHead: string,
@@ -41,7 +41,6 @@ function buildBuyTicketHash(
     actor: actor.trim().toLowerCase(),
     address: address.trim(),
     amountLovelace: amountLovelace.trim(),
-    desiredOutput: desiredOutput.trim(),
     htlcHash: htlcHash.trim().toLowerCase(),
     timeoutMinutes: timeoutMinutes.trim(),
     sourceHead: sourceHead.trim().toLowerCase(),
@@ -72,11 +71,12 @@ export async function POST(req: Request) {
       "amountLovelace must be a positive numeric string within bounds",
     );
   }
-  const desiredOutput = parsed.data.desiredOutput.trim();
-  if (!desiredOutput) {
-    logger.warn({ requestId }, "buy-ticket desired output missing");
-    return apiError(400, requestId, "BUY_TICKET_MISSING_DESIRED_OUTPUT", "desiredOutput is required");
+  const activeLottery = await getActiveLotteryForHead("headB");
+  if (!activeLottery) {
+    logger.warn({ requestId }, "buy-ticket blocked: no active headB lottery");
+    return apiError(409, requestId, "NO_ACTIVE_LOTTERY", "No active lottery registered on headB");
   }
+  const derivedDesiredOutput = { address: activeLottery.contractAddress, datum: null as string | null };
   const timeoutMinutes = Number(parsed.data.timeoutMinutes);
   if (!Number.isFinite(timeoutMinutes) || timeoutMinutes <= 0) {
     logger.warn({ requestId, timeoutMinutes: parsed.data.timeoutMinutes }, "buy-ticket invalid timeout");
@@ -115,7 +115,6 @@ export async function POST(req: Request) {
     parsed.data.actor,
     parsed.data.address,
     parsed.data.amountLovelace,
-    desiredOutput,
     parsed.data.htlcHash,
     parsed.data.timeoutMinutes,
     sourceHead,
@@ -129,7 +128,6 @@ export async function POST(req: Request) {
         existing.actor,
         String(existingPayload.address ?? ""),
         String(existingPayload.amountLovelace ?? ""),
-        String(existingPayload.desiredOutput ?? ""),
         String(existingPayload.htlcHash ?? ""),
         String(existingPayload.timeoutMinutes ?? ""),
         String(existingPayload.sourceHead ?? deriveSourceHead(existing.actor as "user" | "charlie" | "ida")),
@@ -163,13 +161,14 @@ export async function POST(req: Request) {
       requestHash,
       address: parsed.data.address,
       amountLovelace: parsed.data.amountLovelace,
-      desiredOutput,
+      desiredOutput: derivedDesiredOutput,
       htlcHash: parsed.data.htlcHash.trim().toLowerCase(),
       timeoutMinutes: parsed.data.timeoutMinutes,
       preimage: parsed.data.preimage?.trim() || null,
       sourceHead,
-      dummyTxCborHex: parsed.data.dummyTxCborHex ?? null,
-      dummyTxWitnessHex: parsed.data.dummyTxWitnessHex ?? null,
+      submittedSourceTxHash: parsed.data.submittedSourceTxHash ?? null,
+      submittedSourceHtlcRef: parsed.data.submittedSourceHtlcRef ?? null,
+      submittedHeadBHtlcRef: parsed.data.submittedHeadBHtlcRef ?? null,
     },
   );
   const idempotencyReplay = Boolean(existing);

@@ -32,6 +32,71 @@ export function hydraHeadApiUrl(head: HydraHead): string | null {
   return normalizeUrl(process.env.HYDRA_HEAD_C_API_URL);
 }
 
+function mapHydraHeadStatus(value: string): "open" | "closed" | "idle" | "connected" {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "open") return "open";
+  if (normalized === "closed" || normalized === "final") return "closed";
+  if (normalized === "idle" || normalized === "initial") return "idle";
+  return "connected";
+}
+
+export async function fetchHydraHeadStatus(
+  head: HydraHead,
+): Promise<{ ok: true; status: "open" | "closed" | "idle" | "connected"; detail: string } | { ok: false; reason: string }> {
+  const baseUrl = hydraHeadApiUrl(head);
+  if (!baseUrl) {
+    return { ok: false, reason: `${head} API URL is not configured` };
+  }
+  const wsUrl = `${baseUrl.replace(/^http/, "ws")}?history=no`;
+  const timeoutMs = hydraOperationTimeoutMs();
+  const WebSocketCtor: any = typeof globalThis.WebSocket !== "undefined"
+    ? globalThis.WebSocket
+    : (await import("ws")).WebSocket;
+
+  return new Promise((resolve) => {
+    const websocket = new WebSocketCtor(wsUrl);
+    let settled = false;
+
+    const finish = (result: { ok: true; status: "open" | "closed" | "idle" | "connected"; detail: string } | { ok: false; reason: string }) => {
+      if (settled) return;
+      settled = true;
+      try {
+        websocket.close();
+      } catch {
+        // no-op
+      }
+      resolve(result);
+    };
+
+    const timeout = setTimeout(() => {
+      finish({ ok: false, reason: `Timed out waiting for hydra greeting after ${timeoutMs}ms` });
+    }, timeoutMs);
+
+    websocket.onerror = (event: any) => {
+      clearTimeout(timeout);
+      finish({ ok: false, reason: `Hydra websocket error: ${String(event)}` });
+    };
+
+    websocket.onmessage = (event: any) => {
+      try {
+        const payload = JSON.parse(String(event.data)) as { tag?: string; headStatus?: string };
+        if (!payload.headStatus) return;
+        clearTimeout(timeout);
+        const status = mapHydraHeadStatus(payload.headStatus);
+        finish({
+          ok: true,
+          status,
+          detail: `Hydra websocket status: ${payload.headStatus}`,
+        });
+      } catch (error) {
+        clearTimeout(timeout);
+        const message = error instanceof Error ? error.message : String(error);
+        finish({ ok: false, reason: `Failed to parse hydra websocket message: ${message}` });
+      }
+    };
+  });
+}
+
 export async function fetchHydraSnapshot(head: HydraHead): Promise<{ ok: true } | { ok: false; reason: string }> {
   const baseUrl = hydraHeadApiUrl(head);
   if (!baseUrl) {

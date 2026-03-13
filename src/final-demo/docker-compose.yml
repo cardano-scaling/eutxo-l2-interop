@@ -63,6 +63,7 @@ services:
       HYDRA_HEAD_A_API_URL: ${HYDRA_HEAD_A_API_URL:-http://hydra-node-ida-1-lt:4319}
       HYDRA_HEAD_B_API_URL: ${HYDRA_HEAD_B_API_URL:-http://hydra-node-ida-2-lt:4329}
       HYDRA_HEAD_C_API_URL: ${HYDRA_HEAD_C_API_URL:-http://hydra-node-ida-3-lt:4339}
+      HYDRA_OPS_DRAFT_TTL_MS: ${HYDRA_OPS_DRAFT_TTL_MS:-300000}
     command: sh -c "npm run dev"
     volumes:
       - ../../:/workspace
@@ -93,6 +94,7 @@ services:
       HYDRA_HEAD_A_API_URL: ${HYDRA_HEAD_A_API_URL:-http://hydra-node-ida-1-lt:4319}
       HYDRA_HEAD_B_API_URL: ${HYDRA_HEAD_B_API_URL:-http://hydra-node-ida-2-lt:4329}
       HYDRA_HEAD_C_API_URL: ${HYDRA_HEAD_C_API_URL:-http://hydra-node-ida-3-lt:4339}
+      HYDRA_OPS_DRAFT_TTL_MS: ${HYDRA_OPS_DRAFT_TTL_MS:-300000}
     command: sh -c "npm run worker"
     volumes:
       - ../../:/workspace
@@ -121,7 +123,8 @@ services:
       - ../onchain/tests/infra/cardano-private-testnet-config/genesis/shelley/genesis-utxo.vkey:/shared/shelley/genesis-utxo.vkey
       - ../onchain/tests/infra/cardano-private-testnet-config/genesis/conway/genesis.conway.json:/shared/conway/genesis.conway.json.base
       - ../onchain/tests/infra/cardano-query-api.sh:/cardano-query-api.sh
-      - ../infra:/devnet
+      - ./runtime:/devnet
+      - ../infra/credentials:/devnet/credentials:ro
     environment:
       - CARDANO_NODE_SOCKET_PATH=/data/node.socket
     entrypoint: ["/bin/bash", "/entrypoint.sh"]

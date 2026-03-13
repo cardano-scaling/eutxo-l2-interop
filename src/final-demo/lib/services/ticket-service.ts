@@ -4,10 +4,13 @@ export interface BuyTicketPayload {
   address: string;
   amountLovelace: string;
   sourceHead: "headA" | "headC";
-  desiredOutput: string;
+  desiredOutput: { address: string; datum?: string | null };
   htlcHash: string;
   timeoutMinutes: string;
   preimage?: string;
+  submittedSourceTxHash?: string | null;
+  submittedSourceHtlcRef?: string | null;
+  submittedHeadBHtlcRef?: string | null;
 }
 
 export interface BuyTicketContext {
@@ -21,8 +24,9 @@ export interface BuyTicketResult {
   hashRef: string;
   sourceHtlcRef: string;
   headBHtlcRef: string;
-  desiredOutput: string;
+  desiredOutput: { address: string; datum?: string | null };
   amountLovelace: string;
+  submittedSourceTxHash?: string | null;
 }
 
 type FailureMode = "none" | "retryable_once" | "retryable_always" | "non_retryable";
@@ -60,7 +64,7 @@ function validatePayload(payload: BuyTicketPayload) {
   if (payload.sourceHead !== "headA" && payload.sourceHead !== "headC") {
     throw new TicketServiceError("BUY_TICKET_INVALID_INPUT", "sourceHead must be headA or headC", false);
   }
-  if (!payload.desiredOutput.trim()) {
+  if (!payload.desiredOutput?.address?.trim()) {
     throw new TicketServiceError("BUY_TICKET_INVALID_INPUT", "desiredOutput is required", false);
   }
   if (!/^[0-9a-fA-F]+$/.test(payload.htlcHash.trim())) {
@@ -111,6 +115,20 @@ export async function buyTicket(payload: BuyTicketPayload, ctx: BuyTicketContext
     }
   }
 
+  const submittedSourceHtlcRef = payload.submittedSourceHtlcRef?.trim();
+  const submittedHeadBHtlcRef = payload.submittedHeadBHtlcRef?.trim();
+  if (submittedSourceHtlcRef && submittedHeadBHtlcRef) {
+    return {
+      sourceHead: payload.sourceHead,
+      hashRef: payload.htlcHash.trim().toLowerCase(),
+      sourceHtlcRef: submittedSourceHtlcRef,
+      headBHtlcRef: submittedHeadBHtlcRef,
+      desiredOutput: payload.desiredOutput,
+      amountLovelace: payload.amountLovelace,
+      submittedSourceTxHash: payload.submittedSourceTxHash ?? null,
+    };
+  }
+
   return {
     sourceHead: payload.sourceHead,
     hashRef: payload.htlcHash.trim().toLowerCase(),
@@ -118,5 +136,6 @@ export async function buyTicket(payload: BuyTicketPayload, ctx: BuyTicketContext
     headBHtlcRef: mockRef("htlc_b"),
     desiredOutput: payload.desiredOutput,
     amountLovelace: payload.amountLovelace,
+    submittedSourceTxHash: payload.submittedSourceTxHash ?? null,
   };
 }
