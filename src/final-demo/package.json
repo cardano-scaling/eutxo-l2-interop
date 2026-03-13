@@ -4,18 +4,22 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "next dev --webpack",
+    "build": "next build --webpack",
     "start": "next start",
     "worker": "tsx watch worker.ts",
+    "hydra:open-heads": "deno run --no-check --allow-net --allow-read --allow-write scripts/hydra-open-heads.mts",
+    "hydra:create-lottery-head-b": "tsx scripts/hydra-create-lottery-head-b.ts",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push"
   },
   "dependencies": {
     "@cardano-foundation/cardano-connect-with-wallet": "^0.2.17",
+    "@lucid-evolution/lucid": "^0.4.29",
     "@prisma/adapter-pg": "^7.4.2",
     "@prisma/client": "^7.4.2",
     "@tanstack/react-query": "^5.90.21",
+    "blake2b": "^2.1.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "next": "16.0.8",
@@ -34,5 +38,9 @@
     "prisma": "^7.4.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3"
+  },
+  "overrides": {
+    "libsodium-wrappers-sumo": "0.7.15",
+    "libsodium-sumo": "0.7.15"
   }
 }

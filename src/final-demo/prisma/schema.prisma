@@ -84,3 +84,19 @@ model HeadSnapshot {
   detail    String?
   updatedAt DateTime @updatedAt
 }
+
+model LotteryInstance {
+  id          String   @id @default(cuid())
+  headName    String
+  policyId    String
+  tokenNameHex String
+  mintTxHash  String
+  contractAddress String
+  status      String   @default("active")
+  closedAt    DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([headName, status])
+  @@index([mintTxHash])
+}

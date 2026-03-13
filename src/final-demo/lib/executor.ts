@@ -111,7 +111,7 @@ async function executeRequestFundsWorkflow(workflow: WorkflowWithSteps, workerId
   // Fail fast on malformed payloads so these become terminal (non-retryable) errors.
   if (!hasSucceededStep(workflow, "prepare")) {
     await executeWorkflowStep(workflow, "prepare", attempt, workerId, async () => {
-      if (!payload.address || !payload.amountLovelace) {
+      if (!payload.address || !payload.amountLovelace || !payload.submittedTxHash) {
         throw new RequestFundsError("REQUEST_FUNDS_INVALID_INPUT", "request_funds payload is incomplete", false);
       }
     });
@@ -124,6 +124,7 @@ async function executeRequestFundsWorkflow(workflow: WorkflowWithSteps, workerId
         {
           address: payload.address!,
           amountLovelace: payload.amountLovelace!,
+          submittedTxHash: payload.submittedTxHash!,
         },
         {
           workflowId: workflow.id,
@@ -177,6 +178,9 @@ async function executeBuyTicketWorkflow(workflow: WorkflowWithSteps, workerId: s
           htlcHash: payload.htlcHash!,
           timeoutMinutes: payload.timeoutMinutes!,
           preimage: payload.preimage,
+          submittedSourceTxHash: payload.submittedSourceTxHash,
+          submittedSourceHtlcRef: payload.submittedSourceHtlcRef,
+          submittedHeadBHtlcRef: payload.submittedHeadBHtlcRef,
         },
         {
           workflowId: workflow.id,

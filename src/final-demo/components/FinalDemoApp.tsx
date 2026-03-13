@@ -8,7 +8,7 @@ import {
   disconnectWallet,
   getWalletOptions,
   restoreWalletSession,
-  signDummyTxWithConnectedWallet,
+  signTxWithConnectedWallet,
   type WalletSession,
 } from "@/lib/wallet/cip30";
 
@@ -36,6 +36,25 @@ interface ApiErrorEnvelope {
   errorCode: string;
   message: string;
   requestId: string;
+}
+
+async function extractApiErrorMessage(response: Response): Promise<string> {
+  const fallback = `${response.status} ${response.statusText}`.trim();
+  try {
+    const err = await response.json() as Partial<ApiErrorEnvelope> & { details?: unknown };
+    if (err?.message && err?.errorCode && err?.requestId) {
+      return `${err.message} (${err.errorCode}) [${err.requestId}]`;
+    }
+    if (err?.message) return String(err.message);
+    return JSON.stringify(err);
+  } catch {
+    try {
+      const text = await response.text();
+      return text || fallback;
+    } catch {
+      return fallback;
+    }
+  }
 }
 
 interface WorkflowResponse {
@@ -71,19 +90,64 @@ async function createWorkflow(path: string, body: Record<string, unknown>) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!r.ok) throw new Error(await r.text());
+  if (!r.ok) throw new Error(await extractApiErrorMessage(r));
   return r.json() as Promise<{ workflowId: string; idempotencyKey?: string }>;
+}
+
+async function prepareRequestFundsTx(body: Record<string, unknown>) {
+  const r = await fetch("/api/hydra-ops/request-funds/prepare", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await extractApiErrorMessage(r));
+  return r.json() as Promise<{ unsignedTxCborHex: string; txBodyHash: string; amountLovelace: string }>;
+}
+
+async function submitRequestFundsTx(body: Record<string, unknown>) {
+  const r = await fetch("/api/hydra-ops/request-funds/submit", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await extractApiErrorMessage(r));
+  return r.json() as Promise<{ txHash: string; amountLovelace: string }>;
+}
+
+async function prepareBuyTicketTx(body: Record<string, unknown>) {
+  const r = await fetch("/api/hydra-ops/htlc/prepare", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await extractApiErrorMessage(r));
+  return r.json() as Promise<{ draftId: string; unsignedTxCborHex: string; txBodyHash: string }>;
+}
+
+async function submitBuyTicketTx(body: Record<string, unknown>) {
+  const r = await fetch("/api/hydra-ops/htlc/submit", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await extractApiErrorMessage(r));
+  return r.json() as Promise<{
+    txHash: string;
+    sourceHtlcRef: string;
+    headBHtlcRef: string;
+    hashRef: string;
+  }>;
 }
 
 async function fetchWorkflow(id: string): Promise<WorkflowResponse> {
   const r = await fetch(`/api/workflows/${id}`);
-  if (!r.ok) throw new Error(await r.text());
+  if (!r.ok) throw new Error(await extractApiErrorMessage(r));
   return r.json();
 }
 
 async function retryWorkflow(id: string) {
   const r = await fetch(`/api/admin/workflows/${id}/retry`, { method: "POST" });
-  if (!r.ok) throw new Error(await r.text());
+  if (!r.ok) throw new Error(await extractApiErrorMessage(r));
   return r.json();
 }
 
@@ -186,7 +250,6 @@ function buyTicketPayloadFingerprint(
   actor: string,
   address: string,
   amountLovelace: string,
-  desiredOutput: string,
   htlcHash: string,
   timeoutMinutes: string,
 ): string {
@@ -194,7 +257,6 @@ function buyTicketPayloadFingerprint(
     actor: actor.trim().toLowerCase(),
     address: address.trim(),
     amountLovelace: amountLovelace.trim(),
-    desiredOutput: desiredOutput.trim(),
     htlcHash: htlcHash.trim().toLowerCase(),
     timeoutMinutes: timeoutMinutes.trim(),
   });
@@ -225,12 +287,11 @@ function getOrCreateBuyTicketIdempotencyKey(
   actor: string,
   address: string,
   amountLovelace: string,
-  desiredOutput: string,
   htlcHash: string,
   timeoutMinutes: string,
 ) {
   const nowMs = Date.now();
-  const fingerprint = buyTicketPayloadFingerprint(actor, address, amountLovelace, desiredOutput, htlcHash, timeoutMinutes);
+  const fingerprint = buyTicketPayloadFingerprint(actor, address, amountLovelace, htlcHash, timeoutMinutes);
   const store = loadBuyTicketIntentStore(nowMs);
   const existing = store[fingerprint];
   if (existing) {
@@ -246,12 +307,11 @@ function rotateBuyTicketIdempotencyKey(
   actor: string,
   address: string,
   amountLovelace: string,
-  desiredOutput: string,
   htlcHash: string,
   timeoutMinutes: string,
 ) {
   const nowMs = Date.now();
-  const fingerprint = buyTicketPayloadFingerprint(actor, address, amountLovelace, desiredOutput, htlcHash, timeoutMinutes);
+  const fingerprint = buyTicketPayloadFingerprint(actor, address, amountLovelace, htlcHash, timeoutMinutes);
   const store = loadBuyTicketIntentStore(nowMs);
   const idempotencyKey = `${actor}:${newBuyTicketIntentId()}`;
   store[fingerprint] = { idempotencyKey, createdAtMs: nowMs };
@@ -291,7 +351,6 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
   const [amount, setAmount] = useState("5000000");
   const [requestFundsIdempotencyKey, setRequestFundsIdempotencyKey] = useState(() => newBusinessId());
   const [buyTicketIdempotencyKey, setBuyTicketIdempotencyKey] = useState(() => newBuyTicketIntentId());
-  const [desiredOutput, setDesiredOutput] = useState("addr_test1_lottery_contract");
   const [htlcHash, setHtlcHash] = useState("aabbccddeeff00112233445566778899");
   const [timeoutMinutes, setTimeoutMinutes] = useState("60");
   const [preimage, setPreimage] = useState("00112233445566778899aabbccddeeff");
@@ -381,9 +440,15 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
     setRequestFundsIdempotencyKey(intent.idempotencyKey);
   }, [actionActor, address, amount]);
   useEffect(() => {
-    const intent = getOrCreateBuyTicketIdempotencyKey(actionActor, address, amount, desiredOutput, htlcHash, timeoutMinutes);
+    const intent = getOrCreateBuyTicketIdempotencyKey(
+      actionActor,
+      address,
+      amount,
+      htlcHash,
+      timeoutMinutes,
+    );
     setBuyTicketIdempotencyKey(intent.idempotencyKey);
-  }, [actionActor, address, amount, desiredOutput, htlcHash, timeoutMinutes]);
+  }, [actionActor, address, amount, htlcHash, timeoutMinutes]);
 
   const requestFunds = useMutation({
     mutationFn: () =>
@@ -393,14 +458,16 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
         }
         const actor = actionActor;
         const intent = getOrCreateRequestFundsIdempotencyKey(actor, address, amount);
-        return signDummyTxWithConnectedWallet(walletSession).then((proof) =>
-          createWorkflow("/api/workflows/request-funds", {
+        return prepareRequestFundsTx({ address })
+          .then((draft) => signTxWithConnectedWallet(walletSession, draft.unsignedTxCborHex, true)
+            .then((witnessHex) => ({ draft, witnessHex })))
+          .then(({ draft, witnessHex }) => submitRequestFundsTx({ unsignedTxCborHex: draft.unsignedTxCborHex, witnessHex }))
+          .then((submitted) => createWorkflow("/api/workflows/request-funds", {
             actor,
             idempotencyKey: intent.idempotencyKey,
             address,
-            amountLovelace: amount,
-            dummyTxCborHex: proof.txCborHex,
-            dummyTxWitnessHex: proof.witnessHex,
+            amountLovelace: submitted.amountLovelace,
+            submittedTxHash: submitted.txHash,
           }).then((d) => ({ ...d, fingerprint: intent.fingerprint }))
         );
       },
@@ -422,24 +489,34 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
           actor,
           address,
           amount,
-          desiredOutput,
           htlcHash,
           timeoutMinutes,
         );
-        return signDummyTxWithConnectedWallet(walletSession).then((proof) =>
+        return prepareBuyTicketTx({
+          actor,
+          address,
+          amountLovelace: amount,
+          sourceHead: actor === "charlie" ? "headC" : "headA",
+          htlcHash,
+          timeoutMinutes,
+        })
+          .then((draft) => signTxWithConnectedWallet(walletSession, draft.unsignedTxCborHex, true)
+            .then((witnessHex) => ({ draft, witnessHex })))
+          .then(({ draft, witnessHex }) => submitBuyTicketTx({ draftId: draft.draftId, witnessHex }))
+          .then((submitted) =>
           createWorkflow("/api/workflows/buy-ticket", {
             actor,
             idempotencyKey: intent.idempotencyKey,
             address,
             amountLovelace: amount,
-            desiredOutput,
             htlcHash,
             timeoutMinutes,
             preimage,
-            dummyTxCborHex: proof.txCborHex,
-            dummyTxWitnessHex: proof.witnessHex,
+            submittedSourceTxHash: submitted.txHash,
+            submittedSourceHtlcRef: submitted.sourceHtlcRef,
+            submittedHeadBHtlcRef: submitted.headBHtlcRef,
           }).then((d) => ({ ...d, fingerprint: intent.fingerprint }))
-        );
+          );
       },
     onSuccess: (d) => {
       setWorkflowId(d.workflowId);
@@ -467,10 +544,23 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
     if (data.status !== "succeeded" && data.status !== "cancelled") return;
     if (clearBuyTicketIntentByWorkflowId(data.id)) {
       setBuyTicketIdempotencyKey(
-        rotateBuyTicketIdempotencyKey(actionActor, address, amount, desiredOutput, htlcHash, timeoutMinutes),
+        rotateBuyTicketIdempotencyKey(
+          actionActor,
+          address,
+          amount,
+          htlcHash,
+          timeoutMinutes,
+        ),
       );
     }
-  }, [actionActor, address, amount, desiredOutput, htlcHash, timeoutMinutes, workflow.data]);
+  }, [
+    actionActor,
+    address,
+    amount,
+    htlcHash,
+    timeoutMinutes,
+    workflow.data,
+  ]);
 
   const busy = useMemo(
     () => connect.isPending || walletConnect.isPending || requestFunds.isPending || buyTicket.isPending,
@@ -638,10 +728,6 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
             <input style={inputStyle} value={amount} onChange={(e) => setAmount(e.target.value)} />
           </label>
           <label style={labelStyle}>
-            Desired Output (Lottery Contract)
-            <input style={inputStyle} value={desiredOutput} onChange={(e) => setDesiredOutput(e.target.value)} />
-          </label>
-          <label style={labelStyle}>
             HTLC Hash (hex)
             <input style={inputStyle} value={htlcHash} onChange={(e) => setHtlcHash(e.target.value)} />
           </label>
@@ -668,7 +754,13 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
             variant="outline"
             onClick={() =>
               setBuyTicketIdempotencyKey(
-                rotateBuyTicketIdempotencyKey(actionActor, address, amount, desiredOutput, htlcHash, timeoutMinutes),
+                rotateBuyTicketIdempotencyKey(
+                  actionActor,
+                  address,
+                  amount,
+                  htlcHash,
+                  timeoutMinutes,
+                ),
               )}
             disabled={busy || Boolean(buyTicketDisabledReason)}
           >
@@ -683,6 +775,16 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
         {buyTicketDisabledReason ? (
           <p style={{ marginTop: 6, marginBottom: 0, color: "#b45309", fontSize: 12 }}>
             Buy ticket unavailable: {buyTicketDisabledReason}
+          </p>
+        ) : null}
+        {requestFunds.isError ? (
+          <p style={{ marginTop: 6, marginBottom: 0, color: "#b91c1c", fontSize: 12 }}>
+            Request funds failed: {requestFunds.error.message}
+          </p>
+        ) : null}
+        {buyTicket.isError ? (
+          <p style={{ marginTop: 6, marginBottom: 0, color: "#b91c1c", fontSize: 12 }}>
+            Buy ticket failed: {buyTicket.error.message}
           </p>
         ) : null}
         <p style={{ marginTop: 8, marginBottom: 0, color: "#71717a", fontSize: 12 }}>

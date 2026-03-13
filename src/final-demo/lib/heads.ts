@@ -1,5 +1,5 @@
 import { prisma } from "./db";
-import { fetchHydraSnapshot, isRealHydraMode } from "./hydra-client";
+import { fetchHydraHeadStatus, fetchHydraSnapshot, isRealHydraMode } from "./hydra-client";
 import { logger } from "./logger";
 import type { HeadReadModel, HeadStatus, HeadsStateReadModel } from "./types";
 
@@ -66,13 +66,19 @@ export async function upsertHeadState(headName: "headA" | "headB" | "headC", sta
 
 export async function syncHeadSnapshotsHeartbeat() {
   if (isRealHydraMode()) {
-    // In real mode, heartbeat is a live probe against Hydra APIs so stale/open state reflects topology health.
+    // In real mode, heartbeat first checks actual head status via websocket.
     for (const headName of HEAD_NAMES) {
-      const probe = await fetchHydraSnapshot(headName);
-      if (probe.ok) {
-        await upsertHeadState(headName, "open", "Hydra snapshot endpoint reachable");
+      const statusProbe = await fetchHydraHeadStatus(headName);
+      if (statusProbe.ok) {
+        await upsertHeadState(headName, statusProbe.status, statusProbe.detail);
       } else {
-        await upsertHeadState(headName, "disconnected", probe.reason);
+        // Fallback to plain API reachability to distinguish "down" from "up but not websocket-ready".
+        const reachabilityProbe = await fetchHydraSnapshot(headName);
+        if (reachabilityProbe.ok) {
+          await upsertHeadState(headName, "connected", "Hydra API reachable (websocket status unavailable)");
+        } else {
+          await upsertHeadState(headName, "disconnected", statusProbe.reason);
+        }
       }
     }
     return;

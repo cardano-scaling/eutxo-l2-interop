@@ -3,6 +3,7 @@ import { fetchHydraSnapshot, isRealHydraMode } from "@/lib/hydra-client";
 export interface RequestFundsPayload {
   address: string;
   amountLovelace: string;
+  submittedTxHash: string;
 }
 
 export interface RequestFundsContext {
@@ -18,6 +19,7 @@ export interface RequestFundsResult {
 }
 
 type FailureMode = "none" | "retryable_once" | "retryable_always" | "non_retryable";
+const REQUEST_FUNDS_FIXED_LOVELACE = "5000000";
 
 export class RequestFundsError extends Error {
   code: string;
@@ -73,7 +75,7 @@ export async function requestFunds(payload: RequestFundsPayload, ctx: RequestFun
     return {
       txHash: mockTxHash("fund"),
       head: "A",
-      amountLovelace: payload.amountLovelace,
+      amountLovelace: REQUEST_FUNDS_FIXED_LOVELACE,
     };
   }
 
@@ -86,9 +88,17 @@ export async function requestFunds(payload: RequestFundsPayload, ctx: RequestFun
     );
   }
 
-  return {
-    txHash: mockTxHash("hydra_fund"),
-    head: "A",
-    amountLovelace: payload.amountLovelace,
-  };
+  try {
+    return {
+      txHash: payload.submittedTxHash,
+      head: "A",
+      amountLovelace: REQUEST_FUNDS_FIXED_LOVELACE,
+    };
+  } catch (error) {
+    if (error instanceof RequestFundsError) {
+      throw error;
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    throw new RequestFundsError("REQUEST_FUNDS_SUBMIT_FAILED", message, true);
+  }
 }

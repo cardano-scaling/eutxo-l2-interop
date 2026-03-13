@@ -19,8 +19,7 @@ const schema = z.object({
   idempotencyKey: z.string().min(1),
   address: z.string().min(8),
   amountLovelace: z.string().regex(/^\d+$/),
-  dummyTxCborHex: z.string().regex(/^[0-9a-fA-F]+$/).optional(),
-  dummyTxWitnessHex: z.string().regex(/^[0-9a-fA-F]+$/).optional(),
+  submittedTxHash: z.string().regex(/^[0-9a-fA-F]+$/),
 });
 
 function buildRequestFundsHash(actor: string, address: string, amountLovelace: string): string {
@@ -123,8 +122,7 @@ export async function POST(req: Request) {
       requestHash,
       address: parsed.data.address,
       amountLovelace: parsed.data.amountLovelace,
-      dummyTxCborHex: parsed.data.dummyTxCborHex ?? null,
-      dummyTxWitnessHex: parsed.data.dummyTxWitnessHex ?? null,
+      submittedTxHash: parsed.data.submittedTxHash.toLowerCase(),
     },
   );
   const idempotencyReplay = Boolean(existing);
