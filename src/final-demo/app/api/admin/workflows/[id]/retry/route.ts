@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 import { apiError, readJsonBody } from "@/lib/api-error";
+import { requireRole } from "@/lib/auth/role-guard";
 import { retryWorkflowNow } from "@/lib/workflows";
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const requestId = crypto.randomUUID();
   try {
+    const guard = requireRole(req, requestId, ["admin"]);
+    if (!guard.ok) return guard.response;
     const { id } = await params;
     const bodyResult = await readJsonBody(req);
     const parsedBody = (bodyResult.ok ? bodyResult.data : {}) as {

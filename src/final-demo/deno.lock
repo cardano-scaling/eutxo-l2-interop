@@ -90,6 +90,7 @@
         "npm:tailwind-merge@^3.4.0",
         "npm:tsx@^4.19.2",
         "npm:typescript@^5.7.3",
+        "npm:ws@^8.19.0",
         "npm:zod@^3.24.1"
       ]
     }
