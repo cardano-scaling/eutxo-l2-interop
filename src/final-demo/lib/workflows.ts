@@ -441,6 +441,65 @@ export async function markWorkflowFailedLocked(
   logger.error({ workflowId: id, reason, errorCode, retryable, canRetry }, "workflow failed");
 }
 
+type DeferOptions = {
+  errorCode: string;
+  baseRetryDelaySec: number;
+  stepName?: "prepare" | "submit" | "confirm";
+};
+
+export async function markWorkflowDeferredLocked(
+  id: string,
+  reason: string,
+  workerId: string,
+  options: DeferOptions,
+) {
+  const current = await prisma.workflow.findFirst({
+    where: { id, status: WorkflowStatus.running, lockedBy: workerId },
+  });
+  if (!current) {
+    throw new WorkflowLockError();
+  }
+
+  // Use step attempt to apply progressive backoff for transient waits
+  // without consuming workflow failure attempts.
+  let stepAttempt = 1;
+  if (options.stepName) {
+    const step = await prisma.workflowStep.findUnique({
+      where: { workflowId_name: { workflowId: id, name: options.stepName } },
+      select: { attempt: true },
+    });
+    stepAttempt = Math.max(1, step?.attempt ?? 1);
+  }
+  const retryDelaySec = Math.max(
+    1,
+    Math.min(120, Math.floor(options.baseRetryDelaySec * Math.pow(2, Math.max(0, stepAttempt - 1)))),
+  );
+  const count = await prisma.workflow.updateMany({
+    where: { id, status: WorkflowStatus.running, lockedBy: workerId },
+    data: {
+      status: WorkflowStatus.pending,
+      nextRetryAt: new Date(Date.now() + retryDelaySec * 1000),
+      lockExpiresAt: null,
+      lockedBy: null,
+      completedAt: null,
+      // Waiting is not a failure, keep existing attempt/error counters untouched.
+      errorMessage: null,
+      lastErrorCode: null,
+    },
+  });
+  if (count.count !== 1) {
+    throw new WorkflowLockError();
+  }
+  await appendEvent(id, "info", "Workflow execution deferred waiting for prerequisites", {
+    reason,
+    errorCode: options.errorCode,
+    retryDelaySec,
+    stepName: options.stepName ?? null,
+    stepAttempt,
+  });
+  logger.info({ workflowId: id, reason, errorCode: options.errorCode, retryDelaySec }, "workflow deferred");
+}
+
 export async function getQueueHealthSnapshot() {
   const now = new Date();
   const [pending, running, failed, cancelled, succeeded, readyToClaim, staleRunning] = await Promise.all([
@@ -469,5 +528,124 @@ export async function getQueueHealthSnapshot() {
     succeeded,
     readyToClaim,
     staleRunning,
+  };
+}
+
+function parseJsonObject(raw: string | null): JsonObj {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed && typeof parsed === "object") return parsed as JsonObj;
+    return {};
+  } catch {
+    return {};
+  }
+}
+
+function hasClaimCompletion(result: JsonObj): boolean {
+  const sourceClaimTxHash = typeof result.sourceClaimTxHash === "string" ? result.sourceClaimTxHash.trim() : "";
+  const headBClaimTxHash = typeof result.headBClaimTxHash === "string" ? result.headBClaimTxHash.trim() : "";
+  const sourceClaimAction = typeof result.sourceClaimAction === "string" ? result.sourceClaimAction : "";
+  const headBClaimAction = typeof result.headBClaimAction === "string" ? result.headBClaimAction : "";
+  const sourceDone = Boolean(sourceClaimTxHash) || sourceClaimAction === "claimed" || sourceClaimAction === "already_claimed";
+  const headBDone = Boolean(headBClaimTxHash) || headBClaimAction === "claimed" || headBClaimAction === "already_claimed";
+  return sourceDone && headBDone;
+}
+
+export async function reconcileBuyTicketClaims(limit = 20) {
+  const maxRequeues = Math.max(1, Number(process.env.BUY_TICKET_RECONCILE_MAX_REQUEUES || 3));
+  const candidates = await prisma.workflow.findMany({
+    where: {
+      type: WorkflowType.buy_ticket,
+      status: { in: [WorkflowStatus.cancelled, WorkflowStatus.succeeded] },
+    },
+    orderBy: [{ updatedAt: "desc" }],
+    take: Math.max(limit * 3, limit),
+  });
+
+  let scanned = 0;
+  let requeued = 0;
+  let skippedMissingData = 0;
+  let skippedAlreadyClaimed = 0;
+  let skippedMaxRequeues = 0;
+
+  for (const wf of candidates) {
+    if (requeued >= limit) break;
+    scanned += 1;
+
+    const payload = parseJsonObject(wf.payloadJson);
+    const result = parseJsonObject(wf.resultJson);
+    const reconcileRequeues = Number(payload.reconcileRequeues ?? 0);
+    const sourceTxHash = typeof payload.submittedSourceTxHash === "string" ? payload.submittedSourceTxHash.trim() : "";
+    const sourceRef = typeof payload.submittedSourceHtlcRef === "string" ? payload.submittedSourceHtlcRef.trim() : "";
+    const preimage = typeof payload.preimage === "string" ? payload.preimage.trim() : "";
+
+    if (!sourceTxHash || !sourceRef || !preimage) {
+      skippedMissingData += 1;
+      continue;
+    }
+
+    if (hasClaimCompletion(result)) {
+      skippedAlreadyClaimed += 1;
+      continue;
+    }
+    if (!Number.isFinite(reconcileRequeues) || reconcileRequeues >= maxRequeues) {
+      skippedMaxRequeues += 1;
+      continue;
+    }
+
+    await prisma.$transaction(async (tx) => {
+      const nextPayload = {
+        ...payload,
+        reconcileRequeues: reconcileRequeues + 1,
+      };
+      await tx.workflow.update({
+        where: { id: wf.id },
+        data: {
+          payloadJson: asJson(nextPayload),
+          status: WorkflowStatus.pending,
+          nextRetryAt: null,
+          lockExpiresAt: null,
+          lockedBy: null,
+          completedAt: null,
+          errorMessage: null,
+          lastErrorCode: null,
+        },
+      });
+      await tx.workflowStep.updateMany({
+        where: {
+          workflowId: wf.id,
+          name: { in: ["submit", "confirm"] },
+        },
+        data: {
+          status: WorkflowStatus.pending,
+          finishedAt: null,
+          errorDetail: null,
+        },
+      });
+      await tx.workflowEvent.create({
+        data: {
+          workflowId: wf.id,
+          level: "info",
+          message: "buy_ticket reconciler re-queued workflow for HTLC claims",
+          metaJson: asJson({
+            sourceTxHash,
+            sourceRef,
+            hasPreimage: true,
+            reconcileRequeues: reconcileRequeues + 1,
+            maxRequeues,
+          }),
+        },
+      });
+    });
+    requeued += 1;
+  }
+
+  return {
+    scanned,
+    requeued,
+    skippedMissingData,
+    skippedAlreadyClaimed,
+    skippedMaxRequeues,
   };
 }

@@ -12,7 +12,7 @@ import {
 } from "@/lib/interaction-policy";
 import { createWorkflow, findWorkflowByIdempotency } from "@/lib/workflows";
 
-const MAX_AMOUNT_LOVELACE = 10_000_000n;
+const MAX_AMOUNT_LOVELACE = 50_000_000n;
 
 const schema = z.object({
   actor: z.string().min(1),

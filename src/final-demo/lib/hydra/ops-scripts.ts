@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { applyParamsToScript, validatorToScriptHash } from "@lucid-evolution/lucid";
+import { configPath } from "@/lib/runtime-paths";
 
 type PlutusJson = {
   validators: Array<{
@@ -11,7 +11,7 @@ type PlutusJson = {
 };
 
 function loadPlutusJson(): PlutusJson {
-  const raw = readFileSync(join(process.cwd(), "../onchain/plutus.json"), "utf8");
+  const raw = readFileSync(configPath("plutus.json"), "utf8");
   return JSON.parse(raw) as PlutusJson;
 }
 
@@ -40,6 +40,11 @@ export function getLotteryScriptInfo() {
 export function getLotteryMintScriptInfo() {
   const plutus = loadPlutusJson();
   return findValidator(plutus, "lottery", "lottery", "mint");
+}
+
+export function getHtlcScriptInfo() {
+  const plutus = loadPlutusJson();
+  return findValidator(plutus, "htlc", "htlc", "spend");
 }
 
 export function getParameterizedTicketScriptInfo(lotteryScriptHash: string) {

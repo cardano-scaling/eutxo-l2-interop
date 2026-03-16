@@ -13,17 +13,29 @@ import {
   type UTxO,
 } from "@lucid-evolution/lucid";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { HydraOpsHandler, txHashFromCbor } from "./ops-handler";
+import { configPath } from "@/lib/runtime-paths";
 
-const protocolParameters = JSON.parse(
-  readFileSync(join(process.cwd(), "../infra/protocol-parameters.json"), "utf8"),
-) as any;
+let protocolParametersCache: any | null = null;
+
+function getProtocolParameters(): any {
+  if (protocolParametersCache) return protocolParametersCache;
+  try {
+    protocolParametersCache = JSON.parse(
+      readFileSync(configPath("protocol-parameters.json"), "utf8"),
+    ) as any;
+    return protocolParametersCache;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Missing protocol parameters at config/protocol-parameters.json (${message})`);
+  }
+}
 
 export class HydraOpsProvider implements Provider {
   constructor(private readonly hydra: HydraOpsHandler) {}
 
   async getProtocolParameters(): Promise<ProtocolParameters> {
+    const protocolParameters = getProtocolParameters();
     return {
       minFeeA: protocolParameters.txFeeFixed,
       minFeeB: protocolParameters.txFeePerByte,

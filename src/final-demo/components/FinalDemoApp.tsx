@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { QueryClient, QueryClientProvider, useMutation, useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+// @ts-ignore - blake2b doesn't ship bundled types in this project setup
+import blake2b from "blake2b";
 import {
   connectWallet,
   disconnectWallet,
@@ -32,6 +34,32 @@ interface HeadsResponse {
   staleThresholdMs: number;
 }
 
+interface SnapshotRow {
+  ref: string;
+  address: string;
+  label: string;
+  lovelace: string;
+  assets: Array<{ unit: string; amount: string }>;
+  hasInlineDatum: boolean;
+}
+
+interface HeadSnapshotState {
+  head: "headA" | "headB" | "headC";
+  status: string;
+  error: string | null;
+  utxos: SnapshotRow[];
+  fetchedAt: string;
+}
+
+interface HeadSnapshotsResponse {
+  updatedAt: string;
+  heads: {
+    headA: HeadSnapshotState;
+    headB: HeadSnapshotState;
+    headC: HeadSnapshotState;
+  };
+}
+
 interface ApiErrorEnvelope {
   errorCode: string;
   message: string;
@@ -57,6 +85,12 @@ async function extractApiErrorMessage(response: Response): Promise<string> {
   }
 }
 
+function formatInlineError(message: string, max = 280): string {
+  const trimmed = message.trim();
+  if (trimmed.length <= max) return trimmed;
+  return `${trimmed.slice(0, max)}...`;
+}
+
 interface WorkflowResponse {
   id: string;
   type: "request_funds" | "buy_ticket";
@@ -68,11 +102,50 @@ interface WorkflowResponse {
   lastErrorCode: string | null;
   errorMessage: string | null;
   steps: Array<{ id: string; name: string; status: string; attempt: number }>;
-  events: Array<{ id: string; level: string; message: string; createdAt: string }>;
+  events: Array<{ id: string; level: string; message: string; createdAt: string; metaJson?: string | null }>;
+}
+
+function parseEventMeta(metaJson?: string | null): Record<string, unknown> | null {
+  if (!metaJson) return null;
+  try {
+    const parsed = JSON.parse(metaJson) as unknown;
+    return parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+}
+
+function displayWorkflowEvent(event: { level: string; message: string; metaJson?: string | null }) {
+  const meta = parseEventMeta(event.metaJson);
+  const reason = typeof meta?.reason === "string" ? meta.reason : null;
+  const isWaitingEvent = event.message.toLowerCase().includes("waiting");
+  const level = isWaitingEvent ? "wait" : event.level;
+  const text = isWaitingEvent && reason ? reason : event.message;
+  return { level, text };
+}
+
+function eventColor(level: string): string {
+  if (level === "error") return "#b91c1c";
+  if (level === "warn") return "#b45309";
+  if (level === "wait") return "#a16207";
+  return "#334155";
 }
 
 async function fetchHeads(): Promise<HeadsResponse> {
   const r = await fetch("/api/state/heads", { cache: "no-store" });
+  if (!r.ok) {
+    try {
+      const err = await r.json() as ApiErrorEnvelope;
+      throw new Error(`${err.message} (${err.errorCode}) [${err.requestId}]`);
+    } catch {
+      throw new Error(await r.text());
+    }
+  }
+  return r.json();
+}
+
+async function fetchHeadSnapshots(): Promise<HeadSnapshotsResponse> {
+  const r = await fetch("/api/state/snapshots", { cache: "no-store" });
   if (!r.ok) {
     try {
       const err = await r.json() as ApiErrorEnvelope;
@@ -121,7 +194,12 @@ async function prepareBuyTicketTx(body: Record<string, unknown>) {
     body: JSON.stringify(body),
   });
   if (!r.ok) throw new Error(await extractApiErrorMessage(r));
-  return r.json() as Promise<{ draftId: string; unsignedTxCborHex: string; txBodyHash: string }>;
+  return r.json() as Promise<{
+    draftId: string;
+    unsignedTxCborHex: string;
+    txBodyHash: string;
+    summary?: { sourceHead?: "headA" | "headC"; amountLovelace?: string; htlcHash?: string };
+  }>;
 }
 
 async function submitBuyTicketTx(body: Record<string, unknown>) {
@@ -134,9 +212,34 @@ async function submitBuyTicketTx(body: Record<string, unknown>) {
   return r.json() as Promise<{
     txHash: string;
     sourceHtlcRef: string;
-    headBHtlcRef: string;
+    headBHtlcRef: string | null;
     hashRef: string;
   }>;
+}
+
+function stringToHex(input: string): string {
+  return Array.from(input)
+    .map((char) => char.charCodeAt(0).toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function hexToBytes(input: string): Uint8Array {
+  if (input.length % 2 !== 0) {
+    throw new Error("Invalid hex input length");
+  }
+  const out = new Uint8Array(input.length / 2);
+  for (let i = 0; i < input.length; i += 2) {
+    out[i / 2] = Number.parseInt(input.slice(i, i + 2), 16);
+  }
+  return out;
+}
+
+function generateHtlcPairClient(): { preimage: string; htlcHash: string } {
+  const preimage = stringToHex(crypto.randomUUID());
+  const htlcHash = blake2b(32)
+    .update(hexToBytes(preimage))
+    .digest("hex");
+  return { preimage, htlcHash };
 }
 
 async function fetchWorkflow(id: string): Promise<WorkflowResponse> {
@@ -161,6 +264,9 @@ function newBuyTicketIntentId(): string {
 const REQUEST_FUNDS_INTENT_TTL_MS = 10 * 60 * 1000;
 const REQUEST_FUNDS_INTENT_STORAGE_KEY = "final-demo.request-funds-intents.v1";
 const BUY_TICKET_INTENT_STORAGE_KEY = "final-demo.buy-ticket-intents.v1";
+const HTLC_PAIRS_STORAGE_KEY = "final-demo.htlc-pairs.v1";
+const HTLC_PAIRS_MAX = 10;
+const REQUEST_FUNDS_FIXED_LOVELACE = "20000000";
 
 type RequestFundsIntentRecord = {
   idempotencyKey: string;
@@ -170,12 +276,13 @@ type RequestFundsIntentRecord = {
 
 type RequestFundsIntentStore = Record<string, RequestFundsIntentRecord>;
 type BuyTicketIntentStore = Record<string, RequestFundsIntentRecord>;
+type HtlcPairRecord = { preimage: string; htlcHash: string; createdAtMs: number };
 
-function requestFundsPayloadFingerprint(actor: string, address: string, amountLovelace: string): string {
+function requestFundsPayloadFingerprint(actor: string, address: string): string {
   return JSON.stringify({
     actor: actor.trim().toLowerCase(),
     address: address.trim(),
-    amountLovelace: amountLovelace.trim(),
+    amountLovelace: REQUEST_FUNDS_FIXED_LOVELACE,
   });
 }
 
@@ -200,9 +307,9 @@ function saveRequestFundsIntentStore(store: RequestFundsIntentStore) {
   window.localStorage.setItem(REQUEST_FUNDS_INTENT_STORAGE_KEY, JSON.stringify(store));
 }
 
-function getOrCreateRequestFundsIdempotencyKey(actor: string, address: string, amountLovelace: string) {
+function getOrCreateRequestFundsIdempotencyKey(actor: string, address: string) {
   const nowMs = Date.now();
-  const fingerprint = requestFundsPayloadFingerprint(actor, address, amountLovelace);
+  const fingerprint = requestFundsPayloadFingerprint(actor, address);
   const store = loadRequestFundsIntentStore(nowMs);
   const existing = store[fingerprint];
   if (existing) {
@@ -214,9 +321,9 @@ function getOrCreateRequestFundsIdempotencyKey(actor: string, address: string, a
   return { fingerprint, idempotencyKey };
 }
 
-function rotateRequestFundsIdempotencyKey(actor: string, address: string, amountLovelace: string) {
+function rotateRequestFundsIdempotencyKey(actor: string, address: string) {
   const nowMs = Date.now();
-  const fingerprint = requestFundsPayloadFingerprint(actor, address, amountLovelace);
+  const fingerprint = requestFundsPayloadFingerprint(actor, address);
   const store = loadRequestFundsIntentStore(nowMs);
   const idempotencyKey = `${actor}:${newBusinessId()}`;
   store[fingerprint] = { idempotencyKey, createdAtMs: nowMs };
@@ -249,14 +356,12 @@ function clearRequestFundsIntentByWorkflowId(workflowId: string): boolean {
 function buyTicketPayloadFingerprint(
   actor: string,
   address: string,
-  amountLovelace: string,
   htlcHash: string,
   timeoutMinutes: string,
 ): string {
   return JSON.stringify({
     actor: actor.trim().toLowerCase(),
     address: address.trim(),
-    amountLovelace: amountLovelace.trim(),
     htlcHash: htlcHash.trim().toLowerCase(),
     timeoutMinutes: timeoutMinutes.trim(),
   });
@@ -286,12 +391,11 @@ function saveBuyTicketIntentStore(store: BuyTicketIntentStore) {
 function getOrCreateBuyTicketIdempotencyKey(
   actor: string,
   address: string,
-  amountLovelace: string,
   htlcHash: string,
   timeoutMinutes: string,
 ) {
   const nowMs = Date.now();
-  const fingerprint = buyTicketPayloadFingerprint(actor, address, amountLovelace, htlcHash, timeoutMinutes);
+  const fingerprint = buyTicketPayloadFingerprint(actor, address, htlcHash, timeoutMinutes);
   const store = loadBuyTicketIntentStore(nowMs);
   const existing = store[fingerprint];
   if (existing) {
@@ -306,12 +410,11 @@ function getOrCreateBuyTicketIdempotencyKey(
 function rotateBuyTicketIdempotencyKey(
   actor: string,
   address: string,
-  amountLovelace: string,
   htlcHash: string,
   timeoutMinutes: string,
 ) {
   const nowMs = Date.now();
-  const fingerprint = buyTicketPayloadFingerprint(actor, address, amountLovelace, htlcHash, timeoutMinutes);
+  const fingerprint = buyTicketPayloadFingerprint(actor, address, htlcHash, timeoutMinutes);
   const store = loadBuyTicketIntentStore(nowMs);
   const idempotencyKey = `${actor}:${newBuyTicketIntentId()}`;
   store[fingerprint] = { idempotencyKey, createdAtMs: nowMs };
@@ -341,6 +444,28 @@ function clearBuyTicketIntentByWorkflowId(workflowId: string): boolean {
   return removed;
 }
 
+function loadHtlcPairs(): HtlcPairRecord[] {
+  try {
+    const raw = window.localStorage.getItem(HTLC_PAIRS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as HtlcPairRecord[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((x) =>
+      typeof x?.preimage === "string"
+      && typeof x?.htlcHash === "string"
+      && typeof x?.createdAtMs === "number"
+    );
+  } catch {
+    return [];
+  }
+}
+
+function saveHtlcPair(preimage: string, htlcHash: string): HtlcPairRecord[] {
+  const next = [{ preimage, htlcHash, createdAtMs: Date.now() }, ...loadHtlcPairs()].slice(0, HTLC_PAIRS_MAX);
+  window.localStorage.setItem(HTLC_PAIRS_STORAGE_KEY, JSON.stringify(next));
+  return next;
+}
+
 function FinalDemoInner({ view }: { view: FinalDemoView }) {
   const defaultActor = view === "charlie" ? "charlie" : "user";
   const [walletOptions, setWalletOptions] = useState(() => getWalletOptions());
@@ -348,12 +473,14 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
   const [walletSession, setWalletSession] = useState<WalletSession | null>(null);
   const actionActor = walletSession?.actor ?? defaultActor;
   const [address, setAddress] = useState("addr_test1_demo_wallet");
-  const [amount, setAmount] = useState("5000000");
+  const [lastPreparedTicketCostLovelace, setLastPreparedTicketCostLovelace] = useState<string | null>(null);
   const [requestFundsIdempotencyKey, setRequestFundsIdempotencyKey] = useState(() => newBusinessId());
   const [buyTicketIdempotencyKey, setBuyTicketIdempotencyKey] = useState(() => newBuyTicketIntentId());
   const [htlcHash, setHtlcHash] = useState("aabbccddeeff00112233445566778899");
   const [timeoutMinutes, setTimeoutMinutes] = useState("60");
   const [preimage, setPreimage] = useState("00112233445566778899aabbccddeeff");
+  const [htlcPairs, setHtlcPairs] = useState<HtlcPairRecord[]>([]);
+  const [htlcPairGenerateError, setHtlcPairGenerateError] = useState<string | null>(null);
   const [workflowId, setWorkflowId] = useState("");
 
   const heads = useQuery({
@@ -365,6 +492,18 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
       const thresholdMs = q.state.data?.staleThresholdMs ?? 60_000;
       return Math.max(1000, Math.floor(thresholdMs / 2));
     },
+    refetchIntervalInBackground: true,
+  });
+  const anyOpenHead = Boolean(
+    heads.data
+    && (heads.data.headA.status === "open" || heads.data.headB.status === "open" || heads.data.headC.status === "open"),
+  );
+  const snapshots = useQuery({
+    queryKey: ["head-snapshots", anyOpenHead],
+    queryFn: fetchHeadSnapshots,
+    enabled: anyOpenHead,
+    retry: 1,
+    refetchInterval: 4000,
     refetchIntervalInBackground: true,
   });
 
@@ -427,6 +566,10 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
     if (wf) setWorkflowId(wf);
   }, []);
   useEffect(() => {
+    const pairs = loadHtlcPairs();
+    setHtlcPairs(pairs);
+  }, []);
+  useEffect(() => {
     const url = new URL(window.location.href);
     if (workflowId) {
       url.searchParams.set("workflowId", workflowId);
@@ -436,19 +579,18 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
     window.history.replaceState(null, "", url);
   }, [workflowId]);
   useEffect(() => {
-    const intent = getOrCreateRequestFundsIdempotencyKey(actionActor, address, amount);
+    const intent = getOrCreateRequestFundsIdempotencyKey(actionActor, address);
     setRequestFundsIdempotencyKey(intent.idempotencyKey);
-  }, [actionActor, address, amount]);
+  }, [actionActor, address]);
   useEffect(() => {
     const intent = getOrCreateBuyTicketIdempotencyKey(
       actionActor,
       address,
-      amount,
       htlcHash,
       timeoutMinutes,
     );
     setBuyTicketIdempotencyKey(intent.idempotencyKey);
-  }, [actionActor, address, amount, htlcHash, timeoutMinutes]);
+  }, [actionActor, address, htlcHash, timeoutMinutes]);
 
   const requestFunds = useMutation({
     mutationFn: () =>
@@ -457,15 +599,16 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
           throw new Error("Connect a wallet first.");
         }
         const actor = actionActor;
-        const intent = getOrCreateRequestFundsIdempotencyKey(actor, address, amount);
-        return prepareRequestFundsTx({ address })
+        const walletAddress = walletSession.changeAddress;
+        const intent = getOrCreateRequestFundsIdempotencyKey(actor, walletAddress);
+        return prepareRequestFundsTx({ address: walletAddress })
           .then((draft) => signTxWithConnectedWallet(walletSession, draft.unsignedTxCborHex, true)
             .then((witnessHex) => ({ draft, witnessHex })))
           .then(({ draft, witnessHex }) => submitRequestFundsTx({ unsignedTxCborHex: draft.unsignedTxCborHex, witnessHex }))
           .then((submitted) => createWorkflow("/api/workflows/request-funds", {
             actor,
             idempotencyKey: intent.idempotencyKey,
-            address,
+            address: walletAddress,
             amountLovelace: submitted.amountLovelace,
             submittedTxHash: submitted.txHash,
           }).then((d) => ({ ...d, fingerprint: intent.fingerprint }))
@@ -485,37 +628,75 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
           throw new Error("Connect a wallet first.");
         }
         const actor = actionActor;
+        const walletAddress = walletSession.changeAddress;
         const intent = getOrCreateBuyTicketIdempotencyKey(
           actor,
-          address,
-          amount,
+          walletAddress,
           htlcHash,
           timeoutMinutes,
         );
         return prepareBuyTicketTx({
           actor,
-          address,
-          amountLovelace: amount,
+          address: walletAddress,
+          amountLovelace: "0",
           sourceHead: actor === "charlie" ? "headC" : "headA",
           htlcHash,
           timeoutMinutes,
         })
-          .then((draft) => signTxWithConnectedWallet(walletSession, draft.unsignedTxCborHex, true)
-            .then((witnessHex) => ({ draft, witnessHex })))
-          .then(({ draft, witnessHex }) => submitBuyTicketTx({ draftId: draft.draftId, witnessHex }))
-          .then((submitted) =>
-          createWorkflow("/api/workflows/buy-ticket", {
-            actor,
-            idempotencyKey: intent.idempotencyKey,
-            address,
-            amountLovelace: amount,
-            htlcHash,
-            timeoutMinutes,
-            preimage,
-            submittedSourceTxHash: submitted.txHash,
-            submittedSourceHtlcRef: submitted.sourceHtlcRef,
-            submittedHeadBHtlcRef: submitted.headBHtlcRef,
-          }).then((d) => ({ ...d, fingerprint: intent.fingerprint }))
+          .then((draft) => {
+            const ticketCost = draft.summary?.amountLovelace?.trim();
+            const preparedSourceHead = draft.summary?.sourceHead;
+            const preparedHtlcHash = draft.summary?.htlcHash?.trim();
+            if (!ticketCost || !/^\d+$/.test(ticketCost)) {
+              throw new Error("Server did not return a valid ticket cost in buy-ticket prepare");
+            }
+            if ((preparedSourceHead !== "headA" && preparedSourceHead !== "headC") || !preparedHtlcHash) {
+              throw new Error("Server did not return required buy-ticket metadata for submit");
+            }
+            setLastPreparedTicketCostLovelace(ticketCost);
+            // CIP-30 signTx returns witness set; server assembles it with the unsigned tx.
+            return signTxWithConnectedWallet(walletSession, draft.unsignedTxCborHex, true)
+              .then((witnessHex) => ({ unsignedTxCborHex: draft.unsignedTxCborHex, witnessHex, ticketCost, preparedSourceHead, preparedHtlcHash }));
+          })
+          .then(({ unsignedTxCborHex, witnessHex, ticketCost, preparedSourceHead, preparedHtlcHash }) =>
+            createWorkflow("/api/workflows/buy-ticket", {
+              actor,
+              idempotencyKey: intent.idempotencyKey,
+              address: walletAddress,
+              amountLovelace: ticketCost,
+              htlcHash,
+              timeoutMinutes,
+              preimage,
+            })
+              .then((pendingWf) => {
+                setWorkflowId(pendingWf.workflowId);
+                bindBuyTicketIntentWorkflow(intent.fingerprint, pendingWf.workflowId);
+                if (pendingWf.idempotencyKey) setBuyTicketIdempotencyKey(pendingWf.idempotencyKey);
+                return { unsignedTxCborHex, witnessHex, preparedSourceHead, preparedHtlcHash, ticketCost };
+              }),
+          )
+          .then(({ unsignedTxCborHex, witnessHex, preparedSourceHead, preparedHtlcHash, ticketCost }) =>
+            submitBuyTicketTx({
+              unsignedTxCborHex,
+              witnessHex,
+              sourceHead: preparedSourceHead,
+              htlcHash: preparedHtlcHash,
+              idempotencyKey: intent.idempotencyKey,
+              preimage,
+            }).then((submitted) => ({ submitted, ticketCost })),
+          )
+          .then(({ submitted, ticketCost }) =>
+            createWorkflow("/api/workflows/buy-ticket", {
+              actor,
+              idempotencyKey: intent.idempotencyKey,
+              address: walletAddress,
+              amountLovelace: ticketCost,
+              htlcHash,
+              timeoutMinutes,
+              preimage,
+              submittedSourceTxHash: submitted.txHash,
+              submittedSourceHtlcRef: submitted.sourceHtlcRef,
+            }).then((d) => ({ ...d, fingerprint: intent.fingerprint })),
           );
       },
     onSuccess: (d) => {
@@ -529,15 +710,27 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
     mutationFn: () => retryWorkflow(workflowId),
     onSuccess: () => workflow.refetch(),
   });
+  const generateHtlcPairAndFill = () => {
+    try {
+      setHtlcPairGenerateError(null);
+      const { preimage: nextPreimage, htlcHash: nextHash } = generateHtlcPairClient();
+      setPreimage(nextPreimage);
+      setHtlcHash(nextHash);
+      setHtlcPairs(saveHtlcPair(nextPreimage, nextHash));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "unknown error";
+      setHtlcPairGenerateError(message);
+    }
+  };
 
   useEffect(() => {
     const data = workflow.data;
     if (!data || data.type !== "request_funds") return;
     if (data.status !== "succeeded" && data.status !== "cancelled") return;
     if (clearRequestFundsIntentByWorkflowId(data.id)) {
-      setRequestFundsIdempotencyKey(rotateRequestFundsIdempotencyKey(actionActor, address, amount));
+      setRequestFundsIdempotencyKey(rotateRequestFundsIdempotencyKey(actionActor, address));
     }
-  }, [actionActor, address, amount, workflow.data]);
+  }, [actionActor, address, workflow.data]);
   useEffect(() => {
     const data = workflow.data;
     if (!data || data.type !== "buy_ticket") return;
@@ -547,7 +740,6 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
         rotateBuyTicketIdempotencyKey(
           actionActor,
           address,
-          amount,
           htlcHash,
           timeoutMinutes,
         ),
@@ -556,7 +748,6 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
   }, [
     actionActor,
     address,
-    amount,
     htlcHash,
     timeoutMinutes,
     workflow.data,
@@ -636,11 +827,28 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
           </>
         ) : null}
         <div style={{ marginTop: 12 }}>
-          <Button onClick={() => connect.mutate()} disabled={busy}>
-            Mock Connect Heads
-          </Button>
+
         </div>
       </section>
+      {anyOpenHead ? (
+        <section style={cardStyle}>
+          <h2 style={{ marginTop: 0 }}>Head Snapshot UTxOs</h2>
+          <p style={{ marginTop: 0, color: "#52525b" }}>
+            Live UTxOs mapped to known actor/script names.
+          </p>
+          {snapshots.isLoading ? <p style={{ margin: 0 }}>Loading snapshots...</p> : null}
+          {snapshots.isError ? (
+            <p style={{ margin: 0, color: "#b91c1c" }}>Failed to load snapshots: {snapshots.error.message}</p>
+          ) : null}
+          {snapshots.data ? (
+            <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
+              <SnapshotHeadCard title="Head A" snapshot={snapshots.data.heads.headA} />
+              <SnapshotHeadCard title="Head B" snapshot={snapshots.data.heads.headB} />
+              <SnapshotHeadCard title="Head C" snapshot={snapshots.data.heads.headC} />
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       <section style={cardStyle}>
         <h2 style={{ marginTop: 0 }}>Wallet (CIP-30)</h2>
@@ -724,8 +932,16 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
             />
           </label>
           <label style={labelStyle}>
-            Amount (lovelace)
-            <input style={inputStyle} value={amount} onChange={(e) => setAmount(e.target.value)} />
+            Request funds amount (lovelace)
+            <input style={inputStyle} value={REQUEST_FUNDS_FIXED_LOVELACE} readOnly />
+          </label>
+          <label style={labelStyle}>
+            Ticket cost (lovelace)
+            <input
+              style={inputStyle}
+              value={lastPreparedTicketCostLovelace ?? "derived from active lottery at prepare"}
+              readOnly
+            />
           </label>
           <label style={labelStyle}>
             HTLC Hash (hex)
@@ -741,31 +957,12 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
           </label>
         </div>
         <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <Button variant="secondary" onClick={generateHtlcPairAndFill} disabled={busy}>
+            Generate HTLC Preimage+Hash
+          </Button>
           <Button onClick={() => requestFunds.mutate()} disabled={busy || Boolean(requestFundsDisabledReason)}>Request Funds</Button>
-          <Button
-            variant="outline"
-            onClick={() => setRequestFundsIdempotencyKey(rotateRequestFundsIdempotencyKey(actionActor, address, amount))}
-            disabled={busy || Boolean(requestFundsDisabledReason)}
-          >
-            New Request Intent
-          </Button>
           <Button onClick={() => buyTicket.mutate()} disabled={busy || Boolean(buyTicketDisabledReason)}>Buy Ticket</Button>
-          <Button
-            variant="outline"
-            onClick={() =>
-              setBuyTicketIdempotencyKey(
-                rotateBuyTicketIdempotencyKey(
-                  actionActor,
-                  address,
-                  amount,
-                  htlcHash,
-                  timeoutMinutes,
-                ),
-              )}
-            disabled={busy || Boolean(buyTicketDisabledReason)}
-          >
-            New Ticket Intent
-          </Button>
+
         </div>
         {requestFundsDisabledReason ? (
           <p style={{ marginTop: 8, marginBottom: 0, color: "#b45309", fontSize: 12 }}>
@@ -778,13 +975,24 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
           </p>
         ) : null}
         {requestFunds.isError ? (
-          <p style={{ marginTop: 6, marginBottom: 0, color: "#b91c1c", fontSize: 12 }}>
-            Request funds failed: {requestFunds.error.message}
+          <p style={{ marginTop: 6, marginBottom: 0, color: "#b91c1c", fontSize: 12, overflowWrap: "anywhere", wordBreak: "break-word" }}>
+            Request funds failed: {formatInlineError(requestFunds.error.message)}
           </p>
         ) : null}
         {buyTicket.isError ? (
+          <p style={{ marginTop: 6, marginBottom: 0, color: "#b91c1c", fontSize: 12, overflowWrap: "anywhere", wordBreak: "break-word" }}>
+            Buy ticket failed: {formatInlineError(buyTicket.error.message)}
+          </p>
+        ) : null}
+        {htlcPairGenerateError ? (
           <p style={{ marginTop: 6, marginBottom: 0, color: "#b91c1c", fontSize: 12 }}>
-            Buy ticket failed: {buyTicket.error.message}
+            HTLC pair generation failed: {htlcPairGenerateError}
+          </p>
+        ) : null}
+        {htlcPairs.length > 0 ? (
+          <p style={{ marginTop: 6, marginBottom: 0, color: "#52525b", fontSize: 12 }}>
+            Latest generated pair saved in UI context at{" "}
+            {new Date(htlcPairs[0].createdAtMs).toLocaleTimeString()}.
           </p>
         ) : null}
         <p style={{ marginTop: 8, marginBottom: 0, color: "#71717a", fontSize: 12 }}>
@@ -838,11 +1046,17 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
             </ul>
             <h3>Events</h3>
             <ul>
-              {workflow.data.events.map((event) => (
-                <li key={event.id} style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>
-                  [{event.level}] {event.message} ({new Date(event.createdAt).toLocaleTimeString()})
-                </li>
-              ))}
+              {workflow.data.events.map((event) => {
+                const rendered = displayWorkflowEvent(event);
+                return (
+                  <li
+                    key={event.id}
+                    style={{ overflowWrap: "anywhere", wordBreak: "break-word", color: eventColor(rendered.level) }}
+                  >
+                    [{rendered.level}] {rendered.text} ({new Date(event.createdAt).toLocaleTimeString()})
+                  </li>
+                );
+              })}
             </ul>
             {workflow.data.resultJson ? (
               <>
@@ -896,6 +1110,90 @@ function HeadCard(
       <p style={{ margin: "0 0 4px 0" }}>{head.detail || "-"}</p>
       <p style={{ margin: 0, color: "#71717a", fontSize: 12 }}>
         Updated: {new Date(head.updatedAt).toLocaleTimeString()} ({Math.floor(ageMs / 1000)}s ago)
+      </p>
+    </div>
+  );
+}
+
+function lovelaceToAdaLabel(lovelace: string): string {
+  try {
+    return `${(Number(BigInt(lovelace)) / 1_000_000).toFixed(2)} ADA`;
+  } catch {
+    return `${lovelace} lovelace`;
+  }
+}
+
+function shortenRef(ref: string): string {
+  if (ref.length <= 18) return ref;
+  return `${ref.slice(0, 10)}...${ref.slice(-6)}`;
+}
+
+function shortenAddress(address: string): string {
+  if (address.length <= 14) return address;
+  return `${address.slice(0, 12)}...${address.slice(-4)}`;
+}
+
+function SnapshotUtxoRow({ row }: { row: SnapshotRow }) {
+  return (
+    <div
+      style={{
+        border: "1px solid #e4e4e7",
+        borderRadius: 8,
+        padding: "6px 8px",
+        background: "#fff",
+        fontSize: 12,
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+        <strong>{row.label}</strong>
+        <span>{lovelaceToAdaLabel(row.lovelace)}</span>
+      </div>
+      <div style={{ color: "#71717a", overflowWrap: "anywhere", wordBreak: "break-word" }}>
+        Ref: {shortenRef(row.ref)}
+      </div>
+      <div style={{ color: "#71717a", overflowWrap: "anywhere", wordBreak: "break-word" }}>
+        {row.hasInlineDatum ? " with Inline Datum" : ""}
+      </div>
+
+      <div style={{ color: "#71717a", overflowWrap: "anywhere", wordBreak: "break-word" }}>
+        Address: {shortenAddress(row.address)}
+      </div>
+      {row.assets.length > 0 ? (
+        <div style={{ marginTop: 2, color: "#52525b", overflowWrap: "anywhere", wordBreak: "break-word" }}>
+          Assets: {row.assets.map((a) => `${a.amount} ${a.unit.slice(0, 10)}...`).join(", ")}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function SnapshotHeadCard({ title, snapshot }: { title: string; snapshot: HeadSnapshotState }) {
+  const visible = snapshot.utxos.slice(0, 8);
+  return (
+    <div style={{ border: "1px solid #e4e4e7", borderRadius: 8, padding: 10, background: "#fafafa" }}>
+      <h3 style={{ margin: "0 0 6px 0" }}>{title}</h3>
+      <p style={{ margin: "0 0 6px 0" }}>
+        Status: <strong>{snapshot.status}</strong>
+      </p>
+      {snapshot.error ? (
+        <p style={{ margin: "0 0 6px 0", color: "#b91c1c", fontSize: 12, overflowWrap: "anywhere", wordBreak: "break-word" }}>
+          {snapshot.error}
+        </p>
+      ) : null}
+      {snapshot.utxos.length === 0 ? (
+        <p style={{ margin: 0, color: "#71717a", fontSize: 12 }}>No UTxOs to display.</p>
+      ) : (
+        <div style={{ display: "grid", gap: 6 }}>
+          {visible.map((row) => <SnapshotUtxoRow key={row.ref} row={row} />)}
+          {snapshot.utxos.length > visible.length ? (
+            <p style={{ margin: 0, color: "#71717a" }}>
+              +{snapshot.utxos.length - visible.length} more
+            </p>
+          ) : null}
+        </div>
+      )}
+      <p style={{ margin: "8px 0 0 0", color: "#71717a", fontSize: 11 }}>
+        Snapshot: {new Date(snapshot.fetchedAt).toLocaleTimeString()}
       </p>
     </div>
   );

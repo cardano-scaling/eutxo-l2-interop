@@ -19,7 +19,7 @@ export interface RequestFundsResult {
 }
 
 type FailureMode = "none" | "retryable_once" | "retryable_always" | "non_retryable";
-const REQUEST_FUNDS_FIXED_LOVELACE = "5000000";
+const REQUEST_FUNDS_FIXED_LOVELACE = "20000000";
 
 export class RequestFundsError extends Error {
   code: string;

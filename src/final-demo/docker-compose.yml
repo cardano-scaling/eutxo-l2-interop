@@ -41,7 +41,7 @@ services:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/final_demo?schema=public
     command: sh -c "npm install && npm run prisma:push && npm run prisma:generate"
     volumes:
-      - ../../:/workspace
+      - ./:/workspace/src/final-demo
 
   app:
     profiles: ["full"]
@@ -66,7 +66,7 @@ services:
       HYDRA_OPS_DRAFT_TTL_MS: ${HYDRA_OPS_DRAFT_TTL_MS:-300000}
     command: sh -c "npm run dev"
     volumes:
-      - ../../:/workspace
+      - ./:/workspace/src/final-demo
       - final_demo_next_cache:/workspace/src/final-demo/.next
     ports:
       - "3000:3000"
@@ -97,7 +97,7 @@ services:
       HYDRA_OPS_DRAFT_TTL_MS: ${HYDRA_OPS_DRAFT_TTL_MS:-300000}
     command: sh -c "npm run worker"
     volumes:
-      - ../../:/workspace
+      - ./:/workspace/src/final-demo
     networks:
       - default
       - hydra_net
@@ -109,22 +109,23 @@ services:
     volumes:
       - cardano-node-data:/data
       - shared-config:/shared
-      - ../onchain/tests/infra:/testnet
-      - ../onchain/tests/infra/cardano-private-testnet-config/busybox:/busybox
-      - ../onchain/tests/infra/cardano-private-testnet-config/cardano/entrypoint.sh:/entrypoint.sh
-      - ../onchain/tests/infra/cardano-private-testnet-config/cardano/topology-pool1.json:/shared/node-1-topology.json
-      - ../onchain/tests/infra/cardano-private-testnet-config/cardano/config-pool1.json:/shared/node-1-config.json.base
-      - ../onchain/tests/infra/cardano-private-testnet-config/cardano/keys:/keys
-      - ../onchain/tests/infra/cardano-private-testnet-config/genesis/byron/genesis.json:/shared/byron/genesis.json.base
-      - ../onchain/tests/infra/cardano-private-testnet-config/genesis/shelley/genesis.json:/shared/shelley/genesis.json.base
-      - ../onchain/tests/infra/cardano-private-testnet-config/genesis/shelley/genesis.alonzo.json:/shared/shelley/genesis.alonzo.json.base
-      - ../onchain/tests/infra/cardano-private-testnet-config/genesis/shelley/genesis-utxo.addr:/shared/shelley/genesis-utxo.addr
-      - ../onchain/tests/infra/cardano-private-testnet-config/genesis/shelley/genesis-utxo.skey:/shared/shelley/genesis-utxo.skey
-      - ../onchain/tests/infra/cardano-private-testnet-config/genesis/shelley/genesis-utxo.vkey:/shared/shelley/genesis-utxo.vkey
-      - ../onchain/tests/infra/cardano-private-testnet-config/genesis/conway/genesis.conway.json:/shared/conway/genesis.conway.json.base
-      - ../onchain/tests/infra/cardano-query-api.sh:/cardano-query-api.sh
-      - ./runtime:/devnet
-      - ../infra/credentials:/devnet/credentials:ro
+      - ./testnet:/testnet
+      - ./testnet/cardano-private-testnet-config/busybox:/busybox
+      - ./entrypoint.sh:/entrypoint.sh
+      - ./testnet/cardano-private-testnet-config/cardano/topology-pool1.json:/shared/node-1-topology.json
+      - ./testnet/cardano-private-testnet-config/cardano/config-pool1.json:/shared/node-1-config.json.base
+      - ./testnet/cardano-private-testnet-config/cardano/keys:/keys
+      - ./testnet/cardano-private-testnet-config/genesis/byron/genesis.json:/shared/byron/genesis.json.base
+      - ./testnet/cardano-private-testnet-config/genesis/shelley/genesis.json:/shared/shelley/genesis.json.base
+      - ./testnet/cardano-private-testnet-config/genesis/shelley/genesis.alonzo.json:/shared/shelley/genesis.alonzo.json.base
+      - ./testnet/cardano-private-testnet-config/genesis/shelley/genesis-utxo.addr:/shared/shelley/genesis-utxo.addr
+      - ./testnet/cardano-private-testnet-config/genesis/shelley/genesis-utxo.skey:/shared/shelley/genesis-utxo.skey
+      - ./testnet/cardano-private-testnet-config/genesis/shelley/genesis-utxo.vkey:/shared/shelley/genesis-utxo.vkey
+      - ./testnet/cardano-private-testnet-config/genesis/conway/genesis.conway.json:/shared/conway/genesis.conway.json.base
+      - ./cardano-query-api.sh:/cardano-query-api.sh
+      - ./credentials:/devnet/credentials:ro
+      - ./config/protocol-parameters.json:/devnet/protocol-parameters.json:ro
+      - ./persistence:/devnet/persistence
     environment:
       - CARDANO_NODE_SOCKET_PATH=/data/node.socket
     entrypoint: ["/bin/bash", "/entrypoint.sh"]
@@ -174,8 +175,9 @@ services:
     image: ghcr.io/cardano-scaling/hydra-node:1.0.0
     volumes:
       - shared-config:/shared
-      - ../infra:/devnet
-      - ../onchain/tests/infra/hydra-scripts-publisher-entrypoint.sh:/hydra-scripts-publisher-entrypoint.sh
+      - ./credentials:/devnet/credentials:ro
+      - ./persistence:/devnet/persistence
+      - ./hydra-scripts-publisher-entrypoint.sh:/hydra-scripts-publisher-entrypoint.sh
       - cardano-node-data:/data:ro
     entrypoint: ["/bin/sh", "/hydra-scripts-publisher-entrypoint.sh"]
     networks:
@@ -190,7 +192,8 @@ services:
     <<: *hydra-node-base
     profiles: ["full"]
     volumes:
-      - ../infra:/devnet
+      - ./credentials:/devnet/credentials:ro
+      - ./config/protocol-parameters.json:/devnet/protocol-parameters.json:ro
       - ./persistence/alice-lt:/devnet/persistence/alice-lt
       - shared-config:/shared
       - cardano-node-data:/data:ro
@@ -230,7 +233,8 @@ services:
     <<: *hydra-node-base
     profiles: ["full"]
     volumes:
-      - ../infra:/devnet
+      - ./credentials:/devnet/credentials:ro
+      - ./config/protocol-parameters.json:/devnet/protocol-parameters.json:ro
       - ./persistence/ida-1-lt:/devnet/persistence/ida-1-lt
       - shared-config:/shared
       - cardano-node-data:/data:ro
@@ -271,7 +275,8 @@ services:
     <<: *hydra-node-base
     profiles: ["full"]
     volumes:
-      - ../infra:/devnet
+      - ./credentials:/devnet/credentials:ro
+      - ./config/protocol-parameters.json:/devnet/protocol-parameters.json:ro
       - ./persistence/bob-lt:/devnet/persistence/bob-lt
       - shared-config:/shared
       - cardano-node-data:/data:ro
@@ -314,7 +319,8 @@ services:
     <<: *hydra-node-base
     profiles: ["full"]
     volumes:
-      - ../infra:/devnet
+      - ./credentials:/devnet/credentials:ro
+      - ./config/protocol-parameters.json:/devnet/protocol-parameters.json:ro
       - ./persistence/ida-2-lt:/devnet/persistence/ida-2-lt
       - shared-config:/shared
       - cardano-node-data:/data:ro
@@ -357,7 +363,8 @@ services:
     <<: *hydra-node-base
     profiles: ["full"]
     volumes:
-      - ../infra:/devnet
+      - ./credentials:/devnet/credentials:ro
+      - ./config/protocol-parameters.json:/devnet/protocol-parameters.json:ro
       - ./persistence/jon-lt:/devnet/persistence/jon-lt
       - shared-config:/shared
       - cardano-node-data:/data:ro
@@ -401,7 +408,8 @@ services:
     <<: *hydra-node-base
     profiles: ["full"]
     volumes:
-      - ../infra:/devnet
+      - ./credentials:/devnet/credentials:ro
+      - ./config/protocol-parameters.json:/devnet/protocol-parameters.json:ro
       - ./persistence/charlie-lt:/devnet/persistence/charlie-lt
       - shared-config:/shared
       - cardano-node-data:/data:ro
@@ -441,7 +449,8 @@ services:
     <<: *hydra-node-base
     profiles: ["full"]
     volumes:
-      - ../infra:/devnet
+      - ./credentials:/devnet/credentials:ro
+      - ./config/protocol-parameters.json:/devnet/protocol-parameters.json:ro
       - ./persistence/ida-3-lt:/devnet/persistence/ida-3-lt
       - shared-config:/shared
       - cardano-node-data:/data:ro
@@ -488,9 +497,10 @@ services:
       - hydra-node-jon-lt
       - hydra-node-charlie-lt
       - hydra-node-ida-3-lt
-    command: sh -c "echo $$(( $$(date +%s) * 1000 )) > /shared/startup_time.txt && echo 'Timestamp written:' $$(cat /shared/startup_time.txt)"
+    command: sh -c "ts=$$(( $$(date +%s) * 1000 )) && echo $$ts > /shared/startup_time.txt && echo $$ts > /final-demo/startup_time.txt && echo 'Timestamp written to /shared and final-demo/startup_time.txt:' $$ts"
     volumes:
       - shared-config:/shared
+      - ./:/final-demo
 
 networks:
   hydra_net:

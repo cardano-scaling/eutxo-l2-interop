@@ -9,7 +9,7 @@
  */
 
 import type { Utxo } from "https://deno.land/x/lucid@0.20.14/mod.ts";
-import { HydraHandler } from "../../onchain/tests/hydra_handler.ts";
+import { HydraHandler } from "./lib/hydra-handler.mts";
 import {
   COMMIT_BACKOFFS,
   COMMIT_RETRIES,
@@ -17,7 +17,7 @@ import {
   commitParticipant,
   loadPrivateKeyHex,
   pickCommitUtxo,
-} from "../../onchain/tests/commit.ts";
+} from "./lib/commit-utils.mts";
 
 type Participant = {
   name: "alice" | "bob" | "ida" | "jon";
@@ -29,9 +29,7 @@ const finalDemoRoot = new URL("../", import.meta.url);
 const runtimeRoot = new URL("./runtime/", finalDemoRoot);
 const l1UtxoFile = new URL("./l1-utxos.json", runtimeRoot).pathname;
 const l1ReadyFile = new URL("./l1-utxos.ready", runtimeRoot).pathname;
-
-const infraRoot = new URL("../../infra/", import.meta.url);
-const credentialsRoot = new URL("./credentials/", infraRoot).pathname;
+const credentialsRoot = new URL("./credentials/", finalDemoRoot).pathname;
 
 const CARDANO_QUERY_API = "http://127.0.0.1:1442";
 

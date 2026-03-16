@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createHash } from "node:crypto";
-import { WorkflowType } from "@prisma/client";
+import { WorkflowStatus, WorkflowType } from "@prisma/client";
 import { z } from "zod";
 import { logger } from "@/lib/logger";
 import { apiError, readJsonBody } from "@/lib/api-error";
@@ -13,6 +13,7 @@ import {
 } from "@/lib/interaction-policy";
 import { createWorkflow, findWorkflowByIdempotency } from "@/lib/workflows";
 import { getActiveLotteryForHead } from "@/lib/lottery-instances";
+import { prisma } from "@/lib/db";
 
 const MAX_AMOUNT_LOVELACE = 10_000_000n;
 
@@ -150,6 +151,69 @@ export async function POST(req: Request) {
         "The idempotencyKey is already bound to a different request payload",
         { workflowId: existing.id },
       );
+    }
+
+    const nextSourceTxHash = parsed.data.submittedSourceTxHash ?? null;
+    const nextSourceHtlcRef = parsed.data.submittedSourceHtlcRef ?? null;
+    const nextPreimage = parsed.data.preimage?.trim() || null;
+    const shouldPatchSubmittedArtifacts = Boolean(
+      (nextSourceTxHash && nextSourceHtlcRef
+        && (
+          existingPayload.submittedSourceTxHash !== nextSourceTxHash
+          || existingPayload.submittedSourceHtlcRef !== nextSourceHtlcRef
+        ))
+      || (nextPreimage != null && existingPayload.preimage !== nextPreimage),
+    );
+    if (shouldPatchSubmittedArtifacts) {
+      const patchedPayload = {
+        ...existingPayload,
+        preimage: nextPreimage ?? existingPayload.preimage ?? null,
+      };
+      if (nextSourceTxHash && nextSourceHtlcRef) {
+        Object.assign(patchedPayload, {
+          submittedSourceTxHash: nextSourceTxHash,
+          submittedSourceHtlcRef: nextSourceHtlcRef,
+          submittedHeadBHtlcRef: parsed.data.submittedHeadBHtlcRef ?? existingPayload.submittedHeadBHtlcRef ?? null,
+        });
+      }
+      await prisma.$transaction(async (tx) => {
+        await tx.workflow.update({
+          where: { id: existing.id },
+          data: {
+            payloadJson: JSON.stringify(patchedPayload),
+            status: WorkflowStatus.pending,
+            nextRetryAt: null,
+            lockExpiresAt: null,
+            lockedBy: null,
+            completedAt: null,
+            errorMessage: null,
+            lastErrorCode: null,
+          },
+        });
+        await tx.workflowStep.updateMany({
+          where: {
+            workflowId: existing.id,
+            name: { in: ["submit", "confirm"] },
+          },
+          data: {
+            status: WorkflowStatus.pending,
+            finishedAt: null,
+            errorDetail: null,
+          },
+        });
+        await tx.workflowEvent.create({
+          data: {
+            workflowId: existing.id,
+            level: "info",
+            message: "buy_ticket submit artifacts attached; workflow re-queued",
+            metaJson: JSON.stringify({
+              submittedSourceTxHash: nextSourceTxHash,
+              submittedSourceHtlcRef: nextSourceHtlcRef,
+              persistedPreimage: Boolean(nextPreimage),
+            }),
+          },
+        });
+      });
     }
   }
 
