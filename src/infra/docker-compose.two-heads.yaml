@@ -27,10 +27,10 @@ services:
       [
         "--node-id", "1",
         "--api-host", "0.0.0.0",
-        "--listen", "172.16.238.11:5011",
+        "--listen", "172.16.230.11:5011",
         "--monitoring-port", "6011",
         "--api-port", "4011",
-        "--peer", "172.16.238.19:5019",
+        "--peer", "172.16.230.19:5019",
         "--hydra-signing-key", "/devnet/credentials/alice/alice-hydra.sk",
         "--hydra-verification-key", "/devnet/credentials/ida/ida-hydra.vk",
         "--persistence-dir", "/devnet/persistence/alice-2h",
@@ -40,7 +40,7 @@ services:
       ]
     networks:
       hydra_net:
-        ipv4_address: 172.16.238.11
+        ipv4_address: 172.16.230.11
 
   # Head A: ida-1
   hydra-node-ida-1-2h:
@@ -55,10 +55,10 @@ services:
       [
         "--node-id", "3",
         "--api-host", "0.0.0.0",
-        "--listen", "172.16.238.19:5019",
+        "--listen", "172.16.230.19:5019",
         "--monitoring-port", "6019",
         "--api-port", "4019",
-        "--peer", "172.16.238.11:5011",
+        "--peer", "172.16.230.11:5011",
         "--hydra-signing-key", "/devnet/credentials/ida/ida-hydra.sk",
         "--hydra-verification-key", "/devnet/credentials/alice/alice-hydra.vk",
         "--persistence-dir", "/devnet/persistence/ida-1-2h",
@@ -68,7 +68,7 @@ services:
       ]
     networks:
       hydra_net:
-        ipv4_address: 172.16.238.19
+        ipv4_address: 172.16.230.19
 
   # Head B: bob
   hydra-node-bob-2h:
@@ -83,10 +83,10 @@ services:
       [
         "--node-id", "2",
         "--api-host", "0.0.0.0",
-        "--listen", "172.16.238.22:5022",
+        "--listen", "172.16.230.22:5022",
         "--monitoring-port", "6022",
         "--api-port", "4022",
-        "--peer", "172.16.238.29:5029",
+        "--peer", "172.16.230.29:5029",
         "--hydra-signing-key", "/devnet/credentials/bob/bob-hydra.sk",
         "--hydra-verification-key", "/devnet/credentials/ida/ida-hydra.vk",
         "--persistence-dir", "/devnet/persistence/bob-2h",
@@ -96,7 +96,7 @@ services:
       ]
     networks:
       hydra_net:
-        ipv4_address: 172.16.238.22
+        ipv4_address: 172.16.230.22
 
   # Head B: ida-2
   hydra-node-ida-2-2h:
@@ -111,9 +111,9 @@ services:
       [
         "--node-id", "4",
         "--api-host", "0.0.0.0",
-        "--listen", "172.16.238.29:5029",
+        "--listen", "172.16.230.29:5029",
         "--monitoring-port", "6029",
-        "--peer", "172.16.238.22:5022",
+        "--peer", "172.16.230.22:5022",
         "--api-port", "4029",
         "--hydra-signing-key", "/devnet/credentials/ida/ida-hydra.sk",
         "--hydra-verification-key", "/devnet/credentials/bob/bob-hydra.vk",
@@ -124,7 +124,7 @@ services:
       ]
     networks:
       hydra_net:
-        ipv4_address: 172.16.238.29
+        ipv4_address: 172.16.230.29
 
   startup-time-logger:
     image: alpine
@@ -142,5 +142,5 @@ networks:
     driver: bridge
     ipam:
       config:
-        - subnet: 172.16.238.0/24
-          gateway: 172.16.238.1
+        - subnet: 172.16.230.0/24
+          gateway: 172.16.230.1
