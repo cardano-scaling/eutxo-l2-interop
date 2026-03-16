@@ -1,11 +1,12 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { CML, Lucid, getAddressDetails } from "@lucid-evolution/lucid";
 import { HydraOpsHandler, txHashFromCbor } from "./ops-handler";
 import { HydraOpsProvider } from "./ops-provider";
 import { hexAddressToBech32 } from "./ops-address";
+import { ensureHydraSlotConfig } from "./slot-config";
+import { credentialsPath } from "@/lib/runtime-paths";
 
-const REQUEST_FUNDS_FIXED_LOVELACE = 5_000_000n;
+const REQUEST_FUNDS_FIXED_LOVELACE = 20_000_000n;
 
 function getHeadAApiUrl(): string {
   const value = process.env.HYDRA_HEAD_A_API_URL;
@@ -16,7 +17,7 @@ function getHeadAApiUrl(): string {
 }
 
 function loadIdaFundsPrivateKeyBech32(): string {
-  const skPath = join(process.cwd(), "../infra/credentials/ida/ida-funds.sk");
+  const skPath = credentialsPath("ida", "ida-funds.sk");
   const skJson = JSON.parse(readFileSync(skPath, "utf8")) as { cborHex: string };
   const skBytes = Buffer.from(skJson.cborHex, "hex");
   const sk = CML.PrivateKey.from_normal_bytes(skBytes.subarray(2));
@@ -41,6 +42,7 @@ export async function prepareRequestFundsDraft(input: { address: string }) {
   const recipientAddress = normalizeAddressToBech32(input.address);
   const recipientPaymentKeyHash = paymentKeyHashFromAddress(recipientAddress);
   const handler = new HydraOpsHandler(getHeadAApiUrl());
+  ensureHydraSlotConfig();
   const lucid = await Lucid(new HydraOpsProvider(handler), "Custom");
   lucid.selectWallet.fromPrivateKey(loadIdaFundsPrivateKeyBech32());
 
@@ -60,6 +62,7 @@ export async function prepareRequestFundsDraft(input: { address: string }) {
 
 export async function submitRequestFundsDraft(input: { unsignedTxCborHex: string; witnessHex: string }) {
   const handler = new HydraOpsHandler(getHeadAApiUrl());
+  ensureHydraSlotConfig();
   const lucid = await Lucid(new HydraOpsProvider(handler), "Custom");
   lucid.selectWallet.fromPrivateKey(loadIdaFundsPrivateKeyBech32());
   const signBuilder = lucid

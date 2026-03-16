@@ -19,8 +19,12 @@ export const prepareBuyTicketSchema = z.object({
 export type PrepareBuyTicketInput = z.infer<typeof prepareBuyTicketSchema>;
 
 export const submitBuyTicketSchema = z.object({
-  draftId: z.string().min(1),
+  unsignedTxCborHex: z.string().regex(/^[0-9a-fA-F]+$/),
   witnessHex: z.string().regex(/^[0-9a-fA-F]+$/),
+  sourceHead: z.enum(["headA", "headC"]),
+  htlcHash: z.string().regex(/^[0-9a-fA-F]+$/),
+  idempotencyKey: z.string().min(1).optional(),
+  preimage: z.string().regex(/^[0-9a-fA-F]+$/).optional(),
 });
 
 export type SubmitBuyTicketInput = z.infer<typeof submitBuyTicketSchema>;
@@ -49,6 +53,7 @@ export type PreparedBuyTicketDraft = {
     sourceHead: "headA" | "headC";
     amountLovelace: string;
     htlcHash: string;
+    timeoutMinutes: string;
     desiredOutput: DesiredOutput;
   };
 };

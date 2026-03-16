@@ -5,10 +5,12 @@ import {
   type CBORHex,
   type UTxO,
 } from "@lucid-evolution/lucid";
+import { WebSocket as NodeWebSocket } from "ws";
 
 export class HydraOpsHandler {
   private readonly wsUrl: URL;
   private readonly httpOrigin: string;
+  private readonly txAwaitTimeoutMs: number;
 
   constructor(baseUrl: string) {
     const http = new URL(baseUrl);
@@ -16,10 +18,12 @@ export class HydraOpsHandler {
     const ws = new URL(baseUrl);
     ws.protocol = ws.protocol.replace("http", "ws");
     this.wsUrl = ws;
+    const parsed = Number(process.env.HYDRA_OPERATION_TIMEOUT_MS ?? 60_000);
+    this.txAwaitTimeoutMs = Number.isFinite(parsed) && parsed > 0 ? parsed : 60_000;
   }
 
   async sendTx(txCborHex: CBORHex): Promise<"TxValid"> {
-    const ws = new WebSocket(`${this.wsUrl.toString()}?history=no`);
+    const ws = new NodeWebSocket(`${this.wsUrl.toString()}?history=no`);
     return new Promise<"TxValid">((resolve, reject) => {
       const timeout = setTimeout(() => {
         try {
@@ -27,8 +31,8 @@ export class HydraOpsHandler {
         } catch {
           // noop
         }
-        reject(new Error("Timed out waiting for Hydra TxValid"));
-      }, 20_000);
+        reject(new Error(`Timed out waiting for Hydra TxValid after ${this.txAwaitTimeoutMs}ms`));
+      }, this.txAwaitTimeoutMs);
 
       ws.onopen = () => {
         ws.send(
@@ -39,8 +43,8 @@ export class HydraOpsHandler {
         );
       };
 
-      ws.onmessage = (event) => {
-        const data = JSON.parse(String(event.data)) as { tag?: string };
+      ws.onmessage = (event: { data: unknown }) => {
+        const data = JSON.parse(String(event.data)) as Record<string, unknown> & { tag?: string };
         if (data.tag === "TxValid") {
           clearTimeout(timeout);
           ws.close();
@@ -50,7 +54,13 @@ export class HydraOpsHandler {
         if (data.tag && /Invalid|Failed/i.test(data.tag)) {
           clearTimeout(timeout);
           ws.close();
-          reject(new Error(`Hydra rejected transaction: ${data.tag}`));
+          let details = "";
+          try {
+            details = JSON.stringify(data);
+          } catch {
+            details = String(data);
+          }
+          reject(new Error(`Hydra rejected transaction: ${data.tag} ${details}`));
         }
       };
 

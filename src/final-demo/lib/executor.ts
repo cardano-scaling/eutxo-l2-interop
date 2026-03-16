@@ -2,6 +2,7 @@ import { WorkflowStatus, WorkflowType, type Workflow } from "@prisma/client";
 import { logger } from "./logger";
 import {
   appendEvent,
+  markWorkflowDeferredLocked,
   markWorkflowFailedLocked,
   markWorkflowSucceededLocked,
   refreshWorkflowLock,
@@ -19,6 +20,32 @@ type WorkflowExecutionError = {
   errorCode?: string;
   retryable?: boolean;
 };
+
+class WorkflowDeferredError extends Error {
+  code: string;
+  baseRetryDelaySec: number;
+  stepName: "prepare" | "submit" | "confirm";
+  constructor(
+    message: string,
+    code: string,
+    baseRetryDelaySec: number,
+    stepName: "prepare" | "submit" | "confirm",
+  ) {
+    super(message);
+    this.name = "WorkflowDeferredError";
+    this.code = code;
+    this.baseRetryDelaySec = baseRetryDelaySec;
+    this.stepName = stepName;
+  }
+}
+
+function isDeferredPreconditionError(errorCode?: string): boolean {
+  if (!errorCode) return false;
+  return errorCode === "BUY_TICKET_REAL_ARTIFACTS_REQUIRED"
+    || errorCode === "BUY_TICKET_TARGET_HTLC_NOT_FOUND"
+    || errorCode === "BUY_TICKET_SOURCE_HTLC_NOT_FOUND"
+    || errorCode === "BUY_TICKET_PREIMAGE_REQUIRED";
+}
 
 function asWorkflowExecutionError(error: unknown): WorkflowExecutionError {
   if (error instanceof RequestFundsError) {
@@ -83,6 +110,25 @@ async function executeWorkflowStep(
       throw error;
     }
     const err = asWorkflowExecutionError(error);
+    if (isDeferredPreconditionError(err.errorCode)) {
+      await updateStepWithEvent(workflow.id, name, WorkflowStatus.pending, {
+        level: "info",
+        message: `Step ${name} waiting for prerequisites`,
+        meta: {
+          step: name,
+          attempt,
+          errorCode: err.errorCode ?? null,
+          reason: err.message,
+        },
+      });
+      // Keep retries lightweight for transient visibility races.
+      throw new WorkflowDeferredError(
+        err.message,
+        err.errorCode ?? "WORKFLOW_WAITING_PREREQUISITES",
+        2,
+        name,
+      );
+    }
     await updateStepWithEvent(
       workflow.id,
       name,
@@ -198,6 +244,32 @@ async function executeBuyTicketWorkflow(workflow: WorkflowWithSteps, workerId: s
         hashRef: serviceResult.hashRef,
         headBHtlcRef: serviceResult.headBHtlcRef,
       });
+      await appendEvent(
+        workflow.id,
+        "info",
+        serviceResult.headBAutomationAction === "reused"
+          ? "head_b_automation_reused_existing_lock"
+          : "head_b_automation_created_new_lock",
+        {
+          hashRef: serviceResult.hashRef,
+          headBHtlcRef: serviceResult.headBHtlcRef,
+          action: serviceResult.headBAutomationAction,
+        },
+      );
+      await appendEvent(workflow.id, "info", "ida_lock", {
+        action: serviceResult.headBAutomationAction,
+        headBHtlcRef: serviceResult.headBHtlcRef,
+      });
+      await appendEvent(workflow.id, "info", "ida_claim_target", {
+        action: serviceResult.headBClaimAction,
+        txHash: serviceResult.headBClaimTxHash,
+        pairDetected: serviceResult.pairDetected,
+      });
+      await appendEvent(workflow.id, "info", "ida_claim_source", {
+        action: serviceResult.sourceClaimAction,
+        txHash: serviceResult.sourceClaimTxHash,
+        claimOrder: serviceResult.claimOrder,
+      });
       await setWorkflowDraftResultLocked(workflow.id, result, workerId);
     });
   }
@@ -205,21 +277,27 @@ async function executeBuyTicketWorkflow(workflow: WorkflowWithSteps, workerId: s
   if (!hasSucceededStep(workflow, "confirm")) {
     await executeWorkflowStep(workflow, "confirm", attempt, workerId, async () => {
       const sourceHead = payload.sourceHead!;
-      const ticketOutputRef = `ticket_out_b_${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`;
       await appendEvent(workflow.id, "info", "ida_claimed_both_htlcs", {
         sourceHead,
         hashRef: result.hashRef ?? payload.htlcHash ?? null,
         sourceHtlcRef: result.sourceHtlcRef ?? null,
         headBHtlcRef: result.headBHtlcRef ?? null,
+        sourceClaimAction: result.sourceClaimAction ?? null,
+        headBClaimAction: result.headBClaimAction ?? null,
+        sourceClaimTxHash: result.sourceClaimTxHash ?? null,
+        headBClaimTxHash: result.headBClaimTxHash ?? null,
       });
       result = {
         ...result,
-        ticketOutputRef,
-        status: "ticket_output_created_head_b",
+        status: "confirmed_with_real_artifacts",
       };
       await setWorkflowDraftResultLocked(workflow.id, result, workerId);
       await upsertHeadState(sourceHead, "open", `HTLC created for buy ticket from ${sourceHead}`);
-      await upsertHeadState("headB", "open", `Ticket output created: ${ticketOutputRef}`);
+      await upsertHeadState(
+        "headB",
+        "open",
+        `Buy ticket confirmed with sourceRef=${String(result.sourceHtlcRef ?? "n/a")}`,
+      );
     });
   }
 
@@ -248,6 +326,22 @@ export async function executeWorkflow(workflow: WorkflowWithSteps, workerId: str
   } catch (error) {
     if (error instanceof WorkflowLockError) {
       logger.warn({ workflowId: workflow.id, workerId }, "workflow lock lost during execution; aborting");
+      return;
+    }
+    if (error instanceof WorkflowDeferredError) {
+      try {
+        await markWorkflowDeferredLocked(workflow.id, error.message, workerId, {
+          errorCode: error.code,
+          baseRetryDelaySec: error.baseRetryDelaySec,
+          stepName: error.stepName,
+        });
+      } catch (deferErr) {
+        if (deferErr instanceof WorkflowLockError) {
+          logger.warn({ workflowId: workflow.id, workerId }, "workflow lock lost before defer write; skipping");
+          return;
+        }
+        throw deferErr;
+      }
       return;
     }
     const err = asWorkflowExecutionError(error);

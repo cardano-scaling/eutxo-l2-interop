@@ -1,5 +1,4 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import blake2b from "blake2b";
@@ -22,6 +21,7 @@ import {
 import { HydraOpsHandler } from "../lib/hydra/ops-handler";
 import { HydraOpsProvider } from "../lib/hydra/ops-provider";
 import { getLotteryScriptInfo } from "../lib/hydra/ops-scripts";
+import { credentialsPath, startupTimePath } from "../lib/runtime-paths";
 
 const HEAD_B_JON_API_URL = "http://127.0.0.1:4328";
 const LOTTERY_REGISTRY_API_URL = "http://127.0.0.1:3000/api/lottery/active";
@@ -30,7 +30,7 @@ const LOTTERY_REGISTRY_API_URL = "http://127.0.0.1:3000/api/lottery/active";
 const DEFAULT_CLOSE_DELAY_MS = 30 * 24 * 60 * 60 * 1000;
 
 function loadStartupTimeMs(): number {
-  const startupTime = readFileSync(join(process.cwd(), "../infra/startup_time.txt"), "utf8").trim();
+  const startupTime = readFileSync(startupTimePath(), "utf8").trim();
   const parsed = Number(startupTime);
   if (!Number.isFinite(parsed)) {
     throw new Error("Invalid startup_time.txt value");
@@ -39,8 +39,8 @@ function loadStartupTimeMs(): number {
 }
 
 function loadJonKeys(): { privateKeyBech32: string; vkeyHashHex: string } {
-  const skPath = join(process.cwd(), "../infra/credentials/jon/jon-funds.sk");
-  const vkPath = join(process.cwd(), "../infra/credentials/jon/jon-funds.vk");
+  const skPath = credentialsPath("jon", "jon-funds.sk");
+  const vkPath = credentialsPath("jon", "jon-funds.vk");
   const skJson = JSON.parse(readFileSync(skPath, "utf8")) as { cborHex: string };
   const vkJson = JSON.parse(readFileSync(vkPath, "utf8")) as { cborHex: string };
 
@@ -70,12 +70,12 @@ async function main() {
       slotLength: 1000,
     };
 
-    const prizeInput = await rli.question("Prize amount (lovelace) [5000000]: ");
-    const ticketCostInput = await rli.question("Ticket cost (lovelace) [1000000]: ");
+    const prizeInput = await rli.question("Prize amount (lovelace) [25000000]: ");
+    const ticketCostInput = await rli.question("Ticket cost (lovelace) [5000000]: ");
     const closeTimestampInput = await rli.question("Close timestamp POSIX ms [now+30d]: ");
 
-    const prize = BigInt((prizeInput.trim() || "5000000"));
-    const ticketCost = BigInt((ticketCostInput.trim() || "1000000"));
+    const prize = BigInt((prizeInput.trim() || "25000000"));
+    const ticketCost = BigInt((ticketCostInput.trim() || "5000000"));
     const closeTimestamp = BigInt(
       closeTimestampInput.trim() || String(Date.now() + DEFAULT_CLOSE_DELAY_MS),
     );
