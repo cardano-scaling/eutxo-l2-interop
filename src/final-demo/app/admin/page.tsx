@@ -9,13 +9,14 @@ export const metadata: Metadata = {
   },
 };
 
-export default function CharliePage() {
+export default function AdminPage() {
   return (
     <AppShell
-      title="Final Demo · Charlie"
-      subtitle="Head C operator flow: monitor Head A/C, associate Hydra node, and buy ticket."
+      title="Final Demo · Admin"
+      subtitle="Monitor all heads/workflows and execute admin operations."
     >
-      <FinalDemoApp view="charlie" />
+      <FinalDemoApp view="admin" />
     </AppShell>
   );
 }
+

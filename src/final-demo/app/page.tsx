@@ -1,5 +1,5 @@
-import { FinalDemoApp } from "@/components/FinalDemoApp";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return <FinalDemoApp view="user" />;
+  redirect("/user");
 }

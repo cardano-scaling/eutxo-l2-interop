@@ -13,10 +13,16 @@ import {
   signTxWithConnectedWallet,
   type WalletSession,
 } from "@/lib/wallet/cip30";
+import { roleHeaders, type FinalDemoRole } from "@/lib/auth/role-guard";
+import {
+  HeadStateSection,
+  SnapshotSection,
+  WorkflowTimelineSection,
+} from "@/components/final-demo/monitoring-sections";
 
-type FinalDemoView = "user" | "charlie" | "all";
+type FinalDemoView = "user" | "charlie" | "admin";
 
-interface HeadReadModel {
+export interface HeadReadModel {
   status: string;
   detail: string;
   updatedAt: string;
@@ -34,7 +40,7 @@ interface HeadsResponse {
   staleThresholdMs: number;
 }
 
-interface SnapshotRow {
+export interface SnapshotRow {
   ref: string;
   address: string;
   label: string;
@@ -43,7 +49,7 @@ interface SnapshotRow {
   hasInlineDatum: boolean;
 }
 
-interface HeadSnapshotState {
+export interface HeadSnapshotState {
   head: "headA" | "headB" | "headC";
   status: string;
   error: string | null;
@@ -91,7 +97,7 @@ function formatInlineError(message: string, max = 280): string {
   return `${trimmed.slice(0, max)}...`;
 }
 
-interface WorkflowResponse {
+export interface WorkflowResponse {
   id: string;
   type: "request_funds" | "buy_ticket";
   status: string;
@@ -105,30 +111,10 @@ interface WorkflowResponse {
   events: Array<{ id: string; level: string; message: string; createdAt: string; metaJson?: string | null }>;
 }
 
-function parseEventMeta(metaJson?: string | null): Record<string, unknown> | null {
-  if (!metaJson) return null;
-  try {
-    const parsed = JSON.parse(metaJson) as unknown;
-    return parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : null;
-  } catch {
-    return null;
-  }
-}
-
-function displayWorkflowEvent(event: { level: string; message: string; metaJson?: string | null }) {
-  const meta = parseEventMeta(event.metaJson);
-  const reason = typeof meta?.reason === "string" ? meta.reason : null;
-  const isWaitingEvent = event.message.toLowerCase().includes("waiting");
-  const level = isWaitingEvent ? "wait" : event.level;
-  const text = isWaitingEvent && reason ? reason : event.message;
-  return { level, text };
-}
-
-function eventColor(level: string): string {
-  if (level === "error") return "#b91c1c";
-  if (level === "warn") return "#b45309";
-  if (level === "wait") return "#a16207";
-  return "#334155";
+interface WorkflowListResponse {
+  requestId: string;
+  count: number;
+  workflows: WorkflowResponse[];
 }
 
 async function fetchHeads(): Promise<HeadsResponse> {
@@ -248,8 +234,55 @@ async function fetchWorkflow(id: string): Promise<WorkflowResponse> {
   return r.json();
 }
 
-async function retryWorkflow(id: string) {
-  const r = await fetch(`/api/admin/workflows/${id}/retry`, { method: "POST" });
+async function retryWorkflow(id: string, role: FinalDemoRole) {
+  const r = await fetch(`/api/admin/workflows/${id}/retry`, {
+    method: "POST",
+    headers: roleHeaders(role),
+  });
+  if (!r.ok) throw new Error(await extractApiErrorMessage(r));
+  return r.json();
+}
+
+async function fetchAdminWorkflows(
+  role: FinalDemoRole,
+  filters: { status?: string; type?: string; idContains?: string },
+): Promise<WorkflowListResponse> {
+  const url = new URL("/api/admin/workflows", window.location.origin);
+  if (filters.status) url.searchParams.set("status", filters.status);
+  if (filters.type) url.searchParams.set("type", filters.type);
+  if (filters.idContains) url.searchParams.set("idContains", filters.idContains);
+  url.searchParams.set("limit", "25");
+  const r = await fetch(url.toString(), {
+    headers: roleHeaders(role),
+  });
+  if (!r.ok) throw new Error(await extractApiErrorMessage(r));
+  return r.json();
+}
+
+async function runAdminReconcile(role: FinalDemoRole) {
+  const r = await fetch("/api/admin/reconcile", {
+    method: "POST",
+    headers: roleHeaders(role),
+  });
+  if (!r.ok) throw new Error(await extractApiErrorMessage(r));
+  return r.json();
+}
+
+async function registerLotteryActive(role: FinalDemoRole, body: Record<string, unknown>) {
+  const r = await fetch("/api/lottery/active", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...roleHeaders(role) },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await extractApiErrorMessage(r));
+  return r.json();
+}
+
+async function associateCharlieNode(role: FinalDemoRole) {
+  const r = await fetch("/api/charlie/associate", {
+    method: "POST",
+    headers: roleHeaders(role),
+  });
   if (!r.ok) throw new Error(await extractApiErrorMessage(r));
   return r.json();
 }
@@ -468,6 +501,7 @@ function saveHtlcPair(preimage: string, htlcHash: string): HtlcPairRecord[] {
 
 function FinalDemoInner({ view }: { view: FinalDemoView }) {
   const defaultActor = view === "charlie" ? "charlie" : "user";
+  const appRole: FinalDemoRole = view === "admin" ? "admin" : view;
   const [walletOptions, setWalletOptions] = useState(() => getWalletOptions());
   const [selectedWalletKey, setSelectedWalletKey] = useState(walletOptions[0]?.key ?? "");
   const [walletSession, setWalletSession] = useState<WalletSession | null>(null);
@@ -482,6 +516,13 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
   const [htlcPairs, setHtlcPairs] = useState<HtlcPairRecord[]>([]);
   const [htlcPairGenerateError, setHtlcPairGenerateError] = useState<string | null>(null);
   const [workflowId, setWorkflowId] = useState("");
+  const [workflowSearchId, setWorkflowSearchId] = useState("");
+  const [adminWorkflowStatusFilter, setAdminWorkflowStatusFilter] = useState("");
+  const [adminWorkflowTypeFilter, setAdminWorkflowTypeFilter] = useState("");
+  const [adminLotteryPolicyId, setAdminLotteryPolicyId] = useState("");
+  const [adminLotteryTokenNameHex, setAdminLotteryTokenNameHex] = useState("");
+  const [adminLotteryMintTxHash, setAdminLotteryMintTxHash] = useState("");
+  const [adminLotteryContractAddress, setAdminLotteryContractAddress] = useState("");
 
   const heads = useQuery({
     queryKey: ["heads"],
@@ -519,6 +560,17 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
       return false;
     },
   });
+  const adminWorkflows = useQuery({
+    queryKey: ["admin-workflows", adminWorkflowStatusFilter, adminWorkflowTypeFilter, workflowSearchId],
+    queryFn: () =>
+      fetchAdminWorkflows(appRole, {
+        status: adminWorkflowStatusFilter || undefined,
+        type: adminWorkflowTypeFilter || undefined,
+        idContains: workflowSearchId || undefined,
+      }),
+    enabled: view === "admin",
+    refetchInterval: 3000,
+  });
 
   const connect = useMutation({
     mutationFn: () => fetch("/api/state/heads/mock-connect", { method: "POST" }).then((r) => r.json()),
@@ -542,7 +594,7 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
     restoreWalletSession(defaultActor)
       .then((session) => {
         if (!session) return;
-        if (view !== "all" && session.actor !== defaultActor) return;
+        if (session.actor !== defaultActor) return;
         setWalletSession(session);
         setSelectedWalletKey(session.walletKey);
         setAddress(session.changeAddress);
@@ -707,8 +759,33 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
   });
 
   const retry = useMutation({
-    mutationFn: () => retryWorkflow(workflowId),
+    mutationFn: () => retryWorkflow(workflowId, appRole),
     onSuccess: () => workflow.refetch(),
+  });
+  const reconcile = useMutation({
+    mutationFn: () => runAdminReconcile(appRole),
+    onSuccess: () => {
+      heads.refetch();
+      adminWorkflows.refetch();
+      if (workflowId) workflow.refetch();
+    },
+  });
+  const createLotteryRegistration = useMutation({
+    mutationFn: () =>
+      registerLotteryActive(appRole, {
+        headName: "headB",
+        policyId: adminLotteryPolicyId.trim().toLowerCase(),
+        tokenNameHex: adminLotteryTokenNameHex.trim().toLowerCase(),
+        mintTxHash: adminLotteryMintTxHash.trim().toLowerCase(),
+        contractAddress: adminLotteryContractAddress.trim(),
+      }),
+  });
+  const associateCharlie = useMutation({
+    mutationFn: () => associateCharlieNode(appRole),
+    onSuccess: () => {
+      heads.refetch();
+      snapshots.refetch();
+    },
   });
   const generateHtlcPairAndFill = () => {
     try {
@@ -762,6 +839,11 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
     headB: heads.data?.headB.status === "open",
     headC: heads.data?.headC.status === "open",
   };
+  const visibleHeads: Array<"headA" | "headB" | "headC"> = view === "user"
+    ? ["headA", "headB"]
+    : view === "charlie"
+      ? ["headA", "headC"]
+      : ["headA", "headB", "headC"];
   const hasWalletConnection = Boolean(walletSession);
   const requestFundsDisabledReason = !hasWalletConnection
     ? "Connect a wallet first."
@@ -783,76 +865,28 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
     <main
       style={{
         width: "100%",
-        maxWidth: "clamp(320px, 88vw, 720px)",
-        margin: "0 auto",
-        padding: "clamp(12px, 2.5vw, 20px)",
+        maxWidth: "100%",
+        margin: 0,
+        padding: "clamp(8px, 2vw, 14px)",
         display: "grid",
-        gap: 16,
+        gap: 12,
       }}
     >
-      <section style={cardStyle}>
-        <h1 style={{ margin: 0 }}>
-          eUTxO L2 Interop Final Demo {view === "charlie" ? "· Charlie View" : view === "user" ? "· User View" : ""}
-        </h1>
-      </section>
-
-      <section style={cardStyle}>
-        <h2 style={{ marginTop: 0 }}>Head State</h2>
-        {heads.isLoading ? <p>Loading head state...</p> : null}
-        {heads.isError ? (
-          <div style={{ display: "grid", gap: 8 }}>
-            <p style={{ color: "#b91c1c", margin: 0 }}>Failed to load head state: {heads.error.message}</p>
-            <div>
-              <Button variant="outline" onClick={() => heads.refetch()}>Retry Head State</Button>
-            </div>
-          </div>
-        ) : null}
-        {heads.data ? (
-          <>
-            <p
-              style={{
-                marginTop: 0,
-                color: (nowMs - new Date(heads.data.updatedAt).getTime()) > heads.data.staleThresholdMs ? "#b45309" : "#52525b",
-              }}
-            >
-              Last update: {new Date(heads.data.updatedAt).toLocaleString()} ({Math.floor(Math.max(0, nowMs - new Date(heads.data.updatedAt).getTime()) / 1000)}s ago)
-              {" · "}
-              {(nowMs - new Date(heads.data.updatedAt).getTime()) > heads.data.staleThresholdMs ? "STALE" : "FRESH"}
-            </p>
-            <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
-              <HeadCard title="Head A" head={heads.data.headA} nowMs={nowMs} staleThresholdMs={heads.data.staleThresholdMs} />
-              <HeadCard title="Head B" head={heads.data.headB} nowMs={nowMs} staleThresholdMs={heads.data.staleThresholdMs} />
-              <HeadCard title="Head C" head={heads.data.headC} nowMs={nowMs} staleThresholdMs={heads.data.staleThresholdMs} />
-            </div>
-          </>
-        ) : null}
-        <div style={{ marginTop: 12 }}>
-
-        </div>
-      </section>
+      <HeadStateSection
+        heads={heads}
+        nowMs={nowMs}
+        visibleHeads={visibleHeads}
+        onRetry={() => heads.refetch()}
+        cardStyle={cardStyle}
+      />
       {anyOpenHead ? (
-        <section style={cardStyle}>
-          <h2 style={{ marginTop: 0 }}>Head Snapshot UTxOs</h2>
-          <p style={{ marginTop: 0, color: "#52525b" }}>
-            Live UTxOs mapped to known actor/script names.
-          </p>
-          {snapshots.isLoading ? <p style={{ margin: 0 }}>Loading snapshots...</p> : null}
-          {snapshots.isError ? (
-            <p style={{ margin: 0, color: "#b91c1c" }}>Failed to load snapshots: {snapshots.error.message}</p>
-          ) : null}
-          {snapshots.data ? (
-            <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
-              <SnapshotHeadCard title="Head A" snapshot={snapshots.data.heads.headA} />
-              <SnapshotHeadCard title="Head B" snapshot={snapshots.data.heads.headB} />
-              <SnapshotHeadCard title="Head C" snapshot={snapshots.data.heads.headC} />
-            </div>
-          ) : null}
-        </section>
+        <SnapshotSection snapshots={snapshots} visibleHeads={visibleHeads} cardStyle={cardStyle} />
       ) : null}
 
+      {view !== "admin" ? (
       <section style={cardStyle}>
         <h2 style={{ marginTop: 0 }}>Wallet (CIP-30)</h2>
-        <p style={{ marginTop: 0, color: "#52525b" }}>
+        <p style={{ marginTop: 0, color: "#475569", fontSize: 13 }}>
           Connect a detected CIP-30 wallet extension. If none are installed, actions stay disabled.
         </p>
         <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
@@ -905,7 +939,7 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
           </p>
         ) : null}
         {walletSession ? (
-          <p style={{ marginTop: 8, marginBottom: 0, color: "#52525b" }}>
+          <p style={{ marginTop: 8, marginBottom: 0, color: "#334155", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, padding: "6px 8px", fontSize: 13 }}>
             Connected: <strong>{walletSession.walletName}</strong> · actor <strong>{walletSession.actor}</strong> · network <strong>{walletSession.networkId}</strong>
             {" · "}signTx <strong>{walletSession.supportsSignTx ? "yes" : "no"}</strong>
           </p>
@@ -915,73 +949,97 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
           </p>
         )}
       </section>
+      ) : null}
 
+      {view !== "admin" ? (
       <section style={cardStyle}>
         <h2 style={{ marginTop: 0 }}>Actions</h2>
-        <p style={{ marginTop: 0, color: "#52525b" }}>
+        <p style={{ marginTop: 0, color: "#475569", fontSize: 13 }}>
           Current actor context: <strong>{actionActor}</strong>
         </p>
-        <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
-          <label style={labelStyle}>
-            Address
-            <input
-              style={inputStyle}
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              disabled={Boolean(walletSession)}
-            />
-          </label>
-          <label style={labelStyle}>
-            Request funds amount (lovelace)
-            <input style={inputStyle} value={REQUEST_FUNDS_FIXED_LOVELACE} readOnly />
-          </label>
-          <label style={labelStyle}>
-            Ticket cost (lovelace)
-            <input
-              style={inputStyle}
-              value={lastPreparedTicketCostLovelace ?? "derived from active lottery at prepare"}
-              readOnly
-            />
-          </label>
-          <label style={labelStyle}>
-            HTLC Hash (hex)
-            <input style={inputStyle} value={htlcHash} onChange={(e) => setHtlcHash(e.target.value)} />
-          </label>
-          <label style={labelStyle}>
-            HTLC Timeout (minutes)
-            <input style={inputStyle} value={timeoutMinutes} onChange={(e) => setTimeoutMinutes(e.target.value)} />
-          </label>
-          <label style={labelStyle}>
-            HTLC Preimage (hex, demo)
-            <input style={inputStyle} value={preimage} onChange={(e) => setPreimage(e.target.value)} />
-          </label>
+        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "minmax(0, 1fr) 220px" }}>
+          <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+            <label style={labelStyle}>
+              Address
+              <input
+                style={inputStyle}
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                disabled={Boolean(walletSession)}
+              />
+            </label>
+            {view === "user" ? (
+              <label style={labelStyle}>
+                Request funds amount (lovelace)
+                <input style={inputStyle} value={REQUEST_FUNDS_FIXED_LOVELACE} readOnly />
+              </label>
+            ) : null}
+            <label style={labelStyle}>
+              Ticket cost (lovelace)
+              <input
+                style={inputStyle}
+                value={lastPreparedTicketCostLovelace ?? "derived from active lottery at prepare"}
+                readOnly
+              />
+            </label>
+            <label style={labelStyle}>
+              HTLC Hash (hex)
+              <input style={inputStyle} value={htlcHash} onChange={(e) => setHtlcHash(e.target.value)} />
+            </label>
+            <label style={labelStyle}>
+              HTLC Timeout (minutes)
+              <input style={inputStyle} value={timeoutMinutes} onChange={(e) => setTimeoutMinutes(e.target.value)} />
+            </label>
+            <label style={labelStyle}>
+              HTLC Preimage (hex, demo)
+              <input style={inputStyle} value={preimage} onChange={(e) => setPreimage(e.target.value)} />
+            </label>
+          </div>
+          <div style={{ display: "grid", gap: 8, alignContent: "start" }}>
+            <Button variant="secondary" onClick={generateHtlcPairAndFill} disabled={busy}>
+              Generate Pair
+            </Button>
+            {view === "user" ? (
+              <Button onClick={() => requestFunds.mutate()} disabled={busy || Boolean(requestFundsDisabledReason)}>
+                Request Funds
+              </Button>
+            ) : null}
+            <Button onClick={() => buyTicket.mutate()} disabled={busy || Boolean(buyTicketDisabledReason)}>Buy Ticket</Button>
+            {view === "charlie" ? (
+              <Button variant="outline" onClick={() => associateCharlie.mutate()} disabled={associateCharlie.isPending}>
+                Associate Node
+              </Button>
+            ) : null}
+          </div>
         </div>
-        <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <Button variant="secondary" onClick={generateHtlcPairAndFill} disabled={busy}>
-            Generate HTLC Preimage+Hash
-          </Button>
-          <Button onClick={() => requestFunds.mutate()} disabled={busy || Boolean(requestFundsDisabledReason)}>Request Funds</Button>
-          <Button onClick={() => buyTicket.mutate()} disabled={busy || Boolean(buyTicketDisabledReason)}>Buy Ticket</Button>
-
-        </div>
-        {requestFundsDisabledReason ? (
-          <p style={{ marginTop: 8, marginBottom: 0, color: "#b45309", fontSize: 12 }}>
+        {view === "user" && requestFundsDisabledReason ? (
+          <p style={{ marginTop: 8, marginBottom: 0, color: "#b45309", fontSize: 12, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "5px 7px" }}>
             Request funds unavailable: {requestFundsDisabledReason}
           </p>
         ) : null}
         {buyTicketDisabledReason ? (
-          <p style={{ marginTop: 6, marginBottom: 0, color: "#b45309", fontSize: 12 }}>
+          <p style={{ marginTop: 6, marginBottom: 0, color: "#b45309", fontSize: 12, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "5px 7px" }}>
             Buy ticket unavailable: {buyTicketDisabledReason}
           </p>
         ) : null}
-        {requestFunds.isError ? (
-          <p style={{ marginTop: 6, marginBottom: 0, color: "#b91c1c", fontSize: 12, overflowWrap: "anywhere", wordBreak: "break-word" }}>
+        {view === "user" && requestFunds.isError ? (
+          <p style={{ marginTop: 6, marginBottom: 0, color: "#b91c1c", fontSize: 12, overflowWrap: "anywhere", wordBreak: "break-word", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, padding: "6px 8px" }}>
             Request funds failed: {formatInlineError(requestFunds.error.message)}
           </p>
         ) : null}
         {buyTicket.isError ? (
-          <p style={{ marginTop: 6, marginBottom: 0, color: "#b91c1c", fontSize: 12, overflowWrap: "anywhere", wordBreak: "break-word" }}>
+          <p style={{ marginTop: 6, marginBottom: 0, color: "#b91c1c", fontSize: 12, overflowWrap: "anywhere", wordBreak: "break-word", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, padding: "6px 8px" }}>
             Buy ticket failed: {formatInlineError(buyTicket.error.message)}
+          </p>
+        ) : null}
+        {associateCharlie.isError ? (
+          <p style={{ marginTop: 6, marginBottom: 0, color: "#b91c1c", fontSize: 12, overflowWrap: "anywhere", wordBreak: "break-word" }}>
+            Charlie association failed: {formatInlineError(associateCharlie.error.message)}
+          </p>
+        ) : null}
+        {associateCharlie.isSuccess ? (
+          <p style={{ marginTop: 6, marginBottom: 0, color: "#166534", fontSize: 12 }}>
+            Charlie hydra node association requested.
           </p>
         ) : null}
         {htlcPairGenerateError ? (
@@ -995,12 +1053,14 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
             {new Date(htlcPairs[0].createdAtMs).toLocaleTimeString()}.
           </p>
         ) : null}
-        <p style={{ marginTop: 8, marginBottom: 0, color: "#71717a", fontSize: 12 }}>
-          Request funds idempotencyKey:
-          <code style={{ display: "block", overflowWrap: "anywhere", wordBreak: "break-word" }}>
-            {requestFundsIdempotencyKey}
-          </code>
-        </p>
+        {view === "user" ? (
+          <p style={{ marginTop: 8, marginBottom: 0, color: "#71717a", fontSize: 12 }}>
+            Request funds idempotencyKey:
+            <code style={{ display: "block", overflowWrap: "anywhere", wordBreak: "break-word" }}>
+              {requestFundsIdempotencyKey}
+            </code>
+          </p>
+        ) : null}
         <p style={{ marginTop: 6, marginBottom: 0, color: "#71717a", fontSize: 12 }}>
           Buy ticket idempotencyKey:
           <code style={{ display: "block", overflowWrap: "anywhere", wordBreak: "break-word" }}>
@@ -1008,76 +1068,108 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
           </code>
         </p>
       </section>
+      ) : null}
 
-      <section style={cardStyle}>
-        <h2 style={{ marginTop: 0 }}>Workflow Timeline</h2>
-        <p style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>Current workflow: {workflowId || "none"}</p>
-        {workflow.data ? (
-          <>
-            <p style={{ marginBottom: 4 }}>
-              Type: <strong>{workflow.data.type}</strong>
-            </p>
-            <p style={{ marginTop: 0, marginBottom: 8 }}>
-              Status: <strong>{workflow.data.status}</strong>{" "}
-              (attempt {workflow.data.attemptCount}/{workflow.data.maxAttempts})
-            </p>
-            {workflow.data.status === "failed" && workflow.data.nextRetryAt ? (
-              <p style={{ marginTop: 0, color: "#b45309" }}>
-                Retry scheduled in{" "}
-                {Math.max(0, Math.floor((new Date(workflow.data.nextRetryAt).getTime() - nowMs) / 1000))}s
-                {" · "}
-                next retry at {new Date(workflow.data.nextRetryAt).toLocaleTimeString()}
-              </p>
-            ) : null}
-            {workflow.data.status === "cancelled" ? (
-              <p style={{ marginTop: 0, color: "#b91c1c" }}>
-                Terminal failure: {workflow.data.lastErrorCode ?? "WORKFLOW_ERROR"}
-                {workflow.data.errorMessage ? ` - ${workflow.data.errorMessage}` : ""}
-              </p>
-            ) : null}
-            {workflow.data.status === "failed" || workflow.data.status === "cancelled" ? (
-              <Button variant="destructive" onClick={() => retry.mutate()}>Retry Workflow</Button>
-            ) : null}
-            <h3>Steps</h3>
-            <ul>
-              {workflow.data.steps.map((step) => (
-                <li key={step.id}>{step.name} - {step.status} (attempt {step.attempt})</li>
-              ))}
-            </ul>
-            <h3>Events</h3>
-            <ul>
-              {workflow.data.events.map((event) => {
-                const rendered = displayWorkflowEvent(event);
-                return (
-                  <li
-                    key={event.id}
-                    style={{ overflowWrap: "anywhere", wordBreak: "break-word", color: eventColor(rendered.level) }}
-                  >
-                    [{rendered.level}] {rendered.text} ({new Date(event.createdAt).toLocaleTimeString()})
+      {view === "admin" ? (
+        <section style={cardStyle}>
+          <h2 style={{ marginTop: 0 }}>Admin Operations</h2>
+          <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+            <label style={labelStyle}>
+              Workflow ID search
+              <input style={inputStyle} value={workflowSearchId} onChange={(e) => setWorkflowSearchId(e.target.value)} />
+            </label>
+            <label style={labelStyle}>
+              Workflow status
+              <select style={inputStyle} value={adminWorkflowStatusFilter} onChange={(e) => setAdminWorkflowStatusFilter(e.target.value)}>
+                <option value="">All</option>
+                <option value="pending">pending</option>
+                <option value="running">running</option>
+                <option value="failed">failed</option>
+                <option value="cancelled">cancelled</option>
+                <option value="succeeded">succeeded</option>
+              </select>
+            </label>
+            <label style={labelStyle}>
+              Workflow type
+              <select style={inputStyle} value={adminWorkflowTypeFilter} onChange={(e) => setAdminWorkflowTypeFilter(e.target.value)}>
+                <option value="">All</option>
+                <option value="request_funds">request_funds</option>
+                <option value="buy_ticket">buy_ticket</option>
+              </select>
+            </label>
+          </div>
+          <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <Button variant="outline" onClick={() => adminWorkflows.refetch()}>Refresh Workflow List</Button>
+            <Button variant="secondary" onClick={() => reconcile.mutate()} disabled={reconcile.isPending}>Run Reconcile</Button>
+          </div>
+          {adminWorkflows.isError ? (
+            <p style={{ marginTop: 8, color: "#b91c1c" }}>Admin workflow list failed: {adminWorkflows.error.message}</p>
+          ) : null}
+          {reconcile.isError ? (
+            <p style={{ marginTop: 8, color: "#b91c1c" }}>Reconcile failed: {reconcile.error.message}</p>
+          ) : null}
+          {adminWorkflows.data ? (
+            <div style={{ marginTop: 10 }}>
+              <p style={{ margin: "0 0 8px 0", color: "#334155", fontWeight: 600 }}>Found {adminWorkflows.data.count} workflows</p>
+              <ul style={{ margin: 0, paddingLeft: 18 }}>
+                {adminWorkflows.data.workflows.map((wf) => (
+                  <li key={wf.id} style={{ marginBottom: 6, background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: "4px 7px", listStylePosition: "inside" }}>
+                    <button
+                      type="button"
+                      onClick={() => setWorkflowId(wf.id)}
+                      style={{ border: "none", background: "transparent", color: "#1d4ed8", cursor: "pointer", padding: 0 }}
+                    >
+                      {wf.id}
+                    </button>
+                    {" · "}{wf.type} · {wf.status} · attempt {wf.attemptCount}/{wf.maxAttempts}
                   </li>
-                );
-              })}
-            </ul>
-            {workflow.data.resultJson ? (
-              <>
-                <h3>Result</h3>
-                <pre
-                  style={{
-                    fontSize: 12,
-                    whiteSpace: "pre-wrap",
-                    overflowWrap: "anywhere",
-                    wordBreak: "break-word",
-                  }}
-                >
-                  {workflow.data.resultJson}
-                </pre>
-              </>
-            ) : null}
-          </>
-        ) : (
-          <p>No workflow selected yet.</p>
-        )}
-      </section>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          <h3 style={{ marginTop: 16, marginBottom: 8 }}>Register Active Lottery</h3>
+          <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+            <label style={labelStyle}>
+              Policy ID
+              <input style={inputStyle} value={adminLotteryPolicyId} onChange={(e) => setAdminLotteryPolicyId(e.target.value)} />
+            </label>
+            <label style={labelStyle}>
+              Token Name Hex
+              <input style={inputStyle} value={adminLotteryTokenNameHex} onChange={(e) => setAdminLotteryTokenNameHex(e.target.value)} />
+            </label>
+            <label style={labelStyle}>
+              Mint Tx Hash
+              <input style={inputStyle} value={adminLotteryMintTxHash} onChange={(e) => setAdminLotteryMintTxHash(e.target.value)} />
+            </label>
+            <label style={labelStyle}>
+              Contract Address
+              <input style={inputStyle} value={adminLotteryContractAddress} onChange={(e) => setAdminLotteryContractAddress(e.target.value)} />
+            </label>
+          </div>
+          <div style={{ marginTop: 10 }}>
+            <Button onClick={() => createLotteryRegistration.mutate()} disabled={createLotteryRegistration.isPending}>
+              Register Lottery
+            </Button>
+          </div>
+          {createLotteryRegistration.isError ? (
+            <p style={{ marginTop: 8, color: "#b91c1c" }}>Lottery register failed: {createLotteryRegistration.error.message}</p>
+          ) : null}
+          {createLotteryRegistration.isSuccess ? (
+            <p style={{ marginTop: 8, color: "#166534" }}>Lottery registration submitted.</p>
+          ) : null}
+        </section>
+      ) : null}
+
+      {view === "admin" ? (
+        <WorkflowTimelineSection
+          workflowId={workflowId}
+          workflow={workflow}
+          nowMs={nowMs}
+          view={view}
+          onRetry={() => retry.mutate()}
+          cardStyle={cardStyle}
+        />
+      ) : null}
     </main>
   );
 }
@@ -1096,124 +1188,26 @@ export function FinalDemoApp({ view = "user" }: { view?: FinalDemoView }) {
   );
 }
 
-function HeadCard(
-  { title, head, nowMs, staleThresholdMs }: { title: string; head: HeadReadModel; nowMs: number; staleThresholdMs: number },
-) {
-  const ageMs = Math.max(0, nowMs - new Date(head.updatedAt).getTime());
-  const isStale = ageMs > staleThresholdMs;
-  return (
-    <div style={{ border: "1px solid #e4e4e7", borderRadius: 8, padding: 10, background: "#fafafa" }}>
-      <h3 style={{ margin: "0 0 6px 0" }}>{title}</h3>
-      <p style={{ margin: "0 0 4px 0" }}>
-        Status: {head.status} {isStale ? "· stale" : ""}
-      </p>
-      <p style={{ margin: "0 0 4px 0" }}>{head.detail || "-"}</p>
-      <p style={{ margin: 0, color: "#71717a", fontSize: 12 }}>
-        Updated: {new Date(head.updatedAt).toLocaleTimeString()} ({Math.floor(ageMs / 1000)}s ago)
-      </p>
-    </div>
-  );
-}
-
-function lovelaceToAdaLabel(lovelace: string): string {
-  try {
-    return `${(Number(BigInt(lovelace)) / 1_000_000).toFixed(2)} ADA`;
-  } catch {
-    return `${lovelace} lovelace`;
-  }
-}
-
-function shortenRef(ref: string): string {
-  if (ref.length <= 18) return ref;
-  return `${ref.slice(0, 10)}...${ref.slice(-6)}`;
-}
-
-function shortenAddress(address: string): string {
-  if (address.length <= 14) return address;
-  return `${address.slice(0, 12)}...${address.slice(-4)}`;
-}
-
-function SnapshotUtxoRow({ row }: { row: SnapshotRow }) {
-  return (
-    <div
-      style={{
-        border: "1px solid #e4e4e7",
-        borderRadius: 8,
-        padding: "6px 8px",
-        background: "#fff",
-        fontSize: 12,
-      }}
-    >
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-        <strong>{row.label}</strong>
-        <span>{lovelaceToAdaLabel(row.lovelace)}</span>
-      </div>
-      <div style={{ color: "#71717a", overflowWrap: "anywhere", wordBreak: "break-word" }}>
-        Ref: {shortenRef(row.ref)}
-      </div>
-      <div style={{ color: "#71717a", overflowWrap: "anywhere", wordBreak: "break-word" }}>
-        {row.hasInlineDatum ? " with Inline Datum" : ""}
-      </div>
-
-      <div style={{ color: "#71717a", overflowWrap: "anywhere", wordBreak: "break-word" }}>
-        Address: {shortenAddress(row.address)}
-      </div>
-      {row.assets.length > 0 ? (
-        <div style={{ marginTop: 2, color: "#52525b", overflowWrap: "anywhere", wordBreak: "break-word" }}>
-          Assets: {row.assets.map((a) => `${a.amount} ${a.unit.slice(0, 10)}...`).join(", ")}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function SnapshotHeadCard({ title, snapshot }: { title: string; snapshot: HeadSnapshotState }) {
-  const visible = snapshot.utxos.slice(0, 8);
-  return (
-    <div style={{ border: "1px solid #e4e4e7", borderRadius: 8, padding: 10, background: "#fafafa" }}>
-      <h3 style={{ margin: "0 0 6px 0" }}>{title}</h3>
-      <p style={{ margin: "0 0 6px 0" }}>
-        Status: <strong>{snapshot.status}</strong>
-      </p>
-      {snapshot.error ? (
-        <p style={{ margin: "0 0 6px 0", color: "#b91c1c", fontSize: 12, overflowWrap: "anywhere", wordBreak: "break-word" }}>
-          {snapshot.error}
-        </p>
-      ) : null}
-      {snapshot.utxos.length === 0 ? (
-        <p style={{ margin: 0, color: "#71717a", fontSize: 12 }}>No UTxOs to display.</p>
-      ) : (
-        <div style={{ display: "grid", gap: 6 }}>
-          {visible.map((row) => <SnapshotUtxoRow key={row.ref} row={row} />)}
-          {snapshot.utxos.length > visible.length ? (
-            <p style={{ margin: 0, color: "#71717a" }}>
-              +{snapshot.utxos.length - visible.length} more
-            </p>
-          ) : null}
-        </div>
-      )}
-      <p style={{ margin: "8px 0 0 0", color: "#71717a", fontSize: 11 }}>
-        Snapshot: {new Date(snapshot.fetchedAt).toLocaleTimeString()}
-      </p>
-    </div>
-  );
-}
-
 const cardStyle: React.CSSProperties = {
-  background: "#fff",
-  border: "1px solid #e4e4e7",
-  borderRadius: 12,
-  padding: 16,
+  background: "#ffffff",
+  border: "1px solid #e5e7eb",
+  borderRadius: 10,
+  padding: 12,
+  boxShadow: "0 1px 1px rgba(15,23,42,0.04)",
 };
 
 const labelStyle: React.CSSProperties = {
   display: "grid",
-  gap: 4,
-  fontSize: 14,
+  gap: 5,
+  fontSize: 12,
+  color: "#374151",
+  fontWeight: 600,
 };
 
 const inputStyle: React.CSSProperties = {
-  border: "1px solid #d4d4d8",
+  border: "1px solid #d1d5db",
   borderRadius: 8,
   padding: "8px 10px",
+  background: "#ffffff",
+  color: "#111827",
 };

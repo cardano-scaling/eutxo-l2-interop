@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { apiError, readJsonBody } from "@/lib/api-error";
+import { requireRole } from "@/lib/auth/role-guard";
 import {
   getActiveLotteryForHead,
   registerActiveLotteryForHead,
@@ -34,6 +35,8 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const requestId = crypto.randomUUID();
+  const guard = requireRole(req, requestId, ["admin"]);
+  if (!guard.ok) return guard.response;
   const bodyResult = await readJsonBody(req);
   if (!bodyResult.ok) {
     return apiError(400, requestId, "INVALID_JSON_BODY", "Request body must be valid JSON");

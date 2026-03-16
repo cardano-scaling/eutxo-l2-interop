@@ -12,4 +12,4 @@ config/*
 !config/.gitkeep
 testnet/*
 !testnet/.gitkeep
-src/final-demo/startup_time.txt
+startup_time.txt
