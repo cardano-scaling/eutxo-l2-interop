@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { QueryClient, QueryClientProvider, useMutation, useQuery } from "@tanstack/react-query";
+import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -603,6 +604,8 @@ function saveHtlcPair(preimage: string, htlcHash: string): HtlcPairRecord[] {
 }
 
 function FinalDemoInner({ view }: { view: FinalDemoView }) {
+  const { resolvedTheme } = useTheme();
+  const isDarkTheme = resolvedTheme === "dark";
   const defaultActor = view === "charlie" ? "charlie" : "user";
   const appRole: FinalDemoRole = view === "admin" ? "admin" : view;
   const [walletSession, setWalletSession] = useState<WalletSession | null>(null);
@@ -999,7 +1002,12 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
           <Row>
             <ConnectWallet
               fontFamily="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif"
-              mainButtonStyle={walletConnectMainButtonStyle}
+              isInverted={isDarkTheme}
+              mainButtonStyle={{
+                ...walletConnectMainButtonStyle,
+                border: isDarkTheme ? "1px solid #3b82f6" : walletConnectMainButtonStyle.border,
+                background: isDarkTheme ? "#3b82f6" : walletConnectMainButtonStyle.background,
+              }}
               modalStyle={walletConnectModalStyle}
               modalHeaderStyle={walletConnectModalHeaderStyle}
               disconnectButtonStyle={walletConnectDisconnectButtonStyle}
@@ -1379,8 +1387,8 @@ export function FinalDemoApp({ view = "user" }: { view?: FinalDemoView }) {
 }
 
 const cardStyle: React.CSSProperties = {
-  background: "#ffffff",
-  border: "1px solid #e5e7eb",
+  background: "var(--card)",
+  border: "1px solid var(--border)",
   borderRadius: 10,
   padding: 12,
   boxShadow: "0 1px 1px rgba(15,23,42,0.04)",
@@ -1406,14 +1414,19 @@ const walletConnectMainButtonStyle: React.CSSProperties = {
 };
 const walletConnectModalStyle: React.CSSProperties = {
   borderRadius: 12,
-  border: "1px solid #e5e7eb",
+  border: "1px solid var(--border)",
+  background: "var(--popover)",
+  color: "var(--popover-foreground)",
   boxShadow: "0 12px 30px rgba(15,23,42,0.18)",
 };
 const walletConnectModalHeaderStyle: React.CSSProperties = {
-  borderBottom: "1px solid #e5e7eb",
+  borderBottom: "1px solid var(--border)",
   paddingBottom: 10,
+  color: "var(--foreground)",
 };
 const walletConnectDisconnectButtonStyle: React.CSSProperties = {
   borderRadius: 8,
-  border: "1px solid #d1d5db",
+  border: "1px solid var(--border)",
+  background: "var(--secondary)",
+  color: "var(--secondary-foreground)",
 };
