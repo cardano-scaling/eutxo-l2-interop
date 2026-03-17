@@ -48,10 +48,6 @@ export function IdempotencyText(props: TextProps) {
   return <p style={layoutStyles.idempotencyText} {...props} />;
 }
 
-export function IdempotencyTextTop(props: TextProps) {
-  return <p style={layoutStyles.idempotencyTextTop} {...props} />;
-}
-
 export function InlineCodeBlock(props: CodeProps) {
   return <code style={layoutStyles.inlineCodeBlock} {...props} />;
 }

@@ -379,7 +379,7 @@ export function HeadMonitoringSection({
   return (
     <Card style={cardStyle}>
       <CardHeader style={monitorStyles.cardHeaderTight}>
-        <CardTitle style={monitorStyles.cardTitle}>Heads State</CardTitle>
+        <CardTitle style={monitorStyles.cardTitle}>Hydra Heads State</CardTitle>
       </CardHeader>
       <CardContent>
         {heads.isLoading ? <p>Loading head state...</p> : null}
@@ -556,16 +556,16 @@ const monitorStyles: Record<string, React.CSSProperties> = {
   headTitle: { margin: 0, fontSize: 26, marginBottom: 8, fontWeight: 700, color: "#6366f1" },
   headTitleBlock: { margin: "0 0 6px 0", fontSize: 15, color: "#6366f1" },
   headDetail: { margin: "7px 0 4px 0", color: "#374151", fontSize: 13 },
-  metaText: { margin: 0, color: "#6b7280", fontSize: 12 },
+  metaText: { margin: "0 0 14px 0", color: "#6b7280", fontSize: 12 },
   utxoCard: { border: "1px solid #e5e7eb", borderRadius: 8, padding: "8px 9px", background: "#fff", fontSize: 12 },
   strongText: { color: "#1f2937", fontSize: 16, fontWeight: 700, lineHeight: 1, margin: 0 },
   valueText: { color: "#111827", fontWeight: 600, lineHeight: 1, margin: 0 },
-  utxoTitleRow: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 6 },
+  utxoTitleRow: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 10 },
   utxoMetaStack: { display: "grid", gap: 2, marginTop: 1 },
   breakingMeta: { margin: 0, lineHeight: 1.2, color: "#6b7280", overflowWrap: "anywhere", wordBreak: "break-word" },
   assetText: { margin: 0, lineHeight: 1.2, color: "#4b5563", overflowWrap: "anywhere", wordBreak: "break-word" },
   statusLine: { margin: "0 0 6px 0" },
-  utxoSectionTitle: { margin: "10px 0 6px 0", fontSize: 20, marginBottom: 8, fontWeight: 700, color: "#334155" },
+  utxoSectionTitle: { margin: "10px 0 6px 0", fontSize: 20, marginBottom: 12, fontWeight: 700, color: "#334155" },
   errorBlock: {
     margin: "0 0 6px 0",
     color: "#b91c1c",
