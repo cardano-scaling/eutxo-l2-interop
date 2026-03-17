@@ -20,7 +20,6 @@ import {
   ActionSplit,
   CardDescriptionSm,
   CardTitleLg,
-  FieldGrid,
   HelperText,
   IdempotencyText,
   InlineCodeBlock,
@@ -35,19 +34,18 @@ import {
   SectionSubTitle,
   WrapRow,
   MutedText,
-  WarnText,
   ConnectedBanner,
 } from "@/components/ui/layout";
 // @ts-ignore - blake2b doesn't ship bundled types in this project setup
 import blake2b from "blake2b";
 import {
-  connectWallet,
+  buildWalletSessionFromEnabledWallet,
   disconnectWallet,
-  getWalletOptions,
   restoreWalletSession,
   signTxWithConnectedWallet,
   type WalletSession,
 } from "@/lib/wallet/cip30";
+import { ConnectWallet } from "@newm.io/cardano-dapp-wallet-connector";
 import { roleHeaders, type FinalDemoRole } from "@/lib/auth/role-guard";
 import {
   HeadMonitoringSection,
@@ -607,9 +605,8 @@ function saveHtlcPair(preimage: string, htlcHash: string): HtlcPairRecord[] {
 function FinalDemoInner({ view }: { view: FinalDemoView }) {
   const defaultActor = view === "charlie" ? "charlie" : "user";
   const appRole: FinalDemoRole = view === "admin" ? "admin" : view;
-  const [walletOptions, setWalletOptions] = useState(() => getWalletOptions());
-  const [selectedWalletKey, setSelectedWalletKey] = useState(walletOptions[0]?.key ?? "");
   const [walletSession, setWalletSession] = useState<WalletSession | null>(null);
+  const [walletConnectorError, setWalletConnectorError] = useState<string | null>(null);
   const actionActor = walletSession?.actor ?? defaultActor;
   const [address, setAddress] = useState("no wallet connected");
   const [requestFundsIdempotencyKey, setRequestFundsIdempotencyKey] = useState(() => newBusinessId());
@@ -692,13 +689,6 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
     mutationFn: () => fetch("/api/state/heads/mock-connect", { method: "POST" }).then((r) => r.json()),
     onSuccess: () => heads.refetch(),
   });
-  const walletConnect = useMutation({
-    mutationFn: () => connectWallet(selectedWalletKey, defaultActor),
-    onSuccess: (session) => {
-      setWalletSession(session);
-      setAddress(session.changeAddress);
-    },
-  });
 
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
@@ -706,28 +696,18 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
     return () => window.clearInterval(timer);
   }, []);
   useEffect(() => {
-    setWalletOptions(getWalletOptions());
+    setWalletConnectorError(null);
     restoreWalletSession(defaultActor)
       .then((session) => {
         if (!session) return;
         if (session.actor !== defaultActor) return;
         setWalletSession(session);
-        setSelectedWalletKey(session.walletKey);
         setAddress(session.changeAddress);
       })
       .catch(() => {
         // Keep UI usable even if wallet restore fails.
       });
   }, [defaultActor, view]);
-  useEffect(() => {
-    if (!selectedWalletKey) {
-      setSelectedWalletKey(walletOptions[0]?.key ?? "");
-      return;
-    }
-    if (!walletOptions.some((wallet) => wallet.key === selectedWalletKey)) {
-      setSelectedWalletKey(walletOptions[0]?.key ?? "");
-    }
-  }, [walletOptions, selectedWalletKey]);
   useEffect(() => {
     const search = new URLSearchParams(window.location.search);
     const wf = search.get("workflowId");
@@ -949,16 +929,16 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
   ]);
 
   const busy = useMemo(
-    () => connect.isPending || walletConnect.isPending || requestFunds.isPending || buyTicket.isPending,
-    [connect.isPending, walletConnect.isPending, requestFunds.isPending, buyTicket.isPending],
+    () => connect.isPending || requestFunds.isPending || buyTicket.isPending,
+    [connect.isPending, requestFunds.isPending, buyTicket.isPending],
   );
   const requestFundsBusy = useMemo(
-    () => connect.isPending || walletConnect.isPending || requestFunds.isPending,
-    [connect.isPending, walletConnect.isPending, requestFunds.isPending],
+    () => connect.isPending || requestFunds.isPending,
+    [connect.isPending, requestFunds.isPending],
   );
   const buyTicketBusy = useMemo(
-    () => connect.isPending || walletConnect.isPending || buyTicket.isPending,
-    [connect.isPending, walletConnect.isPending, buyTicket.isPending],
+    () => connect.isPending || buyTicket.isPending,
+    [connect.isPending, buyTicket.isPending],
   );
   const headsOpen = {
     headA: heads.data?.headA.status === "open",
@@ -1012,89 +992,42 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
 
       {view !== "admin" ? (
       <Card style={cardStyle}>
-        <CardHeader>
-          <CardTitle><CardTitleLg>Wallet (CIP-30)</CardTitleLg></CardTitle>
-          <CardDescription><CardDescriptionSm>
-          Connect a detected CIP-30 wallet extension. If none are installed, actions stay disabled.
-          </CardDescriptionSm></CardDescription>
-        </CardHeader>
-        <CardContent>
-        <FieldGrid>
-          <Label style={labelStyle}>
-            Wallet Provider
-            <Select
-              value={selectedWalletKey || undefined}
-              onValueChange={setSelectedWalletKey}
-              disabled={busy || Boolean(walletSession) || walletOptions.length === 0}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Select wallet provider" />
-              </SelectTrigger>
-              <SelectContent>
-                {walletOptions.map((wallet) => (
-                  <SelectItem key={wallet.key} value={wallet.key}>
-                    {wallet.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Label>
+        <CardHeader className="flex flex-row items-start justify-between gap-3">
+          <div>
+            <CardTitle><CardTitleLg>Actions</CardTitleLg></CardTitle>
+          </div>
           <Row>
-            <Button
-              onClick={() => {
-                setWalletOptions(getWalletOptions());
-                walletConnect.mutate();
+            <ConnectWallet
+              fontFamily="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif"
+              mainButtonStyle={walletConnectMainButtonStyle}
+              modalStyle={walletConnectModalStyle}
+              modalHeaderStyle={walletConnectModalHeaderStyle}
+              disconnectButtonStyle={walletConnectDisconnectButtonStyle}
+              onConnect={(wallet) => {
+                setWalletConnectorError(null);
+                void buildWalletSessionFromEnabledWallet(wallet, defaultActor)
+                  .then((session) => {
+                    setWalletSession(session);
+                    setAddress(session.changeAddress);
+                  })
+                  .catch((error) => {
+                    const message = error instanceof Error ? error.message : "Failed to initialize wallet session";
+                    setWalletConnectorError(message);
+                  });
               }}
-              disabled={busy || Boolean(walletSession) || !selectedWalletKey || walletOptions.length === 0}
-            >
-              Connect Wallet
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => {
+              onDisconnect={() => {
                 disconnectWallet();
                 setWalletSession(null);
+                setWalletConnectorError(null);
               }}
-              disabled={busy || !walletSession}
-            >
-              Disconnect
-            </Button>
+              onError={(message) => setWalletConnectorError(message)}
+            />
           </Row>
-        </FieldGrid>
-        {walletConnect.isError ? (
-          <Alert variant="destructive" style={alertTop8Style}>Wallet connect failed: {walletConnect.error.message}</Alert>
-        ) : null}
-        {walletOptions.length === 0 ? (
-          <WarnText>
-            No CIP-30 wallet extension detected in this browser.
-          </WarnText>
-        ) : null}
-        {walletSession ? (
-          <ConnectedBanner>
-            Connected: <strong>{walletSession.walletName}</strong> · actor <strong>{walletSession.actor}</strong> · network <strong>{walletSession.networkId}</strong>
-            {" · "}signTx{" "}
-            <Badge variant={walletSession.supportsSignTx ? "default" : "outline"}>
-              {walletSession.supportsSignTx ? "yes" : "no"}
-            </Badge>
-          </ConnectedBanner>
-        ) : (
-          <MutedText>
-            No wallet connected yet.
-          </MutedText>
-        )}
-        </CardContent>
-      </Card>
-      ) : null}
-
-      {view !== "admin" ? (
-      <Card style={cardStyle}>
-        <CardHeader>
-          <CardTitle><CardTitleLg>Actions</CardTitleLg></CardTitle>
-          <CardDescription><CardDescriptionSm>
-          Current actor context: <strong>{actionActor}</strong>
-          </CardDescriptionSm></CardDescription>
         </CardHeader>
         <CardContent>
+        {walletConnectorError ? (
+          <Alert variant="destructive" style={alertTop8Style}>Wallet connect failed: {walletConnectorError}</Alert>
+        ) : null}
         <div className="grid gap-4 md:grid-cols-2">
           {view === "user" ? (
             <Card>
@@ -1116,7 +1049,7 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label>Request funds amount (lovelace, fixed)</Label>
+                      <Label>Request funds amount (in lovelace)</Label>
                       <Input value={REQUEST_FUNDS_FIXED_LOVELACE} readOnly disabled />
                     </div>
                   </div>
@@ -1181,7 +1114,7 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>Ticket cost (lovelace, active lottery)</Label>
+                    <Label>Ticket cost (in lovelace)</Label>
                     <Input
                       value={activeLottery.data?.ticketCostLovelace ?? "unavailable"}
                       readOnly
@@ -1453,7 +1386,6 @@ const cardStyle: React.CSSProperties = {
   boxShadow: "0 1px 1px rgba(15,23,42,0.04)",
 };
 
-const labelStyle: React.CSSProperties = {};
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
@@ -1462,3 +1394,26 @@ const inputStyle: React.CSSProperties = {
 const alertTop8Style: React.CSSProperties = { marginTop: 8 };
 const alertTop6Style: React.CSSProperties = { marginTop: 6 };
 const alertErrorBreakStyle: React.CSSProperties = { marginTop: 6, overflowWrap: "anywhere", wordBreak: "break-word" };
+const walletConnectMainButtonStyle: React.CSSProperties = {
+  borderRadius: 8,
+  border: "1px solid #2563eb",
+  background: "#2563eb",
+  color: "#ffffff",
+  fontSize: 14,
+  fontWeight: 600,
+  padding: "8px 12px",
+  minHeight: 36,
+};
+const walletConnectModalStyle: React.CSSProperties = {
+  borderRadius: 12,
+  border: "1px solid #e5e7eb",
+  boxShadow: "0 12px 30px rgba(15,23,42,0.18)",
+};
+const walletConnectModalHeaderStyle: React.CSSProperties = {
+  borderBottom: "1px solid #e5e7eb",
+  paddingBottom: 10,
+};
+const walletConnectDisconnectButtonStyle: React.CSSProperties = {
+  borderRadius: 8,
+  border: "1px solid #d1d5db",
+};

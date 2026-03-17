@@ -1,6 +1,7 @@
 "use client";
 
 import type { DemoActor } from "./mock-wallets";
+import type { EnabledWallet } from "@newm.io/cardano-dapp-wallet-connector";
 
 type Cip30Extension = { cip: number };
 
@@ -113,6 +114,7 @@ export async function connectWallet(walletKey: string, actor: DemoActor): Promis
   ]);
   const usedAddresses = await Promise.all(usedAddressesRaw.map((a) => normalizeAddressForUi(a)));
   const changeAddress = await normalizeAddressForUi(changeAddressRaw);
+  setEnabledWalletKey(walletKey);
   return {
     walletKey: walletKey,
     walletName: wallet.name,
@@ -122,6 +124,27 @@ export async function connectWallet(walletKey: string, actor: DemoActor): Promis
     changeAddress,
     supportsSignTx: typeof api.signTx === "function",
     supportsSubmitTx: typeof api.submitTx === "function",
+  };
+}
+
+export async function buildWalletSessionFromEnabledWallet(wallet: EnabledWallet, actor: DemoActor): Promise<WalletSession> {
+  const [networkId, usedAddressesRaw, changeAddressRaw] = await Promise.all([
+    wallet.getNetworkId(),
+    wallet.getUsedAddresses(),
+    wallet.getChangeAddress(),
+  ]);
+  const usedAddresses = await Promise.all(usedAddressesRaw.map((a) => normalizeAddressForUi(a)));
+  const changeAddress = await normalizeAddressForUi(changeAddressRaw);
+  setEnabledWalletKey(wallet.id);
+  return {
+    walletKey: wallet.id,
+    walletName: wallet.name,
+    actor,
+    networkId,
+    usedAddresses,
+    changeAddress,
+    supportsSignTx: typeof wallet.signTx === "function",
+    supportsSubmitTx: typeof wallet.submitTx === "function",
   };
 }
 
