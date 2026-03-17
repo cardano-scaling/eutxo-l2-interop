@@ -44,10 +44,10 @@ function displayWorkflowEvent(event: { level: string; message: string; metaJson?
 }
 
 function eventColor(level: string): string {
-  if (level === "error") return "#b91c1c";
-  if (level === "warn") return "#b45309";
-  if (level === "wait") return "#a16207";
-  return "#334155";
+  if (level === "error") return "var(--destructive)";
+  if (level === "warn") return "var(--chart-3)";
+  if (level === "wait") return "var(--chart-4)";
+  return "var(--foreground)";
 }
 
 function HeadCard(
@@ -550,42 +550,42 @@ export function WorkflowTimelineSection({
 }
 
 const monitorStyles: Record<string, React.CSSProperties> = {
-  nestedCard: { border: "1px solid #e5e7eb", borderRadius: 10 },
+  nestedCard: { border: "1px solid var(--border)", borderRadius: 10 },
   nestedCardContent: { paddingTop: 10 },
   rowBetween: { display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" },
-  headTitle: { margin: 0, fontSize: 26, marginBottom: 8, fontWeight: 700, color: "#6366f1" },
-  headTitleBlock: { margin: "0 0 6px 0", fontSize: 15, color: "#6366f1" },
-  headDetail: { margin: "7px 0 4px 0", color: "#374151", fontSize: 13 },
-  metaText: { margin: "0 0 14px 0", color: "#6b7280", fontSize: 12 },
-  utxoCard: { border: "1px solid #e5e7eb", borderRadius: 8, padding: "8px 9px", background: "#fff", fontSize: 12 },
-  strongText: { color: "#1f2937", fontSize: 16, fontWeight: 700, lineHeight: 1, margin: 0 },
-  valueText: { color: "#111827", fontWeight: 600, lineHeight: 1, margin: 0 },
+  headTitle: { margin: 0, fontSize: 26, marginBottom: 8, fontWeight: 700, color: "var(--primary)" },
+  headTitleBlock: { margin: "0 0 6px 0", fontSize: 15, color: "var(--primary)" },
+  headDetail: { margin: "7px 0 4px 0", color: "var(--foreground)", fontSize: 13 },
+  metaText: { margin: "0 0 14px 0", color: "var(--muted-foreground)", fontSize: 12 },
+  utxoCard: { border: "1px solid var(--border)", borderRadius: 8, padding: "8px 9px", background: "var(--card)", fontSize: 12 },
+  strongText: { color: "var(--foreground)", fontSize: 16, fontWeight: 700, lineHeight: 1, margin: 0 },
+  valueText: { color: "var(--foreground)", fontWeight: 600, lineHeight: 1, margin: 0 },
   utxoTitleRow: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 10 },
   utxoMetaStack: { display: "grid", gap: 2, marginTop: 1 },
-  breakingMeta: { margin: 0, lineHeight: 1.2, color: "#6b7280", overflowWrap: "anywhere", wordBreak: "break-word" },
-  assetText: { margin: 0, lineHeight: 1.2, color: "#4b5563", overflowWrap: "anywhere", wordBreak: "break-word" },
+  breakingMeta: { margin: 0, lineHeight: 1.2, color: "var(--muted-foreground)", overflowWrap: "anywhere", wordBreak: "break-word" },
+  assetText: { margin: 0, lineHeight: 1.2, color: "var(--muted-foreground)", overflowWrap: "anywhere", wordBreak: "break-word" },
   statusLine: { margin: "0 0 6px 0" },
-  utxoSectionTitle: { margin: "10px 0 6px 0", fontSize: 20, marginBottom: 12, fontWeight: 700, color: "#334155" },
+  utxoSectionTitle: { margin: "10px 0 6px 0", fontSize: 20, marginBottom: 12, fontWeight: 700, color: "var(--foreground)" },
   errorBlock: {
     margin: "0 0 6px 0",
-    color: "#b91c1c",
+    color: "var(--destructive)",
     fontSize: 12,
     overflowWrap: "anywhere",
     wordBreak: "break-word",
-    background: "#fef2f2",
-    border: "1px solid #fecaca",
+    background: "var(--card)",
+    border: "1px solid var(--destructive)",
     borderRadius: 8,
     padding: "5px 7px",
   },
-  emptyText: { margin: 0, color: "#71717a", fontSize: 12 },
+  emptyText: { margin: 0, color: "var(--muted-foreground)", fontSize: 12 },
   gridTight: { display: "grid", gap: 6 },
-  snapshotMeta: { margin: "8px 0 0 0", color: "#6b7280", fontSize: 11 },
+  snapshotMeta: { margin: "8px 0 0 0", color: "var(--muted-foreground)", fontSize: 11 },
   cardHeaderTight: { paddingBottom: 0 },
   cardTitle: { fontSize: 24 },
-  lastUpdateText: { marginTop: 0, marginBottom: 14, color: "#475569", fontSize: 13 },
+  lastUpdateText: { marginTop: 0, marginBottom: 14, color: "var(--muted-foreground)", fontSize: 13 },
   gridAuto: { display: "grid", gap: 10 },
   gridWithGap8: { display: "grid", gap: 8 },
-  timelineCurrent: { overflowWrap: "anywhere", wordBreak: "break-word", color: "#475569", fontSize: 13 },
+  timelineCurrent: { overflowWrap: "anywhere", wordBreak: "break-word", color: "var(--muted-foreground)", fontSize: 13 },
   metaLine: { marginBottom: 4 },
   metaLineTop0: { marginTop: 0, marginBottom: 8 },
   sectionTitle: { marginBottom: 6 },
@@ -595,8 +595,8 @@ const monitorStyles: Record<string, React.CSSProperties> = {
     overflowWrap: "anywhere",
     wordBreak: "break-word",
     marginBottom: 6,
-    background: "#f8fafc",
-    border: "1px solid #e2e8f0",
+    background: "var(--muted)",
+    border: "1px solid var(--border)",
     borderRadius: 8,
     padding: "5px 8px",
     listStyle: "none",
@@ -609,7 +609,7 @@ function headGridStyle(visibleHeadCount: number): React.CSSProperties {
 }
 
 function freshnessStyle(stale: boolean): React.CSSProperties {
-  return { color: stale ? "#b45309" : "#166534" };
+  return { color: stale ? "var(--chart-3)" : "var(--chart-2)" };
 }
 
 function eventItemStyle(level: string): React.CSSProperties {
