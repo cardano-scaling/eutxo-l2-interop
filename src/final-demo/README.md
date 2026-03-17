@@ -1,76 +1,119 @@
 # Final Demo (`src/final-demo`)
 
-Hydra 3-head demo app scaffold with a single Next.js fullstack app:
-- `app/`: UI and API route handlers
-- `lib/`: workflow/head/prisma domain logic
-- `worker.ts`: background processor
-- `prisma/`: Postgres schema
-- `docker-compose.yml`: minimal local runtime
+Production-leaning demo app for Hydra-based flows:
+- `request_funds` on Head A
+- `buy_ticket` across source head -> Head B lottery path
+- role-based UI views (`/user`, `/charlie`, `/admin`)
 
-## Run local stack
+---
 
-1. Copy env file:
+## 1) Run the system (most important)
+
+### Prerequisites
+- Docker + Docker Compose
+- Node.js 20+ and npm (for local app mode)
+
+### Option A: full stack in Docker (recommended first run)
+
+From `src/final-demo`:
+
+```bash
+cp .env.example .env
+docker compose --profile full up
+```
+
+This starts:
+- Postgres
+- Prisma init/bootstrap
+- Next.js app
+- Worker
+- Cardano node + submit API + Hydra scripts publisher
+- Hydra nodes for Heads A/B/C participants
+
+App URL: `http://localhost:3000`
+
+### Option B: infra+worker in Docker, app locally (faster UI iteration)
+
+Terminal 1:
 
 ```bash
 cd src/final-demo
 cp .env.example .env
-```
-
-2. Start **full profile** (DB + init + worker + Next.js in Docker):
-
-```bash
-cd src/final-demo
-docker compose --profile full up
-```
-
-3. Start **dev profile** (DB + init + worker, no Next.js container):
-
-```bash
-cd src/final-demo
 docker compose --profile dev up
 ```
 
-Startup order in Compose:
-- `init` runs once to bootstrap Prisma (`npm install`, `prisma db push`, `prisma generate`).
-- `worker` starts after `init` in `dev`.
-- In `full`, Next.js cache (`.next`) is stored in a Docker volume, not on the host workspace.
-
-4. Run Next.js app locally (recommended with `dev` profile):
+Terminal 2:
 
 ```bash
 cd src/final-demo
 npm install
-cp .env.example .env
 npm run prisma:push
 npm run prisma:generate
 npm run dev
 ```
 
-App runs on `http://localhost:3000` (UI + API).
+### Operational scripts
 
-UI routes:
-- User view: `http://localhost:3000/`
-- Charlie demo view: `http://localhost:3000/charlie`
+From `src/final-demo`:
 
-## Current endpoints
+```bash
+# Open/commit heads and refresh L1 artifacts
+npm run hydra:open-heads
 
-- `GET /api/health`
-- `GET /api/ready`
-- `GET /api/state/heads`
-- `POST /api/state/heads/mock-connect`
-- `POST /api/workflows/request-funds`
-- `POST /api/workflows/buy-ticket`
-- `GET /api/workflows/:id`
-- `POST /api/admin/workflows/:id/retry`
-- `POST /api/admin/reconcile`
+# Create lottery on Head B (Jon flow)
+npm run hydra:create-lottery-head-b
+```
 
-## Notes
+### Useful URLs
+- User view: `http://localhost:3000/user`
+- Charlie view: `http://localhost:3000/charlie`
+- Admin view: `http://localhost:3000/admin`
 
-- Ticket buy is mocked for now (desired output destination supported).
-- Workflow state is persisted in Postgres.
-- Worker processes queued workflows with retry metadata.
-- Worker logs queue health snapshots periodically (`WORKER_QUEUE_METRICS_LOG_MS`), including claim rate, retries, terminal failures, and stale lock recoveries.
-- Admin retry supports emergency override: `POST /api/admin/workflows/:id/retry` with body `{ "force": true, "reason": "..." }`.
-- App runtime assumes Hydra heads are already committed/opened externally (CLI scripts). If heads are not open, UI shows readiness warnings and interaction actions remain gated.
-- Wallet connection is mocked through a CIP-30-like browser API (`window.cardano.*`) exposing `isEnabled`, `enable`, `getNetworkId`, `getUsedAddresses`, and `getChangeAddress` so a real wallet extension can replace the mock adapter in a future slice.
-- Mock wallet address methods return hex-like address bytes (CIP-30-style), and backend routes enforce actor/address mapping plus required-head-open preconditions before workflow creation.
+---
+
+## 2) System components (high-level)
+
+### Runtime services
+- `postgres`: workflow/state persistence.
+- `init`: one-shot Prisma bootstrap (`npm install`, `prisma db push`, `prisma generate`).
+- `app`: Next.js fullstack server (UI + API routes).
+- `worker`: async workflow executor/reconciler.
+- Cardano/Hydra services in `full` profile: local L1 testnet + Hydra nodes (Heads A/B/C topology).
+
+### Application modules
+- `app/`: pages and API routes.
+- `components/`: UI, including role-aware screens and monitoring cards.
+- `lib/services/`: core domain logic (`request_funds`, `buy_ticket`).
+- `lib/workflows.ts` + `worker.ts`: workflow state machine, retries, defer/backoff, reconciliation.
+- `lib/hydra/*`: Hydra operation adapters/providers/types.
+- `lib/wallet/cip30.ts`: wallet session/signing bridge for CIP-30 interactions.
+- `prisma/`: schema and generated client usage.
+- `scripts/`: operational scripts (head lifecycle, lottery creation, helpers).
+
+---
+
+## 3) API surface (main routes)
+
+- Health/readiness:
+  - `GET /api/health`
+  - `GET /api/ready`
+- Hydra/head state:
+  - `GET /api/state/heads`
+  - `GET /api/state/snapshots`
+- Operations:
+  - `POST /api/hydra-ops/request-funds/prepare`
+  - `POST /api/hydra-ops/request-funds/submit`
+  - `POST /api/hydra-ops/htlc/prepare`
+  - `POST /api/hydra-ops/htlc/submit`
+- Workflows:
+  - `POST /api/workflows/request-funds`
+  - `POST /api/workflows/buy-ticket`
+  - `GET /api/workflows/:id`
+- Admin:
+  - `GET /api/admin/workflows`
+  - `POST /api/admin/workflows/:id/retry`
+  - `POST /api/admin/reconcile`
+- Lottery:
+  - `GET /api/lottery/active`
+  - `POST /api/lottery/active` (admin-guarded)
+
