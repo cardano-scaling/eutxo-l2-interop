@@ -40,6 +40,9 @@ export async function GET(req: Request) {
   const idContains = url.searchParams.get("idContains")?.trim() || undefined;
   const idempotencyContains = url.searchParams.get("idempotencyContains")?.trim() || undefined;
   const limit = Math.max(1, Math.min(MAX_LIMIT, Number(url.searchParams.get("limit") || 25)));
+  const page = Math.max(1, Number(url.searchParams.get("page") || 1));
+  const includeCompleted = url.searchParams.get("includeCompleted") === "true";
+  const skip = (page - 1) * limit;
 
   if (url.searchParams.get("status") && !status) {
     return apiError(400, requestId, "REQUEST_VALIDATION_FAILED", "Invalid status filter");
@@ -48,26 +51,43 @@ export async function GET(req: Request) {
     return apiError(400, requestId, "REQUEST_VALIDATION_FAILED", "Invalid type filter");
   }
 
-  const workflows = await prisma.workflow.findMany({
-    where: {
-      ...(status ? { status } : {}),
-      ...(type ? { type } : {}),
-      ...(actor ? { actor: { contains: actor, mode: "insensitive" } } : {}),
-      ...(idContains ? { id: { contains: idContains, mode: "insensitive" } } : {}),
-      ...(idempotencyContains
-        ? { idempotencyKey: { contains: idempotencyContains, mode: "insensitive" } }
+  const where = {
+    ...(status
+      ? { status }
+      : !includeCompleted
+        ? { status: { not: WorkflowStatus.succeeded } }
         : {}),
-    },
-    orderBy: [{ updatedAt: "desc" }],
-    take: limit,
-    include: {
-      steps: { orderBy: { createdAt: "asc" } },
-      events: { orderBy: { createdAt: "desc" }, take: 10 },
-    },
-  });
+    ...(type ? { type } : {}),
+    ...(actor ? { actor: { contains: actor, mode: "insensitive" as const } } : {}),
+    ...(idContains ? { id: { contains: idContains, mode: "insensitive" as const } } : {}),
+    ...(idempotencyContains
+      ? { idempotencyKey: { contains: idempotencyContains, mode: "insensitive" as const } }
+      : {}),
+  };
+
+  const [total, workflows] = await Promise.all([
+    prisma.workflow.count({ where }),
+    prisma.workflow.findMany({
+      where,
+      orderBy: [{ updatedAt: "desc" }],
+      skip,
+      take: limit,
+      include: {
+        steps: { orderBy: { createdAt: "asc" } },
+        events: { orderBy: { createdAt: "desc" }, take: 10 },
+      },
+    }),
+  ]);
+  const totalPages = Math.max(1, Math.ceil(total / limit));
 
   return NextResponse.json({
     requestId,
+    page,
+    limit,
+    total,
+    totalPages,
+    hasPrevPage: page > 1,
+    hasNextPage: page < totalPages,
     count: workflows.length,
     workflows,
   });

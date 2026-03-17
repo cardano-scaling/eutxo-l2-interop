@@ -7,6 +7,7 @@ import {
   registerActiveLotteryForHead,
   type SupportedLotteryHead,
 } from "@/lib/lottery-instances";
+import { readActiveLotteryTicketCostFromHeadB } from "@/lib/hydra/ops-buy-ticket";
 import { logger } from "@/lib/logger";
 
 const registerSchema = z.object({
@@ -22,10 +23,16 @@ export async function GET(req: Request) {
   const headName: SupportedLotteryHead = "headB";
   try {
     const active = await getActiveLotteryForHead(headName);
+    let ticketCostLovelace: string | null = null;
+    if (active) {
+      const ticketCost = await readActiveLotteryTicketCostFromHeadB();
+      ticketCostLovelace = ticketCost.ticketCost.toString();
+    }
     return NextResponse.json({
       requestId,
       headName,
       active,
+      ticketCostLovelace,
     });
   } catch (error) {
     logger.error({ requestId, err: error, headName }, "failed to fetch active lottery");

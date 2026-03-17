@@ -3,6 +3,41 @@
 import { useEffect, useMemo, useState } from "react";
 import { QueryClient, QueryClientProvider, useMutation, useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
+import { Alert } from "@/components/ui/alert";
+import {
+  ActionButtonsCol,
+  ActionSplit,
+  CardDescriptionSm,
+  CardTitleLg,
+  FieldGrid,
+  HelperText,
+  IdempotencyText,
+  InlineCodeBlock,
+  LinkButton,
+  ListItemCard,
+  ListSummary,
+  ListUl,
+  ListWrap,
+  MetaText,
+  PageGrid,
+  Row,
+  SectionSubTitle,
+  WrapRow,
+  MutedText,
+  WarnText,
+  ConnectedBanner,
+} from "@/components/ui/layout";
 // @ts-ignore - blake2b doesn't ship bundled types in this project setup
 import blake2b from "blake2b";
 import {
@@ -15,8 +50,7 @@ import {
 } from "@/lib/wallet/cip30";
 import { roleHeaders, type FinalDemoRole } from "@/lib/auth/role-guard";
 import {
-  HeadStateSection,
-  SnapshotSection,
+  HeadMonitoringSection,
   WorkflowTimelineSection,
 } from "@/components/final-demo/monitoring-sections";
 
@@ -111,10 +145,73 @@ export interface WorkflowResponse {
   events: Array<{ id: string; level: string; message: string; createdAt: string; metaJson?: string | null }>;
 }
 
+type WorkflowEvent = WorkflowResponse["events"][number];
+
+function hasWorkflowEvent(workflow: WorkflowResponse, message: string): boolean {
+  return workflow.events.some((event) => event.message === message);
+}
+
+function buyTicketMilestones(workflow: WorkflowResponse): Array<{ key: string; label: string; done: boolean }> {
+  const sourceLocked = hasWorkflowEvent(workflow, "htlc_source_locked");
+  const targetLocked = hasWorkflowEvent(workflow, "htlc_head_b_locked");
+  const targetClaimed = hasWorkflowEvent(workflow, "ida_claim_target") || hasWorkflowEvent(workflow, "ida_claimed_both_htlcs");
+  const sourceClaimed = hasWorkflowEvent(workflow, "ida_claim_source") || hasWorkflowEvent(workflow, "ida_claimed_both_htlcs");
+  return [
+    { key: "source_locked", label: "HTLC in source head locked", done: sourceLocked },
+    { key: "target_locked", label: "HTLC in target head locked", done: targetLocked },
+    { key: "target_claimed", label: "HTLC in target head claimed -> ticket created", done: targetClaimed },
+    { key: "source_claimed", label: "HTLC in source head claimed", done: sourceClaimed },
+  ];
+}
+
+function stepStatus(workflow: WorkflowResponse, stepName: "prepare" | "submit" | "confirm"): string {
+  return workflow.steps.find((step) => step.name === stepName)?.status ?? "pending";
+}
+
+function requestFundsMilestones(workflow: WorkflowResponse): Array<{ key: string; label: string; state: string }> {
+  return [
+    { key: "validated", label: "Funding request validated", state: stepStatus(workflow, "prepare") },
+    { key: "submitted", label: "Funding transfer submitted on Head A", state: stepStatus(workflow, "submit") },
+    { key: "confirmed", label: "Funding transfer confirmed and available", state: stepStatus(workflow, "confirm") },
+  ];
+}
+
+function milestoneIcon(state: string): string {
+  if (state === "succeeded") return "✅";
+  if (state === "failed" || state === "cancelled") return "❌";
+  if (state === "running") return "⏳";
+  return "○";
+}
+
 interface WorkflowListResponse {
   requestId: string;
   count: number;
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+  hasPrevPage: boolean;
+  hasNextPage: boolean;
   workflows: WorkflowResponse[];
+}
+
+interface LotteryActiveResponse {
+  requestId: string;
+  headName: "headB";
+  active: {
+    id: string;
+    headName: "headA" | "headB" | "headC";
+    assetUnit: string;
+    policyId: string;
+    tokenNameHex: string;
+    mintTxHash: string;
+    contractAddress: string;
+    status: string;
+    createdAt: string;
+    updatedAt: string;
+    closedAt: string | null;
+  } | null;
+  ticketCostLovelace: string | null;
 }
 
 async function fetchHeads(): Promise<HeadsResponse> {
@@ -245,12 +342,14 @@ async function retryWorkflow(id: string, role: FinalDemoRole) {
 
 async function fetchAdminWorkflows(
   role: FinalDemoRole,
-  filters: { status?: string; type?: string; idContains?: string },
+  filters: { status?: string; type?: string; idContains?: string; page?: number; includeCompleted?: boolean },
 ): Promise<WorkflowListResponse> {
   const url = new URL("/api/admin/workflows", window.location.origin);
   if (filters.status) url.searchParams.set("status", filters.status);
   if (filters.type) url.searchParams.set("type", filters.type);
   if (filters.idContains) url.searchParams.set("idContains", filters.idContains);
+  if (filters.page && filters.page > 1) url.searchParams.set("page", String(filters.page));
+  if (filters.includeCompleted) url.searchParams.set("includeCompleted", "true");
   url.searchParams.set("limit", "25");
   const r = await fetch(url.toString(), {
     headers: roleHeaders(role),
@@ -264,6 +363,12 @@ async function runAdminReconcile(role: FinalDemoRole) {
     method: "POST",
     headers: roleHeaders(role),
   });
+  if (!r.ok) throw new Error(await extractApiErrorMessage(r));
+  return r.json();
+}
+
+async function fetchActiveLottery(): Promise<LotteryActiveResponse> {
+  const r = await fetch("/api/lottery/active", { cache: "no-store" });
   if (!r.ok) throw new Error(await extractApiErrorMessage(r));
   return r.json();
 }
@@ -506,8 +611,7 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
   const [selectedWalletKey, setSelectedWalletKey] = useState(walletOptions[0]?.key ?? "");
   const [walletSession, setWalletSession] = useState<WalletSession | null>(null);
   const actionActor = walletSession?.actor ?? defaultActor;
-  const [address, setAddress] = useState("addr_test1_demo_wallet");
-  const [lastPreparedTicketCostLovelace, setLastPreparedTicketCostLovelace] = useState<string | null>(null);
+  const [address, setAddress] = useState("no wallet connected");
   const [requestFundsIdempotencyKey, setRequestFundsIdempotencyKey] = useState(() => newBusinessId());
   const [buyTicketIdempotencyKey, setBuyTicketIdempotencyKey] = useState(() => newBuyTicketIntentId());
   const [htlcHash, setHtlcHash] = useState("aabbccddeeff00112233445566778899");
@@ -519,6 +623,7 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
   const [workflowSearchId, setWorkflowSearchId] = useState("");
   const [adminWorkflowStatusFilter, setAdminWorkflowStatusFilter] = useState("");
   const [adminWorkflowTypeFilter, setAdminWorkflowTypeFilter] = useState("");
+  const [adminWorkflowPage, setAdminWorkflowPage] = useState(1);
   const [adminLotteryPolicyId, setAdminLotteryPolicyId] = useState("");
   const [adminLotteryTokenNameHex, setAdminLotteryTokenNameHex] = useState("");
   const [adminLotteryMintTxHash, setAdminLotteryMintTxHash] = useState("");
@@ -547,6 +652,13 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
     refetchInterval: 4000,
     refetchIntervalInBackground: true,
   });
+  const activeLottery = useQuery({
+    queryKey: ["active-lottery"],
+    queryFn: fetchActiveLottery,
+    retry: 1,
+    refetchInterval: 5000,
+    refetchIntervalInBackground: true,
+  });
 
   const workflow = useQuery({
     queryKey: ["workflow", workflowId],
@@ -561,16 +673,20 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
     },
   });
   const adminWorkflows = useQuery({
-    queryKey: ["admin-workflows", adminWorkflowStatusFilter, adminWorkflowTypeFilter, workflowSearchId],
+    queryKey: ["admin-workflows", adminWorkflowStatusFilter, adminWorkflowTypeFilter, workflowSearchId, adminWorkflowPage],
     queryFn: () =>
       fetchAdminWorkflows(appRole, {
         status: adminWorkflowStatusFilter || undefined,
         type: adminWorkflowTypeFilter || undefined,
         idContains: workflowSearchId || undefined,
+        page: adminWorkflowPage,
       }),
     enabled: view === "admin",
     refetchInterval: 3000,
   });
+  useEffect(() => {
+    setAdminWorkflowPage(1);
+  }, [adminWorkflowStatusFilter, adminWorkflowTypeFilter, workflowSearchId]);
 
   const connect = useMutation({
     mutationFn: () => fetch("/api/state/heads/mock-connect", { method: "POST" }).then((r) => r.json()),
@@ -681,18 +797,34 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
         }
         const actor = actionActor;
         const walletAddress = walletSession.changeAddress;
+        setHtlcPairGenerateError(null);
+        let nextPreimage = "";
+        let nextHash = "";
+        try {
+          const generated = generateHtlcPairClient();
+          nextPreimage = generated.preimage;
+          nextHash = generated.htlcHash;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "unknown error";
+          setHtlcPairGenerateError(message);
+          throw new Error(`Failed to generate HTLC pair automatically: ${message}`);
+        }
+        setPreimage(nextPreimage);
+        setHtlcHash(nextHash);
+        setHtlcPairs(saveHtlcPair(nextPreimage, nextHash));
         const intent = getOrCreateBuyTicketIdempotencyKey(
           actor,
           walletAddress,
-          htlcHash,
+          nextHash,
           timeoutMinutes,
         );
+        setBuyTicketIdempotencyKey(intent.idempotencyKey);
         return prepareBuyTicketTx({
           actor,
           address: walletAddress,
           amountLovelace: "0",
           sourceHead: actor === "charlie" ? "headC" : "headA",
-          htlcHash,
+          htlcHash: nextHash,
           timeoutMinutes,
         })
           .then((draft) => {
@@ -705,7 +837,6 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
             if ((preparedSourceHead !== "headA" && preparedSourceHead !== "headC") || !preparedHtlcHash) {
               throw new Error("Server did not return required buy-ticket metadata for submit");
             }
-            setLastPreparedTicketCostLovelace(ticketCost);
             // CIP-30 signTx returns witness set; server assembles it with the unsigned tx.
             return signTxWithConnectedWallet(walletSession, draft.unsignedTxCborHex, true)
               .then((witnessHex) => ({ unsignedTxCborHex: draft.unsignedTxCborHex, witnessHex, ticketCost, preparedSourceHead, preparedHtlcHash }));
@@ -716,9 +847,9 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
               idempotencyKey: intent.idempotencyKey,
               address: walletAddress,
               amountLovelace: ticketCost,
-              htlcHash,
+              htlcHash: nextHash,
               timeoutMinutes,
-              preimage,
+              preimage: nextPreimage,
             })
               .then((pendingWf) => {
                 setWorkflowId(pendingWf.workflowId);
@@ -734,7 +865,7 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
               sourceHead: preparedSourceHead,
               htlcHash: preparedHtlcHash,
               idempotencyKey: intent.idempotencyKey,
-              preimage,
+              preimage: nextPreimage,
             }).then((submitted) => ({ submitted, ticketCost })),
           )
           .then(({ submitted, ticketCost }) =>
@@ -743,9 +874,9 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
               idempotencyKey: intent.idempotencyKey,
               address: walletAddress,
               amountLovelace: ticketCost,
-              htlcHash,
+              htlcHash: nextHash,
               timeoutMinutes,
-              preimage,
+              preimage: nextPreimage,
               submittedSourceTxHash: submitted.txHash,
               submittedSourceHtlcRef: submitted.sourceHtlcRef,
             }).then((d) => ({ ...d, fingerprint: intent.fingerprint })),
@@ -787,19 +918,6 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
       snapshots.refetch();
     },
   });
-  const generateHtlcPairAndFill = () => {
-    try {
-      setHtlcPairGenerateError(null);
-      const { preimage: nextPreimage, htlcHash: nextHash } = generateHtlcPairClient();
-      setPreimage(nextPreimage);
-      setHtlcHash(nextHash);
-      setHtlcPairs(saveHtlcPair(nextPreimage, nextHash));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "unknown error";
-      setHtlcPairGenerateError(message);
-    }
-  };
-
   useEffect(() => {
     const data = workflow.data;
     if (!data || data.type !== "request_funds") return;
@@ -834,6 +952,14 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
     () => connect.isPending || walletConnect.isPending || requestFunds.isPending || buyTicket.isPending,
     [connect.isPending, walletConnect.isPending, requestFunds.isPending, buyTicket.isPending],
   );
+  const requestFundsBusy = useMemo(
+    () => connect.isPending || walletConnect.isPending || requestFunds.isPending,
+    [connect.isPending, walletConnect.isPending, requestFunds.isPending],
+  );
+  const buyTicketBusy = useMemo(
+    () => connect.isPending || walletConnect.isPending || buyTicket.isPending,
+    [connect.isPending, walletConnect.isPending, buyTicket.isPending],
+  );
   const headsOpen = {
     headA: heads.data?.headA.status === "open",
     headB: heads.data?.headB.status === "open",
@@ -861,54 +987,59 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
       : (actionActor === "user" && (!headsOpen.headA || !headsOpen.headB))
         ? "Head A and Head B must be open for user buy ticket path."
         : null;
+  const requestFundsWorkflow = workflow.data?.type === "request_funds" ? workflow.data : null;
+  const buyTicketWorkflow = workflow.data?.type === "buy_ticket" ? workflow.data : null;
+  const requestFundsLatestEvent = requestFundsWorkflow && requestFundsWorkflow.events.length > 0
+    ? requestFundsWorkflow.events[requestFundsWorkflow.events.length - 1]
+    : null;
+  const buyTicketLatestEvent = buyTicketWorkflow && buyTicketWorkflow.events.length > 0
+    ? buyTicketWorkflow.events[buyTicketWorkflow.events.length - 1]
+    : null;
+  const requestFundsProgress = requestFundsWorkflow ? requestFundsMilestones(requestFundsWorkflow) : [];
+  const buyTicketProgress = buyTicketWorkflow ? buyTicketMilestones(buyTicketWorkflow) : [];
   return (
-    <main
-      style={{
-        width: "100%",
-        maxWidth: "100%",
-        margin: 0,
-        padding: "clamp(8px, 2vw, 14px)",
-        display: "grid",
-        gap: 12,
-      }}
-    >
-      <HeadStateSection
+    <PageGrid>
+      <HeadMonitoringSection
         heads={heads}
+        snapshots={snapshots}
         nowMs={nowMs}
         visibleHeads={visibleHeads}
-        onRetry={() => heads.refetch()}
+        anyOpenHead={anyOpenHead}
+        onRetryHeads={() => heads.refetch()}
+        onRetrySnapshots={() => snapshots.refetch()}
         cardStyle={cardStyle}
       />
-      {anyOpenHead ? (
-        <SnapshotSection snapshots={snapshots} visibleHeads={visibleHeads} cardStyle={cardStyle} />
-      ) : null}
 
       {view !== "admin" ? (
-      <section style={cardStyle}>
-        <h2 style={{ marginTop: 0 }}>Wallet (CIP-30)</h2>
-        <p style={{ marginTop: 0, color: "#475569", fontSize: 13 }}>
+      <Card style={cardStyle}>
+        <CardHeader>
+          <CardTitle><CardTitleLg>Wallet (CIP-30)</CardTitleLg></CardTitle>
+          <CardDescription><CardDescriptionSm>
           Connect a detected CIP-30 wallet extension. If none are installed, actions stay disabled.
-        </p>
-        <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
-          <label style={labelStyle}>
+          </CardDescriptionSm></CardDescription>
+        </CardHeader>
+        <CardContent>
+        <FieldGrid>
+          <Label style={labelStyle}>
             Wallet Provider
-            <select
-              style={inputStyle}
-              value={selectedWalletKey}
-              onChange={(e) => setSelectedWalletKey(e.target.value)}
+            <Select
+              value={selectedWalletKey || undefined}
+              onValueChange={setSelectedWalletKey}
               disabled={busy || Boolean(walletSession) || walletOptions.length === 0}
             >
-              {walletOptions.length === 0 ? (
-                <option value="">No wallet extensions detected</option>
-              ) : null}
-              {walletOptions.map((wallet) => (
-                <option key={wallet.key} value={wallet.key}>
-                  {wallet.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div style={{ display: "flex", alignItems: "end", gap: 8 }}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select wallet provider" />
+              </SelectTrigger>
+              <SelectContent>
+                {walletOptions.map((wallet) => (
+                  <SelectItem key={wallet.key} value={wallet.key}>
+                    {wallet.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Label>
+          <Row>
             <Button
               onClick={() => {
                 setWalletOptions(getWalletOptions());
@@ -928,236 +1059,362 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
             >
               Disconnect
             </Button>
-          </div>
-        </div>
+          </Row>
+        </FieldGrid>
         {walletConnect.isError ? (
-          <p style={{ marginTop: 8, color: "#b91c1c" }}>Wallet connect failed: {walletConnect.error.message}</p>
+          <Alert variant="destructive" style={alertTop8Style}>Wallet connect failed: {walletConnect.error.message}</Alert>
         ) : null}
         {walletOptions.length === 0 ? (
-          <p style={{ marginTop: 8, marginBottom: 0, color: "#b45309" }}>
+          <WarnText>
             No CIP-30 wallet extension detected in this browser.
-          </p>
+          </WarnText>
         ) : null}
         {walletSession ? (
-          <p style={{ marginTop: 8, marginBottom: 0, color: "#334155", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, padding: "6px 8px", fontSize: 13 }}>
+          <ConnectedBanner>
             Connected: <strong>{walletSession.walletName}</strong> · actor <strong>{walletSession.actor}</strong> · network <strong>{walletSession.networkId}</strong>
-            {" · "}signTx <strong>{walletSession.supportsSignTx ? "yes" : "no"}</strong>
-          </p>
+            {" · "}signTx{" "}
+            <Badge variant={walletSession.supportsSignTx ? "default" : "outline"}>
+              {walletSession.supportsSignTx ? "yes" : "no"}
+            </Badge>
+          </ConnectedBanner>
         ) : (
-          <p style={{ marginTop: 8, marginBottom: 0, color: "#71717a" }}>
+          <MutedText>
             No wallet connected yet.
-          </p>
+          </MutedText>
         )}
-      </section>
+        </CardContent>
+      </Card>
       ) : null}
 
       {view !== "admin" ? (
-      <section style={cardStyle}>
-        <h2 style={{ marginTop: 0 }}>Actions</h2>
-        <p style={{ marginTop: 0, color: "#475569", fontSize: 13 }}>
+      <Card style={cardStyle}>
+        <CardHeader>
+          <CardTitle><CardTitleLg>Actions</CardTitleLg></CardTitle>
+          <CardDescription><CardDescriptionSm>
           Current actor context: <strong>{actionActor}</strong>
-        </p>
-        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "minmax(0, 1fr) 220px" }}>
-          <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
-            <label style={labelStyle}>
-              Address
-              <input
-                style={inputStyle}
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                disabled={Boolean(walletSession)}
-              />
-            </label>
-            {view === "user" ? (
-              <label style={labelStyle}>
-                Request funds amount (lovelace)
-                <input style={inputStyle} value={REQUEST_FUNDS_FIXED_LOVELACE} readOnly />
-              </label>
-            ) : null}
-            <label style={labelStyle}>
-              Ticket cost (lovelace)
-              <input
-                style={inputStyle}
-                value={lastPreparedTicketCostLovelace ?? "derived from active lottery at prepare"}
-                readOnly
-              />
-            </label>
-            <label style={labelStyle}>
-              HTLC Hash (hex)
-              <input style={inputStyle} value={htlcHash} onChange={(e) => setHtlcHash(e.target.value)} />
-            </label>
-            <label style={labelStyle}>
-              HTLC Timeout (minutes)
-              <input style={inputStyle} value={timeoutMinutes} onChange={(e) => setTimeoutMinutes(e.target.value)} />
-            </label>
-            <label style={labelStyle}>
-              HTLC Preimage (hex, demo)
-              <input style={inputStyle} value={preimage} onChange={(e) => setPreimage(e.target.value)} />
-            </label>
-          </div>
-          <div style={{ display: "grid", gap: 8, alignContent: "start" }}>
-            <Button variant="secondary" onClick={generateHtlcPairAndFill} disabled={busy}>
-              Generate Pair
-            </Button>
-            {view === "user" ? (
-              <Button onClick={() => requestFunds.mutate()} disabled={busy || Boolean(requestFundsDisabledReason)}>
-                Request Funds
-              </Button>
-            ) : null}
-            <Button onClick={() => buyTicket.mutate()} disabled={busy || Boolean(buyTicketDisabledReason)}>Buy Ticket</Button>
-            {view === "charlie" ? (
-              <Button variant="outline" onClick={() => associateCharlie.mutate()} disabled={associateCharlie.isPending}>
-                Associate Node
-              </Button>
-            ) : null}
-          </div>
+          </CardDescriptionSm></CardDescription>
+        </CardHeader>
+        <CardContent>
+        <div className="grid gap-4 md:grid-cols-2">
+          {view === "user" ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Request Funds</CardTitle>
+                <CardDescription>
+                  Fixed transfer from Ida to connected user address on Head A.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>
+                  <div style={{ display: "grid", gap: 16 }}>
+                    <div className="space-y-2">
+                      <Label>Address</Label>
+                      <Input
+                        value={address}
+                        readOnly
+                        disabled
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Request funds amount (lovelace, fixed)</Label>
+                      <Input value={REQUEST_FUNDS_FIXED_LOVELACE} readOnly disabled />
+                    </div>
+                  </div>
+                  <Button type="button" onClick={() => requestFunds.mutate()} disabled={requestFundsBusy || Boolean(requestFundsDisabledReason)}>
+                    {requestFunds.isPending ? "Requesting Funds..." : "Request Funds"}
+                  </Button>
+                  {requestFundsWorkflow ? (
+                    <div className="rounded-md border p-3">
+                      <HelperText>
+                        Workflow {requestFundsWorkflow.id} · <strong>{requestFundsWorkflow.status}</strong>
+                      </HelperText>
+                      <ul className="mt-2 space-y-1 text-sm">
+                        {requestFundsProgress.map((milestone) => (
+                          <li key={milestone.key}>
+                            {milestoneIcon(milestone.state)} {milestone.label}
+                          </li>
+                        ))}
+                      </ul>
+                      {requestFundsLatestEvent ? (
+                        <HelperText>
+                          Latest event: [{requestFundsLatestEvent.level}] {requestFundsLatestEvent.message}
+                        </HelperText>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </form>
+                {requestFunds.isSuccess ? (
+                  <Alert style={alertTop6Style}>
+                    Request funds submitted successfully.
+                  </Alert>
+                ) : null}
+                {requestFundsDisabledReason ? (
+                  <Alert style={alertTop8Style}>
+                    Request funds unavailable: {requestFundsDisabledReason}
+                  </Alert>
+                ) : null}
+                {requestFunds.isError ? (
+                  <Alert variant="destructive" style={alertErrorBreakStyle}>
+                    Request funds failed: {formatInlineError(requestFunds.error.message)}
+                  </Alert>
+                ) : null}
+              </CardContent>
+            </Card>
+          ) : null}
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Buy Ticket</CardTitle>
+              <CardDescription>
+                Build user HTLC on source head and trigger automated Ida bridge flow.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>
+                <div style={{ display: "grid", gap: 16 }}>
+                  <div className="space-y-2">
+                    <Label>Address</Label>
+                    <Input
+                      value={address}
+                      readOnly
+                      disabled
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Ticket cost (lovelace, active lottery)</Label>
+                    <Input
+                      value={activeLottery.data?.ticketCostLovelace ?? "unavailable"}
+                      readOnly
+                      disabled
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>HTLC Timeout (minutes)</Label>
+                    <Input value={timeoutMinutes} onChange={(e) => setTimeoutMinutes(e.target.value)} />
+                  </div>
+                </div>
+                <div className="grid gap-2 border-t pt-3">
+                  <Button type="button" onClick={() => buyTicket.mutate()} disabled={buyTicketBusy || Boolean(buyTicketDisabledReason)}>
+                    {buyTicket.isPending ? "Buying Ticket..." : "Buy Ticket"}
+                  </Button>
+                </div>
+                {buyTicketWorkflow ? (
+                  <div className="rounded-md border p-3">
+                    <HelperText>
+                      Workflow {buyTicketWorkflow.id} · <strong>{buyTicketWorkflow.status}</strong>
+                    </HelperText>
+                    <ul className="mt-2 space-y-1 text-sm">
+                      {buyTicketProgress.map((milestone) => (
+                        <li key={milestone.key}>
+                          {milestone.done ? "✅" : "⏳"} {milestone.label}
+                        </li>
+                      ))}
+                    </ul>
+                    {buyTicketLatestEvent ? (
+                      <HelperText>
+                        Latest event: [{buyTicketLatestEvent.level}] {buyTicketLatestEvent.message}
+                      </HelperText>
+                    ) : null}
+                  </div>
+                ) : null}
+              </form>
+              {buyTicket.isSuccess ? (
+                <Alert style={alertTop6Style}>
+                  Buy ticket submitted successfully.
+                </Alert>
+              ) : null}
+              {buyTicketDisabledReason ? (
+                <Alert style={alertTop6Style}>
+                  Buy ticket unavailable: {buyTicketDisabledReason}
+                </Alert>
+              ) : null}
+              {buyTicket.isError ? (
+                <Alert variant="destructive" style={alertErrorBreakStyle}>
+                  Buy ticket failed: {formatInlineError(buyTicket.error.message)}
+                </Alert>
+              ) : null}
+              {htlcPairGenerateError ? (
+                <Alert variant="destructive" style={alertTop6Style}>
+                  HTLC pair generation failed: {htlcPairGenerateError}
+                </Alert>
+              ) : null}
+              {activeLottery.isLoading ? (
+                <HelperText>Loading active lottery ticket cost...</HelperText>
+              ) : null}
+              {activeLottery.isError ? (
+                <Alert variant="destructive" style={alertTop6Style}>
+                  Could not load active lottery ticket cost: {formatInlineError(activeLottery.error.message)}
+                </Alert>
+              ) : null}
+            </CardContent>
+          </Card>
+
+          {view === "charlie" ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Charlie Node Association</CardTitle>
+                <CardDescription>
+                  Associate Charlie hydra node before running Charlie ticket flow.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button type="button" variant="outline" onClick={() => associateCharlie.mutate()} disabled={associateCharlie.isPending}>
+                  {associateCharlie.isPending ? "Associating Node..." : "Associate Node"}
+                </Button>
+                {associateCharlie.isError ? (
+                  <Alert variant="destructive" style={alertErrorBreakStyle}>
+                    Charlie association failed: {formatInlineError(associateCharlie.error.message)}
+                  </Alert>
+                ) : null}
+                {associateCharlie.isSuccess ? (
+                  <Alert style={alertTop6Style}>
+                    Charlie hydra node association requested.
+                  </Alert>
+                ) : null}
+              </CardContent>
+            </Card>
+          ) : null}
         </div>
-        {view === "user" && requestFundsDisabledReason ? (
-          <p style={{ marginTop: 8, marginBottom: 0, color: "#b45309", fontSize: 12, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "5px 7px" }}>
-            Request funds unavailable: {requestFundsDisabledReason}
-          </p>
-        ) : null}
-        {buyTicketDisabledReason ? (
-          <p style={{ marginTop: 6, marginBottom: 0, color: "#b45309", fontSize: 12, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "5px 7px" }}>
-            Buy ticket unavailable: {buyTicketDisabledReason}
-          </p>
-        ) : null}
-        {view === "user" && requestFunds.isError ? (
-          <p style={{ marginTop: 6, marginBottom: 0, color: "#b91c1c", fontSize: 12, overflowWrap: "anywhere", wordBreak: "break-word", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, padding: "6px 8px" }}>
-            Request funds failed: {formatInlineError(requestFunds.error.message)}
-          </p>
-        ) : null}
-        {buyTicket.isError ? (
-          <p style={{ marginTop: 6, marginBottom: 0, color: "#b91c1c", fontSize: 12, overflowWrap: "anywhere", wordBreak: "break-word", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, padding: "6px 8px" }}>
-            Buy ticket failed: {formatInlineError(buyTicket.error.message)}
-          </p>
-        ) : null}
-        {associateCharlie.isError ? (
-          <p style={{ marginTop: 6, marginBottom: 0, color: "#b91c1c", fontSize: 12, overflowWrap: "anywhere", wordBreak: "break-word" }}>
-            Charlie association failed: {formatInlineError(associateCharlie.error.message)}
-          </p>
-        ) : null}
-        {associateCharlie.isSuccess ? (
-          <p style={{ marginTop: 6, marginBottom: 0, color: "#166534", fontSize: 12 }}>
-            Charlie hydra node association requested.
-          </p>
-        ) : null}
-        {htlcPairGenerateError ? (
-          <p style={{ marginTop: 6, marginBottom: 0, color: "#b91c1c", fontSize: 12 }}>
-            HTLC pair generation failed: {htlcPairGenerateError}
-          </p>
-        ) : null}
-        {htlcPairs.length > 0 ? (
-          <p style={{ marginTop: 6, marginBottom: 0, color: "#52525b", fontSize: 12 }}>
-            Latest generated pair saved in UI context at{" "}
-            {new Date(htlcPairs[0].createdAtMs).toLocaleTimeString()}.
-          </p>
-        ) : null}
-        {view === "user" ? (
-          <p style={{ marginTop: 8, marginBottom: 0, color: "#71717a", fontSize: 12 }}>
-            Request funds idempotencyKey:
-            <code style={{ display: "block", overflowWrap: "anywhere", wordBreak: "break-word" }}>
-              {requestFundsIdempotencyKey}
-            </code>
-          </p>
-        ) : null}
-        <p style={{ marginTop: 6, marginBottom: 0, color: "#71717a", fontSize: 12 }}>
-          Buy ticket idempotencyKey:
-          <code style={{ display: "block", overflowWrap: "anywhere", wordBreak: "break-word" }}>
-            {buyTicketIdempotencyKey}
-          </code>
-        </p>
-      </section>
+        </CardContent>
+      </Card>
       ) : null}
 
       {view === "admin" ? (
-        <section style={cardStyle}>
-          <h2 style={{ marginTop: 0 }}>Admin Operations</h2>
-          <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
-            <label style={labelStyle}>
-              Workflow ID search
-              <input style={inputStyle} value={workflowSearchId} onChange={(e) => setWorkflowSearchId(e.target.value)} />
-            </label>
-            <label style={labelStyle}>
-              Workflow status
-              <select style={inputStyle} value={adminWorkflowStatusFilter} onChange={(e) => setAdminWorkflowStatusFilter(e.target.value)}>
-                <option value="">All</option>
-                <option value="pending">pending</option>
-                <option value="running">running</option>
-                <option value="failed">failed</option>
-                <option value="cancelled">cancelled</option>
-                <option value="succeeded">succeeded</option>
-              </select>
-            </label>
-            <label style={labelStyle}>
-              Workflow type
-              <select style={inputStyle} value={adminWorkflowTypeFilter} onChange={(e) => setAdminWorkflowTypeFilter(e.target.value)}>
-                <option value="">All</option>
-                <option value="request_funds">request_funds</option>
-                <option value="buy_ticket">buy_ticket</option>
-              </select>
-            </label>
-          </div>
-          <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <Button variant="outline" onClick={() => adminWorkflows.refetch()}>Refresh Workflow List</Button>
-            <Button variant="secondary" onClick={() => reconcile.mutate()} disabled={reconcile.isPending}>Run Reconcile</Button>
-          </div>
+        <Card style={cardStyle}>
+          <CardHeader>
+            <CardTitle><CardTitleLg>Admin Operations</CardTitleLg></CardTitle>
+          </CardHeader>
+          <CardContent>
+          <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="space-y-2">
+                <Label>Workflow ID search</Label>
+                <Input value={workflowSearchId} onChange={(e) => setWorkflowSearchId(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Workflow status</Label>
+                <Select
+                  value={adminWorkflowStatusFilter || "__all"}
+                  onValueChange={(value) => setAdminWorkflowStatusFilter(value === "__all" ? "" : value)}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="All (excluding succeeded)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all">All (excluding succeeded)</SelectItem>
+                    <SelectItem value="pending">pending</SelectItem>
+                    <SelectItem value="running">running</SelectItem>
+                    <SelectItem value="failed">failed</SelectItem>
+                    <SelectItem value="cancelled">cancelled</SelectItem>
+                    <SelectItem value="succeeded">succeeded</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Workflow type</Label>
+                <Select
+                  value={adminWorkflowTypeFilter || "__all"}
+                  onValueChange={(value) => setAdminWorkflowTypeFilter(value === "__all" ? "" : value)}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="All" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all">All</SelectItem>
+                    <SelectItem value="request_funds">request_funds</SelectItem>
+                    <SelectItem value="buy_ticket">buy_ticket</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2 border-t pt-3">
+              <Button type="button" variant="outline" onClick={() => adminWorkflows.refetch()}>
+                Refresh Workflow List
+              </Button>
+              <Button type="button" variant="secondary" onClick={() => reconcile.mutate()} disabled={reconcile.isPending}>
+                Run Reconcile
+              </Button>
+            </div>
+          </form>
           {adminWorkflows.isError ? (
-            <p style={{ marginTop: 8, color: "#b91c1c" }}>Admin workflow list failed: {adminWorkflows.error.message}</p>
+            <Alert variant="destructive" style={alertTop8Style}>Admin workflow list failed: {adminWorkflows.error.message}</Alert>
           ) : null}
           {reconcile.isError ? (
-            <p style={{ marginTop: 8, color: "#b91c1c" }}>Reconcile failed: {reconcile.error.message}</p>
+            <Alert variant="destructive" style={alertTop8Style}>Reconcile failed: {reconcile.error.message}</Alert>
           ) : null}
           {adminWorkflows.data ? (
-            <div style={{ marginTop: 10 }}>
-              <p style={{ margin: "0 0 8px 0", color: "#334155", fontWeight: 600 }}>Found {adminWorkflows.data.count} workflows</p>
-              <ul style={{ margin: 0, paddingLeft: 18 }}>
+            <ListWrap>
+              <ListSummary>
+                Showing {adminWorkflows.data.workflows.length} of {adminWorkflows.data.total} workflows · page {adminWorkflows.data.page}/{adminWorkflows.data.totalPages}
+              </ListSummary>
+              <ListUl>
                 {adminWorkflows.data.workflows.map((wf) => (
-                  <li key={wf.id} style={{ marginBottom: 6, background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: "4px 7px", listStylePosition: "inside" }}>
-                    <button
-                      type="button"
+                  <ListItemCard key={wf.id}>
+                    <LinkButton
                       onClick={() => setWorkflowId(wf.id)}
-                      style={{ border: "none", background: "transparent", color: "#1d4ed8", cursor: "pointer", padding: 0 }}
                     >
                       {wf.id}
-                    </button>
+                    </LinkButton>
                     {" · "}{wf.type} · {wf.status} · attempt {wf.attemptCount}/{wf.maxAttempts}
-                  </li>
+                  </ListItemCard>
                 ))}
-              </ul>
-            </div>
+              </ListUl>
+              <div className="mt-3 flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setAdminWorkflowPage((p) => Math.max(1, p - 1))}
+                  disabled={!adminWorkflows.data.hasPrevPage}
+                >
+                  Previous
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setAdminWorkflowPage((p) => p + 1)}
+                  disabled={!adminWorkflows.data.hasNextPage}
+                >
+                  Next
+                </Button>
+              </div>
+            </ListWrap>
           ) : null}
-          <h3 style={{ marginTop: 16, marginBottom: 8 }}>Register Active Lottery</h3>
-          <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
-            <label style={labelStyle}>
-              Policy ID
-              <input style={inputStyle} value={adminLotteryPolicyId} onChange={(e) => setAdminLotteryPolicyId(e.target.value)} />
-            </label>
-            <label style={labelStyle}>
-              Token Name Hex
-              <input style={inputStyle} value={adminLotteryTokenNameHex} onChange={(e) => setAdminLotteryTokenNameHex(e.target.value)} />
-            </label>
-            <label style={labelStyle}>
-              Mint Tx Hash
-              <input style={inputStyle} value={adminLotteryMintTxHash} onChange={(e) => setAdminLotteryMintTxHash(e.target.value)} />
-            </label>
-            <label style={labelStyle}>
-              Contract Address
-              <input style={inputStyle} value={adminLotteryContractAddress} onChange={(e) => setAdminLotteryContractAddress(e.target.value)} />
-            </label>
-          </div>
-          <div style={{ marginTop: 10 }}>
-            <Button onClick={() => createLotteryRegistration.mutate()} disabled={createLotteryRegistration.isPending}>
-              Register Lottery
-            </Button>
-          </div>
+          <SectionSubTitle>Register Active Lottery</SectionSubTitle>
+          <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Policy ID</Label>
+                <Input value={adminLotteryPolicyId} onChange={(e) => setAdminLotteryPolicyId(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Token Name Hex</Label>
+                <Input value={adminLotteryTokenNameHex} onChange={(e) => setAdminLotteryTokenNameHex(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Mint Tx Hash</Label>
+                <Input value={adminLotteryMintTxHash} onChange={(e) => setAdminLotteryMintTxHash(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Contract Address</Label>
+                <Input value={adminLotteryContractAddress} onChange={(e) => setAdminLotteryContractAddress(e.target.value)} />
+              </div>
+            </div>
+            <div className="border-t pt-3">
+              <Button type="button" onClick={() => createLotteryRegistration.mutate()} disabled={createLotteryRegistration.isPending}>
+                Register Lottery
+              </Button>
+            </div>
+          </form>
           {createLotteryRegistration.isError ? (
-            <p style={{ marginTop: 8, color: "#b91c1c" }}>Lottery register failed: {createLotteryRegistration.error.message}</p>
+            <Alert variant="destructive" style={alertTop8Style}>Lottery register failed: {createLotteryRegistration.error.message}</Alert>
           ) : null}
           {createLotteryRegistration.isSuccess ? (
-            <p style={{ marginTop: 8, color: "#166534" }}>Lottery registration submitted.</p>
+            <Alert style={alertTop8Style}>Lottery registration submitted.</Alert>
           ) : null}
-        </section>
+          </CardContent>
+        </Card>
       ) : null}
 
       {view === "admin" ? (
@@ -1170,7 +1427,7 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
           cardStyle={cardStyle}
         />
       ) : null}
-    </main>
+    </PageGrid>
   );
 }
 
@@ -1196,18 +1453,12 @@ const cardStyle: React.CSSProperties = {
   boxShadow: "0 1px 1px rgba(15,23,42,0.04)",
 };
 
-const labelStyle: React.CSSProperties = {
-  display: "grid",
-  gap: 5,
-  fontSize: 12,
-  color: "#374151",
-  fontWeight: 600,
-};
+const labelStyle: React.CSSProperties = {};
 
 const inputStyle: React.CSSProperties = {
-  border: "1px solid #d1d5db",
-  borderRadius: 8,
-  padding: "8px 10px",
-  background: "#ffffff",
-  color: "#111827",
+  width: "100%",
 };
+
+const alertTop8Style: React.CSSProperties = { marginTop: 8 };
+const alertTop6Style: React.CSSProperties = { marginTop: 6 };
+const alertErrorBreakStyle: React.CSSProperties = { marginTop: 6, overflowWrap: "anywhere", wordBreak: "break-word" };
