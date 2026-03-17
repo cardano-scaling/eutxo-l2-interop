@@ -25,6 +25,8 @@ import { credentialsPath, startupTimePath } from "../lib/runtime-paths";
 
 const HEAD_B_JON_API_URL = "http://127.0.0.1:4328";
 const LOTTERY_REGISTRY_API_URL = "http://127.0.0.1:3000/api/lottery/active";
+const LOTTERY_REGISTRY_ROLE_HEADER = "x-final-demo-role";
+const LOTTERY_REGISTRY_ROLE_VALUE = "admin";
 // Use a far-future default so the on-chain "validity entirely before close"
 // check passes even with local clock / slot conversion drift.
 const DEFAULT_CLOSE_DELAY_MS = 30 * 24 * 60 * 60 * 1000;
@@ -162,17 +164,22 @@ async function main() {
       console.log(`lotteryUtxo: ${lotteryUtxo.txHash}#${lotteryUtxo.outputIndex}`);
     }
 
+    const registrationPayload = {
+      headName: "headB",
+      policyId: spend.hash,
+      tokenNameHex: tokenName,
+      mintTxHash: txHash,
+      contractAddress: lotteryScriptAddress,
+    };
+
     try {
       const response = await fetch(LOTTERY_REGISTRY_API_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          headName: "headB",
-          policyId: spend.hash,
-          tokenNameHex: tokenName,
-          mintTxHash: txHash,
-          contractAddress: lotteryScriptAddress,
-        }),
+        headers: {
+          "Content-Type": "application/json",
+          [LOTTERY_REGISTRY_ROLE_HEADER]: LOTTERY_REGISTRY_ROLE_VALUE,
+        },
+        body: JSON.stringify(registrationPayload),
       });
       if (!response.ok) {
         const body = await response.text();
@@ -182,13 +189,7 @@ async function main() {
     } catch (error) {
       console.warn("Failed to auto-register lottery in DB. You can register manually with:");
       console.warn(
-        `curl -X POST ${LOTTERY_REGISTRY_API_URL} -H 'content-type: application/json' -d '${JSON.stringify({
-          headName: "headB",
-          policyId: spend.hash,
-          tokenNameHex: tokenName,
-          mintTxHash: txHash,
-          contractAddress: lotteryScriptAddress,
-        })}'`,
+        `curl -X POST ${LOTTERY_REGISTRY_API_URL} -H 'content-type: application/json' -H '${LOTTERY_REGISTRY_ROLE_HEADER}: ${LOTTERY_REGISTRY_ROLE_VALUE}' -d '${JSON.stringify(registrationPayload)}'`,
       );
       console.warn(error);
     }

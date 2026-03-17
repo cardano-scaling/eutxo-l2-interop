@@ -62,7 +62,7 @@ function loadIdaFundsAddressBech32(): string {
   return readFileSync(addrPath, "utf8").trim();
 }
 
-async function readActiveLotteryTicketCostFromHeadB() {
+export async function readActiveLotteryTicketCostFromHeadB() {
   const activeLottery = await getActiveLotteryForHead("headB");
   if (!activeLottery) {
     throw new Error("No active lottery registered for headB");

@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 const LINKS: Array<{ href: string; label: string }> = [
   { href: "/user", label: "User" },
@@ -13,38 +15,22 @@ export function RoleNav() {
   const pathname = usePathname();
 
   return (
-    <nav
-      style={{
-        display: "flex",
-        gap: 6,
-        flexWrap: "wrap",
-        padding: 3,
-        border: "1px solid #e5e7eb",
-        borderRadius: 8,
-        background: "#f9fafb",
-      }}
-    >
+    <nav className="inline-flex items-center gap-1 rounded-lg border bg-muted/40 p-1">
       {LINKS.map((link) => {
         const active = pathname === link.href;
         return (
-          <Link
+          <Button
             key={link.href}
-            href={link.href}
-            style={{
-              textDecoration: "none",
-              borderRadius: 6,
-              padding: "5px 10px",
-              border: active ? "1px solid #d1d5db" : "1px solid transparent",
-              background: active ? "#ffffff" : "transparent",
-              color: active ? "#111827" : "#4b5563",
-              fontSize: 12,
-              fontWeight: active ? 700 : 600,
-              boxShadow: active ? "0 1px 1px rgba(0,0,0,0.04)" : "none",
-              transition: "all 120ms ease",
-            }}
+            asChild
+            size="sm"
+            variant={active ? "default" : "ghost"}
+            className={cn(
+              "h-7 px-3 text-xs",
+              active ? "shadow-sm" : "text-muted-foreground",
+            )}
           >
-            {link.label}
-          </Link>
+            <Link href={link.href}>{link.label}</Link>
+          </Button>
         );
       })}
     </nav>
