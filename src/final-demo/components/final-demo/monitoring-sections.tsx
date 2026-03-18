@@ -2,9 +2,17 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert } from "@/components/ui/alert";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type { HeadReadModel, HeadSnapshotState, SnapshotRow, WorkflowResponse } from "@/components/FinalDemoApp";
 
 type VisibleHead = "headA" | "headB" | "headC";
+const UTXO_LAZY_PAGE_SIZE = 24;
 
 function lovelaceToAdaLabel(lovelace: string): string {
   try {
@@ -22,6 +30,136 @@ function shortenRef(ref: string): string {
 function shortenAddress(address: string): string {
   if (address.length <= 14) return address;
   return `${address.slice(0, 12)}...${address.slice(-4)}`;
+}
+
+function splitAssetUnit(unit: string): { policyId: string; tokenName: string } {
+  if (!/^[0-9a-f]+$/i.test(unit)) {
+    return { policyId: unit, tokenName: "-" };
+  }
+  const policyId = unit.slice(0, 56);
+  const tokenName = unit.slice(56);
+  return {
+    policyId: policyId || unit,
+    tokenName: tokenName || "-",
+  };
+}
+
+function shortenAssetUnit(unit: string): string {
+  if (unit.length <= 14) return unit;
+  return `${unit.slice(0, 10)}...`;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" ? value as Record<string, unknown> : null;
+}
+
+function datumPrimitive(value: unknown): string {
+  if (value == null) return "-";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  const record = asRecord(value);
+  if (!record) return JSON.stringify(value);
+  if (typeof record.bech32 === "string") return record.bech32;
+  if (typeof record.int === "number" || typeof record.int === "bigint" || typeof record.int === "string") {
+    return String(record.int);
+  }
+  if (typeof record.bytes === "string") return record.bytes;
+  if (typeof record.bool === "boolean") return String(record.bool);
+  if (typeof record.constructor === "number") {
+    if (record.constructor === 0) return "false";
+    if (record.constructor === 1) return "true";
+  }
+  return JSON.stringify(value);
+}
+
+function formatUnixMs(value: string): string {
+  if (!/^\d+$/.test(value)) return value;
+  const ms = Number(value);
+  if (!Number.isFinite(ms) || ms <= 0) return value;
+  return `${new Date(ms).toLocaleString()} (${value})`;
+}
+
+function extractLotteryDatumFields(inlineDatum: unknown): Array<{ label: string; value: string }> | null {
+  const obj = asRecord(inlineDatum);
+  if (!obj) return null;
+  const directKeys = ["prize", "ticket_cost", "paid_winner", "close_timestamp", "admin"];
+  const hasDirectShape = directKeys.every((k) => k in obj);
+  if (hasDirectShape) {
+    const prize = datumPrimitive(obj.prize);
+    const ticketCost = datumPrimitive(obj.ticket_cost);
+    const paidWinner = datumPrimitive(obj.paid_winner);
+    const closeTimestampRaw = datumPrimitive(obj.close_timestamp);
+    const admin = datumPrimitive(obj.admin);
+    return [
+      { label: "Prize", value: prize },
+      { label: "Ticket Cost", value: ticketCost },
+      { label: "Paid Winner", value: paidWinner },
+      { label: "Close Timestamp", value: formatUnixMs(closeTimestampRaw) },
+      { label: "Admin", value: admin },
+    ];
+  }
+  const fields = Array.isArray(obj.fields) ? obj.fields : null;
+  if (!fields || fields.length < 5) return null;
+  const prize = datumPrimitive(fields[0]);
+  const ticketCost = datumPrimitive(fields[1]);
+  const paidWinner = datumPrimitive(fields[2]);
+  const closeTimestampRaw = datumPrimitive(fields[3]);
+  const admin = datumPrimitive(fields[4]);
+  return [
+    { label: "Prize", value: prize },
+    { label: "Ticket Cost", value: ticketCost },
+    { label: "Paid Winner", value: paidWinner },
+    { label: "Close Timestamp", value: formatUnixMs(closeTimestampRaw) },
+    { label: "Admin", value: admin },
+  ];
+}
+
+function extractLotteryTicketSummary(inlineDatum: unknown): { buyerAddress: string; lotteryId: string } | null {
+  const obj = asRecord(inlineDatum);
+  if (!obj) return null;
+  const summary = asRecord(obj.__ticketSummary);
+  if (!summary) return null;
+  if (typeof summary.buyerAddress !== "string" || typeof summary.lotteryId !== "string") return null;
+  const buyerAddress = summary.buyerAddress.trim();
+  const lotteryId = summary.lotteryId.trim();
+  if (!buyerAddress || !lotteryId) return null;
+  return { buyerAddress, lotteryId };
+}
+
+function extractHtlcSummary(inlineDatum: unknown): {
+  hash: string;
+  timeoutMs: string;
+  senderPkh: string;
+  receiverPkh: string;
+  desiredOutputAddress: string;
+  desiredLovelace: string;
+  hasDesiredDatum: boolean;
+} | null {
+  const obj = asRecord(inlineDatum);
+  if (!obj) return null;
+  const summary = asRecord(obj.__htlcSummary);
+  if (!summary) return null;
+  if (
+    typeof summary.hash !== "string"
+    || typeof summary.timeoutMs !== "string"
+    || typeof summary.senderPkh !== "string"
+    || typeof summary.receiverPkh !== "string"
+    || typeof summary.desiredOutputAddress !== "string"
+    || typeof summary.desiredLovelace !== "string"
+    || typeof summary.hasDesiredDatum !== "boolean"
+  ) {
+    return null;
+  }
+  return {
+    hash: summary.hash,
+    timeoutMs: summary.timeoutMs,
+    senderPkh: summary.senderPkh,
+    receiverPkh: summary.receiverPkh,
+    desiredOutputAddress: summary.desiredOutputAddress,
+    desiredLovelace: summary.desiredLovelace,
+    hasDesiredDatum: summary.hasDesiredDatum,
+  };
 }
 
 function parseEventMeta(metaJson?: string | null): Record<string, unknown> | null {
@@ -77,6 +215,15 @@ function HeadCard(
 }
 
 function SnapshotUtxoRow({ row }: { row: SnapshotRow }) {
+  const lotteryDatumFields = row.label === "lottery" && row.inlineDatum
+    ? extractLotteryDatumFields(row.inlineDatum)
+    : null;
+  const lotteryTicketSummary = row.label === "lottery_ticket" && row.inlineDatum
+    ? extractLotteryTicketSummary(row.inlineDatum)
+    : null;
+  const htlcSummary = row.label === "htlc_script" && row.inlineDatum
+    ? extractHtlcSummary(row.inlineDatum)
+    : null;
   return (
     <div style={monitorStyles.utxoCard}>
       <div style={monitorStyles.utxoTitleRow}>
@@ -92,12 +239,127 @@ function SnapshotUtxoRow({ row }: { row: SnapshotRow }) {
         </div>
         {row.assets.length > 0 ? (
           <div style={monitorStyles.assetText}>
-            Assets: {row.assets.map((a) => `${a.amount} ${a.unit.slice(0, 10)}...`).join(", ")}
+            Assets:{" "}
+            <TooltipProvider>
+              {row.assets.map((asset, index) => {
+                const split = splitAssetUnit(asset.unit);
+                return (
+                  <span key={`${asset.unit}_${index}`}>
+                    {index > 0 ? ", " : null}
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span style={monitorStyles.assetUnitTrigger}>
+                          {asset.amount} {shortenAssetUnit(asset.unit)}
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" align="start" style={monitorStyles.inlineDatumTooltip}>
+                        <div style={monitorStyles.inlineDatumGrid}>
+                          <div style={monitorStyles.inlineDatumRow}>
+                            <span style={monitorStyles.inlineDatumLabel}>Policy ID:</span>
+                            <span style={monitorStyles.inlineDatumValue}>{split.policyId}</span>
+                          </div>
+                          <div style={monitorStyles.inlineDatumRow}>
+                            <span style={monitorStyles.inlineDatumLabel}>Token Name:</span>
+                            <span style={monitorStyles.inlineDatumValue}>{split.tokenName}</span>
+                          </div>
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
+                  </span>
+                );
+              })}
+            </TooltipProvider>
           </div>
         ) : null}
         {row.hasInlineDatum ? (
           <div style={monitorStyles.breakingMeta}>
-            with Inline Datum
+            {row.label === "lottery" && row.inlineDatum ? (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span style={monitorStyles.inlineDatumTrigger}>with Inline Datum</span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" align="start" style={monitorStyles.inlineDatumTooltip}>
+                    {lotteryDatumFields ? (
+                      <div style={monitorStyles.inlineDatumGrid}>
+                        {lotteryDatumFields.map((field) => (
+                          <div key={field.label} style={monitorStyles.inlineDatumRow}>
+                            <span style={monitorStyles.inlineDatumLabel}>{field.label}:</span>
+                            <span style={monitorStyles.inlineDatumValue}>{field.value}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <pre style={monitorStyles.inlineDatumPre}>
+                        {JSON.stringify(row.inlineDatum, null, 2)}
+                      </pre>
+                    )}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            ) : row.label === "lottery_ticket" && lotteryTicketSummary ? (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span style={monitorStyles.inlineDatumTrigger}>with Inline Datum</span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" align="start" style={monitorStyles.inlineDatumTooltip}>
+                    <div style={monitorStyles.inlineDatumGrid}>
+                      <div style={monitorStyles.inlineDatumRow}>
+                        <span style={monitorStyles.inlineDatumLabel}>Buyer Address:</span>
+                        <span style={monitorStyles.inlineDatumValue}>{lotteryTicketSummary.buyerAddress}</span>
+                      </div>
+                      <div style={monitorStyles.inlineDatumRow}>
+                        <span style={monitorStyles.inlineDatumLabel}>Lottery ID:</span>
+                        <span style={monitorStyles.inlineDatumValue}>{lotteryTicketSummary.lotteryId}</span>
+                      </div>
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            ) : row.label === "htlc_script" && htlcSummary ? (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span style={monitorStyles.inlineDatumTrigger}>with Inline Datum</span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" align="start" style={monitorStyles.inlineDatumTooltip}>
+                    <div style={monitorStyles.inlineDatumGrid}>
+                      <div style={monitorStyles.inlineDatumRow}>
+                        <span style={monitorStyles.inlineDatumLabel}>Hash:</span>
+                        <span style={monitorStyles.inlineDatumValue}>{htlcSummary.hash}</span>
+                      </div>
+                      <div style={monitorStyles.inlineDatumRow}>
+                        <span style={monitorStyles.inlineDatumLabel}>Timeout:</span>
+                        <span style={monitorStyles.inlineDatumValue}>{formatUnixMs(htlcSummary.timeoutMs)}</span>
+                      </div>
+                      <div style={monitorStyles.inlineDatumRow}>
+                        <span style={monitorStyles.inlineDatumLabel}>Sender PKH:</span>
+                        <span style={monitorStyles.inlineDatumValue}>{htlcSummary.senderPkh}</span>
+                      </div>
+                      <div style={monitorStyles.inlineDatumRow}>
+                        <span style={monitorStyles.inlineDatumLabel}>Receiver PKH:</span>
+                        <span style={monitorStyles.inlineDatumValue}>{htlcSummary.receiverPkh}</span>
+                      </div>
+                      <div style={monitorStyles.inlineDatumRow}>
+                        <span style={monitorStyles.inlineDatumLabel}>Desired Address:</span>
+                        <span style={monitorStyles.inlineDatumValue}>{htlcSummary.desiredOutputAddress}</span>
+                      </div>
+                      <div style={monitorStyles.inlineDatumRow}>
+                        <span style={monitorStyles.inlineDatumLabel}>Desired Lovelace:</span>
+                        <span style={monitorStyles.inlineDatumValue}>{htlcSummary.desiredLovelace}</span>
+                      </div>
+                      <div style={monitorStyles.inlineDatumRow}>
+                        <span style={monitorStyles.inlineDatumLabel}>Desired Datum:</span>
+                        <span style={monitorStyles.inlineDatumValue}>{htlcSummary.hasDesiredDatum ? "present" : "null"}</span>
+                      </div>
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            ) : (
+              "with Inline Datum"
+            )}
           </div>
         ) : null}
       </div>
@@ -105,8 +367,45 @@ function SnapshotUtxoRow({ row }: { row: SnapshotRow }) {
   );
 }
 
+function LazyUtxoList({ utxos }: { utxos: SnapshotRow[] }) {
+  const [visibleCount, setVisibleCount] = useState(UTXO_LAZY_PAGE_SIZE);
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setVisibleCount(UTXO_LAZY_PAGE_SIZE);
+    if (scrollerRef.current) {
+      scrollerRef.current.scrollTop = 0;
+    }
+  }, [utxos]);
+
+  const handleScroll = useCallback(() => {
+    const node = scrollerRef.current;
+    if (!node) return;
+    const nearBottom = node.scrollHeight - node.scrollTop - node.clientHeight < 120;
+    if (!nearBottom) return;
+    setVisibleCount((prev) => Math.min(prev + UTXO_LAZY_PAGE_SIZE, utxos.length));
+  }, [utxos.length]);
+
+  const visible = useMemo(
+    () => utxos.slice(0, visibleCount),
+    [utxos, visibleCount],
+  );
+
+  return (
+    <div ref={scrollerRef} onScroll={handleScroll} style={monitorStyles.utxoScrollList}>
+      <div style={monitorStyles.gridTight}>
+        {visible.map((row) => <SnapshotUtxoRow key={row.ref} row={row} />)}
+        {visible.length < utxos.length ? (
+          <p style={monitorStyles.emptyText}>
+            Scroll to load more ({visible.length}/{utxos.length})
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function SnapshotHeadCard({ title, snapshot }: { title: string; snapshot: HeadSnapshotState }) {
-  const visible = snapshot.utxos.slice(0, 8);
   return (
     <Card style={monitorStyles.nestedCard}>
       <CardContent style={monitorStyles.nestedCardContent}>
@@ -122,14 +421,7 @@ function SnapshotHeadCard({ title, snapshot }: { title: string; snapshot: HeadSn
       {snapshot.utxos.length === 0 ? (
         <p style={monitorStyles.emptyText}>No UTxOs to display.</p>
       ) : (
-        <div style={monitorStyles.gridTight}>
-          {visible.map((row) => <SnapshotUtxoRow key={row.ref} row={row} />)}
-          {snapshot.utxos.length > visible.length ? (
-            <p style={monitorStyles.emptyText}>
-              +{snapshot.utxos.length - visible.length} more
-            </p>
-          ) : null}
-        </div>
+        <LazyUtxoList utxos={snapshot.utxos} />
       )}
       <p style={monitorStyles.snapshotMeta}>
         Snapshot: {new Date(snapshot.fetchedAt).toLocaleTimeString()}
@@ -161,7 +453,7 @@ function UnifiedHeadMonitoringCard({
   const ageMs = Math.max(0, nowMs - new Date(head.updatedAt).getTime());
   const isStale = ageMs > staleThresholdMs;
   const badgeVariant = head.status === "open" ? "default" : head.status === "closed" ? "secondary" : "outline";
-  const visibleUtxos = snapshot?.utxos.slice(0, 8) ?? [];
+  const visibleUtxos = snapshot?.utxos ?? [];
 
   return (
     <Card style={monitorStyles.nestedCard}>
@@ -199,12 +491,7 @@ function UnifiedHeadMonitoringCard({
           <p style={monitorStyles.emptyText}>No UTxOs to display.</p>
         ) : null}
         {snapshot && !snapshot.error && visibleUtxos.length > 0 ? (
-          <div style={monitorStyles.gridTight}>
-            {visibleUtxos.map((row) => <SnapshotUtxoRow key={row.ref} row={row} />)}
-            {snapshot.utxos.length > visibleUtxos.length ? (
-              <p style={monitorStyles.emptyText}>+{snapshot.utxos.length - visibleUtxos.length} more</p>
-            ) : null}
-          </div>
+          <LazyUtxoList utxos={visibleUtxos} />
         ) : null}
         {snapshot ? (
           <p style={monitorStyles.snapshotMeta}>
@@ -564,6 +851,51 @@ const monitorStyles: Record<string, React.CSSProperties> = {
   utxoMetaStack: { display: "grid", gap: 2, marginTop: 1 },
   breakingMeta: { margin: 0, lineHeight: 1.2, color: "var(--muted-foreground)", overflowWrap: "anywhere", wordBreak: "break-word" },
   assetText: { margin: 0, lineHeight: 1.2, color: "var(--muted-foreground)", overflowWrap: "anywhere", wordBreak: "break-word" },
+  assetUnitTrigger: {
+    textDecoration: "underline dotted",
+    cursor: "help",
+  },
+  inlineDatumTrigger: {
+    textDecoration: "underline dotted",
+    cursor: "help",
+  },
+  inlineDatumTooltip: {
+    maxWidth: 440,
+    border: "1px solid var(--border)",
+    background: "var(--popover)",
+    color: "var(--popover-foreground)",
+  },
+  inlineDatumGrid: {
+    display: "grid",
+    gap: 4,
+    minWidth: 300,
+  },
+  inlineDatumRow: {
+    display: "grid",
+    gridTemplateColumns: "120px 1fr",
+    gap: 8,
+    alignItems: "start",
+  },
+  inlineDatumLabel: {
+    color: "var(--muted-foreground)",
+    fontWeight: 600,
+  },
+  inlineDatumValue: {
+    overflowWrap: "anywhere",
+    wordBreak: "break-word",
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+    fontSize: 12,
+  },
+  inlineDatumPre: {
+    margin: 0,
+    maxHeight: 220,
+    overflow: "auto",
+    whiteSpace: "pre-wrap",
+    overflowWrap: "anywhere",
+    wordBreak: "break-word",
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+    fontSize: 12,
+  },
   statusLine: { margin: "0 0 6px 0" },
   utxoSectionTitle: { margin: "10px 0 6px 0", fontSize: 20, marginBottom: 12, fontWeight: 700, color: "var(--foreground)" },
   errorBlock: {
@@ -579,6 +911,11 @@ const monitorStyles: Record<string, React.CSSProperties> = {
   },
   emptyText: { margin: 0, color: "var(--muted-foreground)", fontSize: 12 },
   gridTight: { display: "grid", gap: 6 },
+  utxoScrollList: {
+    maxHeight: 360,
+    overflowY: "auto",
+    paddingRight: 4,
+  },
   snapshotMeta: { margin: "8px 0 0 0", color: "var(--muted-foreground)", fontSize: 11 },
   cardHeaderTight: { paddingBottom: 0 },
   cardTitle: { fontSize: 24 },
