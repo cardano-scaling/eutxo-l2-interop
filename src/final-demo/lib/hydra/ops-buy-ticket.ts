@@ -57,9 +57,17 @@ function paymentKeyHashFromAddress(addressBech32: string): string {
   return paymentCredential.hash;
 }
 
-function loadIdaFundsAddressBech32(): string {
-  const addrPath = credentialsPath("ida", "ida-funds.addr");
+function loadParticipantFundsAddressBech32(participant: "ida" | "charlie"): string {
+  const addrPath = credentialsPath(participant, `${participant}-funds.addr`);
   return readFileSync(addrPath, "utf8").trim();
+}
+
+function loadParticipantFundsPrivateKeyBech32(participant: "ida" | "charlie"): string {
+  const skPath = credentialsPath(participant, `${participant}-funds.sk`);
+  const skJson = JSON.parse(readFileSync(skPath, "utf8")) as { cborHex: string };
+  const skBytes = Buffer.from(skJson.cborHex, "hex");
+  const sk = CML.PrivateKey.from_normal_bytes(skBytes.subarray(2));
+  return sk.to_bech32();
 }
 
 export async function readActiveLotteryTicketCostFromHeadB() {
@@ -84,7 +92,7 @@ export async function prepareBuyTicketDraft(input: PrepareBuyTicketInput): Promi
   const { lucid } = await makeLucidForHead(sourceHead);
   const userAddressBech32 = normalizeAddressToBech32(input.address);
   const userPaymentKeyHash = paymentKeyHashFromAddress(userAddressBech32);
-  const idaAddressBech32 = loadIdaFundsAddressBech32();
+  const idaAddressBech32 = loadParticipantFundsAddressBech32("ida");
   const idaPaymentKeyHash = paymentKeyHashFromAddress(idaAddressBech32);
   const userUtxos = await lucid.utxosAt(userAddressBech32);
   logger.info(
@@ -187,5 +195,45 @@ export async function submitBuyTicketDraft(input: SubmitBuyTicketInput): Promise
     hashRef: input.htlcHash.trim().toLowerCase(),
     sourceHtlcRef: `${input.sourceHead}_${sourceTxHash}`,
     headBHtlcRef: null,
+  };
+}
+
+export async function submitBuyTicketForCharlie(input: {
+  htlcHash: string;
+  timeoutMinutes: string;
+}): Promise<{
+  txHash: string;
+  sourceHtlcRef: string;
+  headBHtlcRef: null;
+  hashRef: string;
+  address: string;
+  amountLovelace: string;
+}> {
+  const address = loadParticipantFundsAddressBech32("charlie");
+  const draft = await prepareBuyTicketDraft({
+    actor: "charlie",
+    address,
+    amountLovelace: "0",
+    sourceHead: "headC",
+    htlcHash: input.htlcHash,
+    timeoutMinutes: input.timeoutMinutes,
+  });
+  const { lucid, handler } = await makeLucidForHead("headC");
+  lucid.selectWallet.fromPrivateKey(loadParticipantFundsPrivateKeyBech32("charlie"));
+  const signedTx = await lucid
+    .fromTx(draft.unsignedTxCborHex)
+    .sign
+    .withWallet()
+    .complete();
+  const signedTxCborHex = signedTx.toCBOR();
+  await handler.sendTx(signedTxCborHex);
+  const txHash = txHashFromCbor(signedTxCborHex);
+  return {
+    txHash,
+    sourceHtlcRef: `headC_${txHash}`,
+    headBHtlcRef: null,
+    hashRef: input.htlcHash.trim().toLowerCase(),
+    address,
+    amountLovelace: draft.summary.amountLovelace,
   };
 }

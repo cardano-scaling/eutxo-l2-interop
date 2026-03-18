@@ -216,7 +216,7 @@ async function main(): Promise<LotteryCreateResult> {
       const message = error instanceof Error ? error.message : String(error);
       if (message.includes("Hydra snapshot request failed with 404")) {
         throw new Error(
-          "Head B is not open (Hydra snapshot unavailable). Run `npm run hydra:open-heads` first.",
+          "Head B is not open (Hydra snapshot unavailable).",
         );
       }
       throw error;

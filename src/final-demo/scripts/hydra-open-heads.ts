@@ -166,32 +166,133 @@ const headC = {
     api: process.env.HYDRA_HEAD_C_CHARLIE_API_URL ?? runtimeUrl("http://127.0.0.1:4333", "http://hydra-node-charlie-lt:4333"),
     skPath: join(credentialsRoot, "charlie", "charlie-funds.sk"),
   } as Participant,
+  p2: {
+    name: "ida",
+    api: process.env.HYDRA_HEAD_C_IDA_API_URL ?? process.env.HYDRA_HEAD_C_API_URL ?? runtimeUrl("http://127.0.0.1:4339", "http://hydra-node-ida-3-lt:4339"),
+    skPath: join(credentialsRoot, "ida", "ida-funds.sk"),
+  } as Participant,
 };
 
-type Operation = "open_head_a" | "open_head_b" | "open_heads_ab" | "commit_head_c_charlie";
+type Operation =
+  | "open_head_a"
+  | "open_head_b"
+  | "open_heads_ab"
+  | "commit_head_c_charlie"
+  | "commit_head_c_admin";
 
 function parseOperation(argv: string[]): Operation {
   if (argv.includes("--open-head-a")) return "open_head_a";
   if (argv.includes("--open-head-b")) return "open_head_b";
+  if (argv.includes("--commit-head-c-admin")) return "commit_head_c_admin";
   if (argv.includes("--commit-head-c-charlie")) return "commit_head_c_charlie";
   return "open_heads_ab";
 }
 
-async function commitHeadCCharlie(commitUtxo: Utxo | null): Promise<void> {
+async function commitHeadCParticipant(
+  participant: Participant,
+  counterpart: Participant,
+  commitUtxo: Utxo | null,
+): Promise<void> {
   console.log(`\n${"=".repeat(60)}`);
-  console.log("Partial init head C: committing Charlie funds");
+  console.log(`Partial init head C: committing ${participant.name} funds`);
   console.log("=".repeat(60));
-  const statusHandler = new HydraHandler(headC.p1.api);
-  const status = await statusHandler.initIfNeeded();
+  const statusHandler = new HydraHandler(participant.api);
+  let status: "Idle" | "Initial" | "Open" | "Closed" | "FanoutPossible" | "Final";
+  try {
+    status = await statusHandler.initIfNeeded();
+  } catch (error) {
+    // Idempotent fallback: during concurrent retries, init transition may already be in-flight.
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.includes("Timeout waiting for HeadIsInitializing")) {
+      statusHandler.stop();
+      throw error;
+    }
+    const current = await statusHandler.getHeadStatus();
+    if (current === "Initial" || current === "Open") {
+      status = current;
+      console.log(`Head C status already ${current}; continuing without re-init.`);
+    } else {
+      statusHandler.stop();
+      throw error;
+    }
+  }
   if (status === "Open") {
     console.log("Head C already open.");
     statusHandler.stop();
     return;
   }
+  // IMPORTANT: "Initial" does NOT imply this participant already committed.
+  // It may only mean InitTx exists and the head is awaiting participant commits.
+  // So we still continue and attempt the participant commit below.
   statusHandler.stop();
-  const skHex = await loadPrivateKeyHex(headC.p1.skPath);
-  await commitParticipant("charlie", headC.p1.api, skHex, commitUtxo);
-  console.log("Head C partial init complete (Charlie commit submitted).");
+  if (!commitUtxo) {
+    if (status === "Initial") {
+      // Idempotent path for retried calls where commit input may have been consumed already.
+      const openWatcher = new HydraHandler(counterpart.api);
+      try {
+        try {
+          await openWatcher.listen("HeadIsOpen", 30_000);
+          console.log("Head C is now open.");
+          return;
+        } catch {
+          console.log(
+            "Head C is initializing but no eligible commit UTxO was found for this participant. Waiting for counterpart/open completion.",
+          );
+          return;
+        }
+      } finally {
+        openWatcher.stop();
+      }
+    }
+    throw new Error(
+      `HEAD_C_COMMIT_PRECONDITION_FAILED: ${participant.name} needs at least 2 eligible UTxOs (one kept as Hydra fuel, one for commit).`,
+    );
+  }
+  const skHex = await loadPrivateKeyHex(participant.skPath);
+  try {
+    await commitParticipant(participant.name, participant.api, skHex, commitUtxo);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.includes("NoFuelUTXOFound")) {
+      throw error;
+    }
+    // Commit may already have been submitted/consumed by a prior successful attempt.
+    const statusProbe = new HydraHandler(participant.api);
+    try {
+      const current = await statusProbe.getHeadStatus();
+      if (current === "Initial" || current === "Open") {
+        console.log(`Commit input already consumed; Head C status is ${current}. Treating as idempotent success.`);
+      } else {
+        throw error;
+      }
+    } finally {
+      statusProbe.stop();
+    }
+  }
+
+  // If counterpart already committed, this second commit should finalize opening.
+  // Wait briefly to surface that in logs/output instead of forcing callers to poll.
+  const openWatcher = new HydraHandler(counterpart.api);
+  try {
+    const counterpartStatus = await openWatcher.getHeadStatus();
+    if (counterpartStatus === "Open") {
+      console.log("Head C is now open.");
+      return;
+    }
+    if (counterpartStatus === "Initial") {
+      try {
+        await openWatcher.listen("HeadIsOpen", 30_000);
+        console.log("Head C is now open.");
+        return;
+      } catch {
+        // Keep partial success semantics when counterpart has not committed yet.
+      }
+    }
+  } finally {
+    openWatcher.stop();
+  }
+
+  console.log(`Head C partial init complete (${participant.name} commit submitted). Waiting for counterpart commit.`);
 }
 
 async function openHead(name: "A" | "B", participants: Participant[], commitUtxos: Array<Utxo | null>): Promise<void> {
@@ -264,6 +365,7 @@ async function main(): Promise<void> {
       const bobCommit = pickCommitUtxo(bobUtxos);
       const jonCommit = pickCommitUtxo(jonUtxos);
       const charlieCommit = pickCommitUtxo(charlieUtxos);
+      const idaCommitHeadC = pickCommitUtxo(idaUtxos);
 
       if (operation === "open_heads_ab") {
         await openHead("A", [headA.p1, headA.p2], [aliceCommit, idaCommitA]);
@@ -278,7 +380,11 @@ async function main(): Promise<void> {
         await openHead("B", [headB.p1, headB.p2, headB.p3], [bobCommit, idaCommitAny, jonCommit]);
         return;
       }
-      await commitHeadCCharlie(charlieCommit);
+      if (operation === "commit_head_c_charlie") {
+        await commitHeadCParticipant(headC.p1, headC.p2, charlieCommit);
+        return;
+      }
+      await commitHeadCParticipant(headC.p2, headC.p1, idaCommitHeadC);
     };
 
     try {
@@ -296,6 +402,8 @@ async function main(): Promise<void> {
       console.log("\nHead A open flow completed.");
     } else if (operation === "open_head_b") {
       console.log("\nHead B open flow completed.");
+    } else if (operation === "commit_head_c_admin") {
+      console.log("\nHead C admin partial init completed.");
     } else {
       console.log("\nHead C Charlie partial init completed.");
     }

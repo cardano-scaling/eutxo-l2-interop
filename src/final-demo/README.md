@@ -62,6 +62,10 @@ npm run hydra:open-heads
 
 # Create lottery on Head B (Jon flow)
 npm run hydra:create-lottery-head-b
+
+# Head C cooperative partial commits
+npm run hydra:commit-head-c-charlie:node
+npm run hydra:commit-head-c-admin:node
 ```
 
 These are admin operations also available via the UI in the Admin view.
@@ -120,7 +124,7 @@ These are admin operations also available via the UI in the Admin view.
   - `GET /api/admin/workflows`
   - `POST /api/admin/workflows/:id/retry`
   - `POST /api/admin/reconcile`
-  - `POST /api/admin/heads/open`
+  - `POST /api/admin/heads/open` (admin: all operations; charlie: `commit_head_c_charlie` only)
   - `POST /api/admin/lottery/create`
   - `POST /api/admin/lottery/reconcile`
 - Lottery routes:
