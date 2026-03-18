@@ -1,17 +1,38 @@
+import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import {
-  type Utxo,
-  fromHex,
-  toHex,
-} from "https://deno.land/x/lucid@0.20.14/mod.ts";
-import { blake2b } from "https://esm.sh/@noble/hashes@1.3.3/blake2b";
-import { ed25519 } from "https://esm.sh/@noble/curves@1.3.0/ed25519";
-import { lucidUtxoToHydraUtxo, type HydraUtxo } from "./hydra-handler.mts";
+  blake2b,
+  deriveEd25519PublicKey_sync,
+  getEd25519Signature_sync,
+} from "@harmoniclabs/crypto";
+import { lucidUtxoToHydraUtxo, type HydraUtxo, type Utxo } from "./node-hydra-handler";
 
-const CARDANO_SUBMIT_API = "http://127.0.0.1:8090/api/submit/tx";
+const isDockerRuntime = existsSync("/.dockerenv");
+
+function runtimeUrl(localUrl: string, dockerUrl: string): string {
+  return isDockerRuntime ? dockerUrl : localUrl;
+}
+
+const CARDANO_SUBMIT_API = process.env.CARDANO_SUBMIT_API_URL
+  ?? runtimeUrl("http://127.0.0.1:8090/api/submit/tx", "http://cardano-submit-api:8090/api/submit/tx");
 
 export const COMMIT_RETRIES = 3;
 export const COMMIT_BACKOFFS = [5000, 10000, 20000];
 export const MIN_COMMIT_LOVELACE = 10_000_000n;
+
+function fromHex(hex: string): Uint8Array {
+  const normalized = hex.trim().toLowerCase();
+  if (normalized.length % 2 !== 0) throw new Error("Invalid hex length");
+  const out = new Uint8Array(normalized.length / 2);
+  for (let i = 0; i < normalized.length; i += 2) {
+    out[i / 2] = Number.parseInt(normalized.slice(i, i + 2), 16);
+  }
+  return out;
+}
+
+function toHex(bytes: Uint8Array): string {
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
 
 export function pickCommitUtxo(utxos: Utxo[]): Utxo | null {
   if (utxos.length < 2) return null;
@@ -21,7 +42,7 @@ export function pickCommitUtxo(utxos: Utxo[]): Utxo | null {
 }
 
 export async function loadPrivateKeyHex(skPath: string): Promise<string> {
-  const skJson = JSON.parse(await Deno.readTextFile(skPath));
+  const skJson = JSON.parse(await readFile(skPath, "utf8")) as { cborHex: string };
   return skJson.cborHex.slice(4);
 }
 
@@ -49,8 +70,12 @@ function cborSkip(data: Uint8Array, offset: number): number {
     if (mt === 4 || mt === 2 || mt === 3) {
       while (data[pos] !== 0xff) pos = cborSkip(data, pos);
       return pos + 1;
-    } else if (mt === 5) {
-      while (data[pos] !== 0xff) { pos = cborSkip(data, pos); pos = cborSkip(data, pos); }
+    }
+    if (mt === 5) {
+      while (data[pos] !== 0xff) {
+        pos = cborSkip(data, pos);
+        pos = cborSkip(data, pos);
+      }
       return pos + 1;
     }
     return pos;
@@ -59,16 +84,26 @@ function cborSkip(data: Uint8Array, offset: number): number {
   }
 
   switch (mt) {
-    case 0: case 1: case 7: return pos;
-    case 2: case 3: return pos + val;
+    case 0:
+    case 1:
+    case 7:
+      return pos;
+    case 2:
+    case 3:
+      return pos + val;
     case 4:
       for (let i = 0; i < val; i++) pos = cborSkip(data, pos);
       return pos;
     case 5:
-      for (let i = 0; i < val; i++) { pos = cborSkip(data, pos); pos = cborSkip(data, pos); }
+      for (let i = 0; i < val; i++) {
+        pos = cborSkip(data, pos);
+        pos = cborSkip(data, pos);
+      }
       return pos;
-    case 6: return cborSkip(data, pos);
-    default: throw new Error(`Unknown CBOR major type: ${mt}`);
+    case 6:
+      return cborSkip(data, pos);
+    default:
+      throw new Error(`Unknown CBOR major type: ${mt}`);
   }
 }
 
@@ -88,15 +123,25 @@ function addVKeyToWitnessSet(witBytes: Uint8Array, vkWitCbor: Uint8Array): Uint8
   const mapByte = witBytes[0];
   if ((mapByte >> 5) !== 5) throw new Error("Expected CBOR map for witness set");
   const mapAI = mapByte & 0x1f;
-  let mapSize: number, headerEnd: number;
-  if (mapAI < 24) { mapSize = mapAI; headerEnd = 1; }
-  else if (mapAI === 24) { mapSize = witBytes[1]; headerEnd = 2; }
-  else throw new Error(`Unexpected map AI: ${mapAI}`);
+  let mapSize: number;
+  let headerEnd: number;
+  if (mapAI < 24) {
+    mapSize = mapAI;
+    headerEnd = 1;
+  } else if (mapAI === 24) {
+    mapSize = witBytes[1];
+    headerEnd = 2;
+  } else {
+    throw new Error(`Unexpected map AI: ${mapAI}`);
+  }
 
   let scanPos = headerEnd;
   let hasKey0 = false;
   for (let i = 0; i < mapSize; i++) {
-    if (witBytes[scanPos] === 0x00) { hasKey0 = true; break; }
+    if (witBytes[scanPos] === 0x00) {
+      hasKey0 = true;
+      break;
+    }
     scanPos = cborSkip(witBytes, scanPos);
     scanPos = cborSkip(witBytes, scanPos);
   }
@@ -105,11 +150,17 @@ function addVKeyToWitnessSet(witBytes: Uint8Array, vkWitCbor: Uint8Array): Uint8
     const ns = mapSize + 1;
     const newHdr = ns < 24 ? new Uint8Array([0xa0 | ns]) : new Uint8Array([0xb8, ns]);
     const entry = new Uint8Array(5 + vkWitCbor.length);
-    entry[0] = 0x00; entry[1] = 0xd9; entry[2] = 0x01; entry[3] = 0x02; entry[4] = 0x81;
+    entry[0] = 0x00;
+    entry[1] = 0xd9;
+    entry[2] = 0x01;
+    entry[3] = 0x02;
+    entry[4] = 0x81;
     entry.set(vkWitCbor, 5);
     const existing = witBytes.slice(headerEnd);
     const r = new Uint8Array(newHdr.length + entry.length + existing.length);
-    r.set(newHdr, 0); r.set(entry, newHdr.length); r.set(existing, newHdr.length + entry.length);
+    r.set(newHdr, 0);
+    r.set(entry, newHdr.length);
+    r.set(existing, newHdr.length + entry.length);
     return r;
   }
 
@@ -120,15 +171,23 @@ function addVKeyToWitnessSet(witBytes: Uint8Array, vkWitCbor: Uint8Array): Uint8
       const tagStart = scanPos;
       let hasTag258 = false;
       if (witBytes[scanPos] === 0xd9 && witBytes[scanPos + 1] === 0x01 && witBytes[scanPos + 2] === 0x02) {
-        hasTag258 = true; scanPos += 3;
+        hasTag258 = true;
+        scanPos += 3;
       }
       const arrByte = witBytes[scanPos];
       if ((arrByte >> 5) !== 4) throw new Error(`Expected array for vkey witnesses, got 0x${arrByte.toString(16)}`);
       const arrAI = arrByte & 0x1f;
-      let arrSize: number, arrHeaderEnd: number;
-      if (arrAI < 24) { arrSize = arrAI; arrHeaderEnd = scanPos + 1; }
-      else if (arrAI === 24) { arrSize = witBytes[scanPos + 1]; arrHeaderEnd = scanPos + 2; }
-      else throw new Error(`Unexpected array AI: ${arrAI}`);
+      let arrSize: number;
+      let arrHeaderEnd: number;
+      if (arrAI < 24) {
+        arrSize = arrAI;
+        arrHeaderEnd = scanPos + 1;
+      } else if (arrAI === 24) {
+        arrSize = witBytes[scanPos + 1];
+        arrHeaderEnd = scanPos + 2;
+      } else {
+        throw new Error(`Unexpected array AI: ${arrAI}`);
+      }
       let arrEnd = arrHeaderEnd;
       for (let j = 0; j < arrSize; j++) arrEnd = cborSkip(witBytes, arrEnd);
       const ns = arrSize + 1;
@@ -139,11 +198,16 @@ function addVKeyToWitnessSet(witBytes: Uint8Array, vkWitCbor: Uint8Array): Uint8
       const after = witBytes.slice(arrEnd);
       const r = new Uint8Array(before.length + tagPrefix.length + newArr.length + elems.length + vkWitCbor.length + after.length);
       let p = 0;
-      r.set(before, p); p += before.length;
-      r.set(tagPrefix, p); p += tagPrefix.length;
-      r.set(newArr, p); p += newArr.length;
-      r.set(elems, p); p += elems.length;
-      r.set(vkWitCbor, p); p += vkWitCbor.length;
+      r.set(before, p);
+      p += before.length;
+      r.set(tagPrefix, p);
+      p += tagPrefix.length;
+      r.set(newArr, p);
+      p += newArr.length;
+      r.set(elems, p);
+      p += elems.length;
+      r.set(vkWitCbor, p);
+      p += vkWitCbor.length;
       r.set(after, p);
       return r;
     }
@@ -167,10 +231,10 @@ function signTxCbor(txCborHex: string, privateKeyHex: string): string {
   const witEnd = pos;
 
   const bodyBytes = tx.slice(bodyStart, bodyEnd);
-  const bodyHash = blake2b(bodyBytes, { dkLen: 32 });
+  const bodyHash = blake2b(bodyBytes, 32);
   const skBytes = fromHex(privateKeyHex);
-  const pkBytes = ed25519.getPublicKey(skBytes);
-  const sigBytes = ed25519.sign(bodyHash, skBytes);
+  const pkBytes = deriveEd25519PublicKey_sync(skBytes);
+  const sigBytes = getEd25519Signature_sync(bodyHash, skBytes);
 
   const vkWit = new Uint8Array(1 + 2 + 32 + 2 + 64);
   let w = 0;
@@ -202,7 +266,7 @@ async function submitToL1(signedTxCborHex: string): Promise<string> {
   const response = await fetch(CARDANO_SUBMIT_API, {
     method: "POST",
     headers: { "Content-Type": "application/cbor" },
-    body: txBytes,
+    body: Buffer.from(txBytes),
   });
   if (!response.ok) {
     const error = await response.text();
@@ -238,11 +302,11 @@ export async function commitParticipant(
         const err = await resp.text();
         throw new Error(`Commit request failed for ${label}: ${resp.status} - ${err}`);
       }
-      const { cborHex } = await resp.json();
+      const { cborHex } = (await resp.json()) as { cborHex: string };
       const signedCbor = signTxCbor(cborHex, skHex);
       console.log(`  ${label}: commit tx signed`);
       const txHash = await submitToL1(signedCbor);
-      console.log(`  ${label}: submitted → ${txHash}`);
+      console.log(`  ${label}: submitted -> ${txHash}`);
       return;
     } catch (e) {
       const msg = (e as Error).message?.slice(0, 300) || String(e);

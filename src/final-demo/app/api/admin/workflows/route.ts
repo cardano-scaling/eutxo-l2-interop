@@ -22,7 +22,11 @@ function parseStatus(value: string | null): WorkflowStatus | undefined {
 
 function parseType(value: string | null): WorkflowType | undefined {
   if (!value) return undefined;
-  if (value === WorkflowType.buy_ticket || value === WorkflowType.request_funds) {
+  if (
+    value === WorkflowType.buy_ticket
+    || value === WorkflowType.request_funds
+    || value === WorkflowType.admin_head_operation
+  ) {
     return value;
   }
   return undefined;

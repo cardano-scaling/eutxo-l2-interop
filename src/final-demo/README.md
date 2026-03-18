@@ -113,6 +113,8 @@ npm run hydra:create-lottery-head-b
   - `GET /api/admin/workflows`
   - `POST /api/admin/workflows/:id/retry`
   - `POST /api/admin/reconcile`
+  - `POST /api/admin/lottery/create`
+  - `POST /api/admin/lottery/reconcile`
 - Lottery:
   - `GET /api/lottery/active`
   - `POST /api/lottery/active` (admin-guarded)

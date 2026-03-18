@@ -105,12 +105,27 @@ interface ApiErrorEnvelope {
   requestId: string;
 }
 
+function formatSavedAgo(savedAtMs: number, nowMs: number): string {
+  const diffMs = Math.max(0, nowMs - savedAtMs);
+  const mins = Math.floor(diffMs / 60_000);
+  if (mins < 1) return "saved just now";
+  if (mins === 1) return "saved 1 min ago";
+  return `saved ${mins} min ago`;
+}
+
 async function extractApiErrorMessage(response: Response): Promise<string> {
   const fallback = `${response.status} ${response.statusText}`.trim();
   try {
     const err = await response.json() as Partial<ApiErrorEnvelope> & { details?: unknown };
+    const detailMessage = (() => {
+      if (!err?.details || typeof err.details !== "object") return null;
+      const maybe = (err.details as { message?: unknown }).message;
+      return typeof maybe === "string" && maybe.trim().length > 0 ? maybe : null;
+    })();
     if (err?.message && err?.errorCode && err?.requestId) {
-      return `${err.message} (${err.errorCode}) [${err.requestId}]`;
+      return detailMessage
+        ? `${err.message} (${err.errorCode}) [${err.requestId}] — ${detailMessage}`
+        : `${err.message} (${err.errorCode}) [${err.requestId}]`;
     }
     if (err?.message) return String(err.message);
     return JSON.stringify(err);
@@ -132,7 +147,7 @@ function formatInlineError(message: string, max = 280): string {
 
 export interface WorkflowResponse {
   id: string;
-  type: "request_funds" | "buy_ticket";
+  type: "request_funds" | "buy_ticket" | "admin_head_operation";
   status: string;
   resultJson: string | null;
   attemptCount: number;
@@ -212,6 +227,50 @@ interface LotteryActiveResponse {
   } | null;
   ticketCostLovelace: string | null;
 }
+
+interface LotteryRegistrationPayload {
+  headName: "headB";
+  policyId: string;
+  tokenNameHex: string;
+  mintTxHash: string;
+  contractAddress: string;
+}
+
+interface AdminLotteryCreateResponse {
+  requestId: string;
+  ok: boolean;
+  registrationOk: boolean;
+  needsReconcile: boolean;
+  result: {
+    onchain: {
+      txHash: string;
+      assetUnit: string;
+      policyId: string;
+      tokenNameHex: string;
+      contractAddress: string;
+      lotteryUtxoRef: string | null;
+    };
+    registration: {
+      ok: boolean;
+      attempts: number;
+      error?: string;
+      payload: LotteryRegistrationPayload;
+    };
+  };
+  stdout: string;
+  stderr: string;
+  finishedAt: string;
+}
+
+interface AdminLotteryReconcileResponse {
+  requestId: string;
+  ok: boolean;
+  reconciledAt: string;
+}
+
+type PendingLotteryReconcileRecord = AdminLotteryCreateResponse["result"] & {
+  savedAtMs: number;
+};
 
 async function fetchHeads(): Promise<HeadsResponse> {
   const r = await fetch("/api/state/heads", { cache: "no-store" });
@@ -372,14 +431,44 @@ async function fetchActiveLottery(): Promise<LotteryActiveResponse> {
   return r.json();
 }
 
-async function registerLotteryActive(role: FinalDemoRole, body: Record<string, unknown>) {
-  const r = await fetch("/api/lottery/active", {
+async function createLotteryOnHeadB(role: FinalDemoRole, body: Record<string, unknown>) {
+  const r = await fetch("/api/admin/lottery/create", {
     method: "POST",
     headers: { "Content-Type": "application/json", ...roleHeaders(role) },
     body: JSON.stringify(body),
   });
   if (!r.ok) throw new Error(await extractApiErrorMessage(r));
-  return r.json();
+  return r.json() as Promise<AdminLotteryCreateResponse>;
+}
+
+async function reconcileLotteryRegistration(role: FinalDemoRole, payload: LotteryRegistrationPayload) {
+  const r = await fetch("/api/admin/lottery/reconcile", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...roleHeaders(role) },
+    body: JSON.stringify(payload),
+  });
+  if (!r.ok) throw new Error(await extractApiErrorMessage(r));
+  return r.json() as Promise<AdminLotteryReconcileResponse>;
+}
+
+async function runAdminHeadOperation(
+  role: FinalDemoRole,
+  operation: "open_head_a" | "open_head_b" | "open_heads_ab" | "commit_head_c_charlie",
+) {
+  const r = await fetch("/api/admin/heads/open", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...roleHeaders(role) },
+    body: JSON.stringify({ operation }),
+  });
+  if (!r.ok) throw new Error(await extractApiErrorMessage(r));
+  return r.json() as Promise<{
+    ok: boolean;
+    operation: string;
+    workflowId: string;
+    workflowStatus: string;
+    idempotencyKey: string;
+    queuedAt: string;
+  }>;
 }
 
 async function associateCharlieNode(role: FinalDemoRole) {
@@ -402,6 +491,7 @@ const REQUEST_FUNDS_INTENT_TTL_MS = 10 * 60 * 1000;
 const REQUEST_FUNDS_INTENT_STORAGE_KEY = "final-demo.request-funds-intents.v1";
 const BUY_TICKET_INTENT_STORAGE_KEY = "final-demo.buy-ticket-intents.v1";
 const HTLC_PAIRS_STORAGE_KEY = "final-demo.htlc-pairs.v1";
+const LOTTERY_RECONCILE_STORAGE_KEY = "final-demo.admin.lottery-reconcile.v1";
 const HTLC_PAIRS_MAX = 10;
 const REQUEST_FUNDS_FIXED_LOVELACE = "20000000";
 
@@ -603,6 +693,39 @@ function saveHtlcPair(preimage: string, htlcHash: string): HtlcPairRecord[] {
   return next;
 }
 
+function loadPendingLotteryReconcile(): PendingLotteryReconcileRecord | null {
+  try {
+    const raw = window.localStorage.getItem(LOTTERY_RECONCILE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<PendingLotteryReconcileRecord>;
+    if (
+      typeof parsed?.onchain?.txHash !== "string"
+      || typeof parsed?.onchain?.assetUnit !== "string"
+      || typeof parsed?.registration?.payload?.policyId !== "string"
+      || typeof parsed?.registration?.payload?.tokenNameHex !== "string"
+      || typeof parsed?.registration?.payload?.mintTxHash !== "string"
+      || typeof parsed?.registration?.payload?.contractAddress !== "string"
+    ) {
+      return null;
+    }
+    return {
+      onchain: parsed.onchain as PendingLotteryReconcileRecord["onchain"],
+      registration: parsed.registration as PendingLotteryReconcileRecord["registration"],
+      savedAtMs: typeof parsed.savedAtMs === "number" ? parsed.savedAtMs : Date.now(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function savePendingLotteryReconcile(record: PendingLotteryReconcileRecord | null): void {
+  if (!record) {
+    window.localStorage.removeItem(LOTTERY_RECONCILE_STORAGE_KEY);
+    return;
+  }
+  window.localStorage.setItem(LOTTERY_RECONCILE_STORAGE_KEY, JSON.stringify(record));
+}
+
 function FinalDemoInner({ view }: { view: FinalDemoView }) {
   const { resolvedTheme } = useTheme();
   const isDarkTheme = resolvedTheme === "dark";
@@ -621,13 +744,13 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
   const [htlcPairGenerateError, setHtlcPairGenerateError] = useState<string | null>(null);
   const [workflowId, setWorkflowId] = useState("");
   const [workflowSearchId, setWorkflowSearchId] = useState("");
-  const [adminWorkflowStatusFilter, setAdminWorkflowStatusFilter] = useState("");
+  const [adminWorkflowStatusFilter, setAdminWorkflowStatusFilter] = useState("__all_excluding_succeeded");
   const [adminWorkflowTypeFilter, setAdminWorkflowTypeFilter] = useState("");
   const [adminWorkflowPage, setAdminWorkflowPage] = useState(1);
-  const [adminLotteryPolicyId, setAdminLotteryPolicyId] = useState("");
-  const [adminLotteryTokenNameHex, setAdminLotteryTokenNameHex] = useState("");
-  const [adminLotteryMintTxHash, setAdminLotteryMintTxHash] = useState("");
-  const [adminLotteryContractAddress, setAdminLotteryContractAddress] = useState("");
+  const [adminLotteryPrizeLovelace, setAdminLotteryPrizeLovelace] = useState("25000000");
+  const [adminLotteryTicketCostLovelace, setAdminLotteryTicketCostLovelace] = useState("5000000");
+  const [adminLotteryCloseTimestampMs, setAdminLotteryCloseTimestampMs] = useState("");
+  const [pendingLotteryReconcile, setPendingLotteryReconcile] = useState<PendingLotteryReconcileRecord | null>(null);
 
   const heads = useQuery({
     queryKey: ["heads"],
@@ -672,14 +795,27 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
       return false;
     },
   });
+  const adminIncludeCompleted = adminWorkflowStatusFilter === "__all_including_succeeded";
+  const adminStatusFilter = adminWorkflowStatusFilter === "__all_excluding_succeeded"
+    || adminWorkflowStatusFilter === "__all_including_succeeded"
+    ? undefined
+    : adminWorkflowStatusFilter;
   const adminWorkflows = useQuery({
-    queryKey: ["admin-workflows", adminWorkflowStatusFilter, adminWorkflowTypeFilter, workflowSearchId, adminWorkflowPage],
+    queryKey: [
+      "admin-workflows",
+      adminWorkflowStatusFilter,
+      adminWorkflowTypeFilter,
+      workflowSearchId,
+      adminWorkflowPage,
+      adminIncludeCompleted,
+    ],
     queryFn: () =>
       fetchAdminWorkflows(appRole, {
-        status: adminWorkflowStatusFilter || undefined,
+        status: adminStatusFilter || undefined,
         type: adminWorkflowTypeFilter || undefined,
         idContains: workflowSearchId || undefined,
         page: adminWorkflowPage,
+        includeCompleted: adminIncludeCompleted,
       }),
     enabled: view === "admin",
     refetchInterval: 3000,
@@ -720,6 +856,14 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
     const pairs = loadHtlcPairs();
     setHtlcPairs(pairs);
   }, []);
+  useEffect(() => {
+    if (view !== "admin") return;
+    setPendingLotteryReconcile(loadPendingLotteryReconcile());
+  }, [view]);
+  useEffect(() => {
+    if (view !== "admin") return;
+    savePendingLotteryReconcile(pendingLotteryReconcile);
+  }, [pendingLotteryReconcile, view]);
   useEffect(() => {
     const url = new URL(window.location.href);
     if (workflowId) {
@@ -884,15 +1028,47 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
       if (workflowId) workflow.refetch();
     },
   });
-  const createLotteryRegistration = useMutation({
+  const createLotteryOnHeadBMutation = useMutation({
     mutationFn: () =>
-      registerLotteryActive(appRole, {
-        headName: "headB",
-        policyId: adminLotteryPolicyId.trim().toLowerCase(),
-        tokenNameHex: adminLotteryTokenNameHex.trim().toLowerCase(),
-        mintTxHash: adminLotteryMintTxHash.trim().toLowerCase(),
-        contractAddress: adminLotteryContractAddress.trim(),
+      createLotteryOnHeadB(appRole, {
+        prizeLovelace: adminLotteryPrizeLovelace.trim(),
+        ticketCostLovelace: adminLotteryTicketCostLovelace.trim(),
+        closeTimestampMs: adminLotteryCloseTimestampMs.trim() || undefined,
       }),
+    onSuccess: () => {
+      heads.refetch();
+      snapshots.refetch();
+      adminWorkflows.refetch();
+      activeLottery.refetch();
+    },
+    onSettled: (data) => {
+      if (!data) return;
+      if (data.needsReconcile) {
+        setPendingLotteryReconcile({ ...data.result, savedAtMs: Date.now() });
+      } else {
+        setPendingLotteryReconcile(null);
+      }
+    },
+  });
+  const reconcileLotteryRegistrationMutation = useMutation({
+    mutationFn: (payload: LotteryRegistrationPayload) => reconcileLotteryRegistration(appRole, payload),
+    onSuccess: () => {
+      heads.refetch();
+      snapshots.refetch();
+      adminWorkflows.refetch();
+      activeLottery.refetch();
+      setPendingLotteryReconcile(null);
+    },
+  });
+  const runHeadOperation = useMutation({
+    mutationFn: (operation: "open_head_a" | "open_head_b" | "open_heads_ab" | "commit_head_c_charlie") =>
+      runAdminHeadOperation(appRole, operation),
+    onSuccess: (data) => {
+      setWorkflowId(data.workflowId);
+      heads.refetch();
+      snapshots.refetch();
+      adminWorkflows.refetch();
+    },
   });
   const associateCharlie = useMutation({
     mutationFn: () => associateCharlieNode(appRole),
@@ -980,6 +1156,9 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
     : null;
   const requestFundsProgress = requestFundsWorkflow ? requestFundsMilestones(requestFundsWorkflow) : [];
   const buyTicketProgress = buyTicketWorkflow ? buyTicketMilestones(buyTicketWorkflow) : [];
+  const activeReconcileRecord = createLotteryOnHeadBMutation.isSuccess && createLotteryOnHeadBMutation.data.needsReconcile
+    ? { ...createLotteryOnHeadBMutation.data.result, savedAtMs: Date.now() }
+    : pendingLotteryReconcile;
   return (
     <PageGrid>
       <HeadMonitoringSection
@@ -1235,14 +1414,15 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
               <div className="space-y-2">
                 <Label>Workflow status</Label>
                 <Select
-                  value={adminWorkflowStatusFilter || "__all"}
-                  onValueChange={(value) => setAdminWorkflowStatusFilter(value === "__all" ? "" : value)}
+                  value={adminWorkflowStatusFilter}
+                  onValueChange={(value) => setAdminWorkflowStatusFilter(value)}
                 >
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder="All (excluding succeeded)" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="__all">All (excluding succeeded)</SelectItem>
+                    <SelectItem value="__all_excluding_succeeded">All (excluding succeeded)</SelectItem>
+                    <SelectItem value="__all_including_succeeded">All (including succeeded)</SelectItem>
                     <SelectItem value="pending">pending</SelectItem>
                     <SelectItem value="running">running</SelectItem>
                     <SelectItem value="failed">failed</SelectItem>
@@ -1264,6 +1444,7 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
                     <SelectItem value="__all">All</SelectItem>
                     <SelectItem value="request_funds">request_funds</SelectItem>
                     <SelectItem value="buy_ticket">buy_ticket</SelectItem>
+                    <SelectItem value="admin_head_operation">admin_head_operation</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -1322,37 +1503,129 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
               </div>
             </ListWrap>
           ) : null}
-          <SectionSubTitle>Register Active Lottery</SectionSubTitle>
+          <SectionSubTitle>Head Operations</SectionSubTitle>
           <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Policy ID</Label>
-                <Input value={adminLotteryPolicyId} onChange={(e) => setAdminLotteryPolicyId(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label>Token Name Hex</Label>
-                <Input value={adminLotteryTokenNameHex} onChange={(e) => setAdminLotteryTokenNameHex(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label>Mint Tx Hash</Label>
-                <Input value={adminLotteryMintTxHash} onChange={(e) => setAdminLotteryMintTxHash(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label>Contract Address</Label>
-                <Input value={adminLotteryContractAddress} onChange={(e) => setAdminLotteryContractAddress(e.target.value)} />
-              </div>
-            </div>
-            <div className="border-t pt-3">
-              <Button type="button" onClick={() => createLotteryRegistration.mutate()} disabled={createLotteryRegistration.isPending}>
-                Register Lottery
+            <div className="flex flex-wrap gap-2 border-t pt-3">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => runHeadOperation.mutate("open_head_a")}
+                disabled={runHeadOperation.isPending}
+              >
+                Open Head A
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => runHeadOperation.mutate("open_head_b")}
+                disabled={runHeadOperation.isPending}
+              >
+                Open Head B
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => runHeadOperation.mutate("open_heads_ab")}
+                disabled={runHeadOperation.isPending}
+              >
+                Open Heads A + B
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => runHeadOperation.mutate("commit_head_c_charlie")}
+                disabled={runHeadOperation.isPending}
+              >
+                Commit Head C (Charlie)
               </Button>
             </div>
           </form>
-          {createLotteryRegistration.isError ? (
-            <Alert variant="destructive" style={alertTop8Style}>Lottery register failed: {createLotteryRegistration.error.message}</Alert>
+          {runHeadOperation.isError ? (
+            <Alert variant="destructive" style={alertTop8Style}>
+              Head operation failed: {runHeadOperation.error.message}
+            </Alert>
           ) : null}
-          {createLotteryRegistration.isSuccess ? (
-            <Alert style={alertTop8Style}>Lottery registration submitted.</Alert>
+          {runHeadOperation.isSuccess ? (
+            <Alert style={alertTop8Style}>
+              Head operation queued: {runHeadOperation.data.operation} (workflow {runHeadOperation.data.workflowId})
+            </Alert>
+          ) : null}
+
+          <SectionSubTitle>Create Lottery on Head B</SectionSubTitle>
+          <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Prize (lovelace)</Label>
+                <Input value={adminLotteryPrizeLovelace} onChange={(e) => setAdminLotteryPrizeLovelace(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Ticket cost (lovelace)</Label>
+                <Input value={adminLotteryTicketCostLovelace} onChange={(e) => setAdminLotteryTicketCostLovelace(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Close timestamp (POSIX ms, optional)</Label>
+                <Input
+                  value={adminLotteryCloseTimestampMs}
+                  onChange={(e) => setAdminLotteryCloseTimestampMs(e.target.value)}
+                  placeholder="defaults to now + 30d"
+                />
+              </div>
+            </div>
+            <div className="border-t pt-3">
+              <Button
+                type="button"
+                onClick={() => createLotteryOnHeadBMutation.mutate()}
+                disabled={createLotteryOnHeadBMutation.isPending || reconcileLotteryRegistrationMutation.isPending}
+              >
+                Create + Register Lottery
+              </Button>
+            </div>
+          </form>
+          {createLotteryOnHeadBMutation.isError ? (
+            <Alert variant="destructive" style={alertTop8Style}>Lottery create failed: {createLotteryOnHeadBMutation.error.message}</Alert>
+          ) : null}
+          {createLotteryOnHeadBMutation.isSuccess ? (
+            createLotteryOnHeadBMutation.data.registrationOk ? (
+              <Alert style={alertTop8Style}>Lottery created and registered in DB.</Alert>
+            ) : (
+              <Alert variant="destructive" style={alertTop8Style}>
+                Lottery created on-chain, but DB registration failed after {createLotteryOnHeadBMutation.data.result.registration.attempts} attempts.
+              </Alert>
+            )
+          ) : null}
+          {activeReconcileRecord ? (
+            <div className="mt-2 rounded-md border p-3">
+              <HelperText>
+                On-chain lottery:
+                {" "}
+                {activeReconcileRecord.onchain.txHash}
+              </HelperText>
+              <MutedText>{formatSavedAgo(activeReconcileRecord.savedAtMs, nowMs)}</MutedText>
+              {activeReconcileRecord.registration.error ? (
+                <Alert variant="destructive" style={alertTop6Style}>
+                  {formatInlineError(activeReconcileRecord.registration.error)}
+                </Alert>
+              ) : null}
+              <Button
+                type="button"
+                variant="secondary"
+                className="mt-2"
+                onClick={() => reconcileLotteryRegistrationMutation.mutate(activeReconcileRecord.registration.payload)}
+                disabled={reconcileLotteryRegistrationMutation.isPending}
+              >
+                {reconcileLotteryRegistrationMutation.isPending ? "Reconciling..." : "Reconcile Registration"}
+              </Button>
+            </div>
+          ) : null}
+          {reconcileLotteryRegistrationMutation.isError ? (
+            <Alert variant="destructive" style={alertTop8Style}>
+              Reconcile registration failed: {reconcileLotteryRegistrationMutation.error.message}
+            </Alert>
+          ) : null}
+          {reconcileLotteryRegistrationMutation.isSuccess ? (
+            <Alert style={alertTop8Style}>
+              Registration reconciled successfully.
+            </Alert>
           ) : null}
           </CardContent>
         </Card>

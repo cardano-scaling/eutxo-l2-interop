@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import blake2b from "blake2b";
@@ -23,13 +23,72 @@ import { HydraOpsProvider } from "../lib/hydra/ops-provider";
 import { getLotteryScriptInfo } from "../lib/hydra/ops-scripts";
 import { credentialsPath, startupTimePath } from "../lib/runtime-paths";
 
-const HEAD_B_JON_API_URL = "http://127.0.0.1:4328";
-const LOTTERY_REGISTRY_API_URL = "http://127.0.0.1:3000/api/lottery/active";
+const isDockerRuntime = existsSync("/.dockerenv");
+function runtimeUrl(localUrl: string, dockerUrl: string): string {
+  return isDockerRuntime ? dockerUrl : localUrl;
+}
+const HEAD_B_JON_API_URL = process.env.HYDRA_HEAD_B_JON_API_URL
+  ?? runtimeUrl("http://127.0.0.1:4328", "http://hydra-node-jon-lt:4328");
+const LOTTERY_REGISTRY_API_URL = process.env.LOTTERY_REGISTRY_API_URL
+  ?? "http://127.0.0.1:3000/api/lottery/active";
 const LOTTERY_REGISTRY_ROLE_HEADER = "x-final-demo-role";
 const LOTTERY_REGISTRY_ROLE_VALUE = "admin";
+const LOTTERY_REGISTRATION_RETRIES = Number(process.env.LOTTERY_REGISTRATION_RETRIES ?? "5");
+const LOTTERY_REGISTRATION_BACKOFF_MS = Number(process.env.LOTTERY_REGISTRATION_BACKOFF_MS ?? "2000");
 // Use a far-future default so the on-chain "validity entirely before close"
 // check passes even with local clock / slot conversion drift.
 const DEFAULT_CLOSE_DELAY_MS = 30 * 24 * 60 * 60 * 1000;
+
+type CreateLotteryArgs = {
+  prizeInput?: string;
+  ticketCostInput?: string;
+  closeTimestampInput?: string;
+};
+
+type RegistrationPayload = {
+  headName: "headB";
+  policyId: string;
+  tokenNameHex: string;
+  mintTxHash: string;
+  contractAddress: string;
+};
+
+type LotteryCreateResult = {
+  onchain: {
+    txHash: string;
+    assetUnit: string;
+    policyId: string;
+    tokenNameHex: string;
+    contractAddress: string;
+    lotteryUtxoRef: string | null;
+  };
+  registration: {
+    ok: boolean;
+    attempts: number;
+    error?: string;
+    payload: RegistrationPayload;
+  };
+};
+
+function parseArgs(argv: string[]): CreateLotteryArgs {
+  const result: CreateLotteryArgs = {};
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === "--prize" && argv[i + 1]) {
+      result.prizeInput = argv[++i];
+      continue;
+    }
+    if (arg === "--ticket-cost" && argv[i + 1]) {
+      result.ticketCostInput = argv[++i];
+      continue;
+    }
+    if (arg === "--close-timestamp" && argv[i + 1]) {
+      result.closeTimestampInput = argv[++i];
+      continue;
+    }
+  }
+  return result;
+}
 
 function loadStartupTimeMs(): number {
   const startupTime = readFileSync(startupTimePath(), "utf8").trim();
@@ -62,8 +121,67 @@ function tokenNameFromOutputRef(ref: OutputReferenceT): string {
   return blake2b(32).update(refBytes).digest("hex");
 }
 
-async function main() {
-  const rli = createInterface({ input, output, terminal: true });
+async function registerLotteryWithRetries(payload: RegistrationPayload): Promise<{
+  ok: boolean;
+  attempts: number;
+  error?: string;
+}> {
+  const retries = Number.isFinite(LOTTERY_REGISTRATION_RETRIES) && LOTTERY_REGISTRATION_RETRIES >= 0
+    ? LOTTERY_REGISTRATION_RETRIES
+    : 5;
+  const backoffMs = Number.isFinite(LOTTERY_REGISTRATION_BACKOFF_MS) && LOTTERY_REGISTRATION_BACKOFF_MS >= 0
+    ? LOTTERY_REGISTRATION_BACKOFF_MS
+    : 2000;
+
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const response = await fetch(LOTTERY_REGISTRY_API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          [LOTTERY_REGISTRY_ROLE_HEADER]: LOTTERY_REGISTRY_ROLE_VALUE,
+        },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const body = await response.text();
+        throw new Error(`HTTP ${response.status} ${body}`);
+      }
+      console.log(`Registered active lottery in DB via ${LOTTERY_REGISTRY_API_URL}`);
+      return {
+        ok: true,
+        attempts: attempt + 1,
+      };
+    } catch (error) {
+      lastError = error;
+      if (attempt >= retries) break;
+      const waitMs = backoffMs * Math.max(1, attempt + 1);
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(
+        `Lottery DB registration attempt ${attempt + 1}/${retries + 1} failed: ${message}. Retrying in ${waitMs}ms...`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+  }
+
+  console.error("Lottery was created on-chain but DB registration did not succeed.");
+  console.error(
+    `Manual fallback: curl -X POST ${LOTTERY_REGISTRY_API_URL} -H 'content-type: application/json' -H '${LOTTERY_REGISTRY_ROLE_HEADER}: ${LOTTERY_REGISTRY_ROLE_VALUE}' -d '${JSON.stringify(payload)}'`,
+  );
+  return {
+    ok: false,
+    attempts: retries + 1,
+    error: `Failed to register active lottery in DB after ${retries + 1} attempts: ${
+      lastError instanceof Error ? lastError.message : String(lastError)
+    }`,
+  };
+}
+
+async function main(): Promise<LotteryCreateResult> {
+  const args = parseArgs(process.argv.slice(2));
+  const nonInteractive = Boolean(args.prizeInput || args.ticketCostInput || args.closeTimestampInput);
+  const rli = nonInteractive ? null : createInterface({ input, output, terminal: true });
   try {
     const startupTimeMs = loadStartupTimeMs();
     SLOT_CONFIG_NETWORK.Custom = {
@@ -72,9 +190,12 @@ async function main() {
       slotLength: 1000,
     };
 
-    const prizeInput = await rli.question("Prize amount (lovelace) [25000000]: ");
-    const ticketCostInput = await rli.question("Ticket cost (lovelace) [5000000]: ");
-    const closeTimestampInput = await rli.question("Close timestamp POSIX ms [now+30d]: ");
+    const prizeInput = args.prizeInput
+      ?? (rli ? await rli.question("Prize amount (lovelace) [25000000]: ") : "");
+    const ticketCostInput = args.ticketCostInput
+      ?? (rli ? await rli.question("Ticket cost (lovelace) [5000000]: ") : "");
+    const closeTimestampInput = args.closeTimestampInput
+      ?? (rli ? await rli.question("Close timestamp POSIX ms [now+30d]: ") : "");
 
     const prize = BigInt((prizeInput.trim() || "25000000"));
     const ticketCost = BigInt((ticketCostInput.trim() || "5000000"));
@@ -164,7 +285,7 @@ async function main() {
       console.log(`lotteryUtxo: ${lotteryUtxo.txHash}#${lotteryUtxo.outputIndex}`);
     }
 
-    const registrationPayload = {
+    const registrationPayload: RegistrationPayload = {
       headName: "headB",
       policyId: spend.hash,
       tokenNameHex: tokenName,
@@ -172,34 +293,35 @@ async function main() {
       contractAddress: lotteryScriptAddress,
     };
 
-    try {
-      const response = await fetch(LOTTERY_REGISTRY_API_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          [LOTTERY_REGISTRY_ROLE_HEADER]: LOTTERY_REGISTRY_ROLE_VALUE,
-        },
-        body: JSON.stringify(registrationPayload),
-      });
-      if (!response.ok) {
-        const body = await response.text();
-        throw new Error(`HTTP ${response.status} ${body}`);
-      }
-      console.log(`Registered active lottery in DB via ${LOTTERY_REGISTRY_API_URL}`);
-    } catch (error) {
-      console.warn("Failed to auto-register lottery in DB. You can register manually with:");
-      console.warn(
-        `curl -X POST ${LOTTERY_REGISTRY_API_URL} -H 'content-type: application/json' -H '${LOTTERY_REGISTRY_ROLE_HEADER}: ${LOTTERY_REGISTRY_ROLE_VALUE}' -d '${JSON.stringify(registrationPayload)}'`,
-      );
-      console.warn(error);
-    }
+    const registrationResult = await registerLotteryWithRetries(registrationPayload);
+    const result: LotteryCreateResult = {
+      onchain: {
+        txHash,
+        assetUnit,
+        policyId: spend.hash,
+        tokenNameHex: tokenName,
+        contractAddress: lotteryScriptAddress,
+        lotteryUtxoRef: lotteryUtxo ? `${lotteryUtxo.txHash}#${lotteryUtxo.outputIndex}` : null,
+      },
+      registration: {
+        ok: registrationResult.ok,
+        attempts: registrationResult.attempts,
+        ...(registrationResult.error ? { error: registrationResult.error } : {}),
+        payload: registrationPayload,
+      },
+    };
+    console.log(`LOTTERY_CREATE_RESULT_JSON:${JSON.stringify(result)}`);
+    return result;
   } finally {
-    rli.close();
+    rli?.close();
   }
 }
 
 main()
-  .then(() => {
+  .then((result) => {
+    if (!result.registration.ok) {
+      console.warn("Lottery created on-chain but DB registration is pending reconciliation.");
+    }
     // Ensure the CLI exits even if underlying libs keep sockets alive.
     process.exit(0);
   })

@@ -1,4 +1,5 @@
 import { WorkflowStatus, WorkflowType, type Workflow } from "@prisma/client";
+import { spawn } from "node:child_process";
 import { logger } from "./logger";
 import {
   appendEvent,
@@ -304,6 +305,93 @@ async function executeBuyTicketWorkflow(workflow: WorkflowWithSteps, workerId: s
   await markWorkflowSucceededLocked(workflow.id, result, workerId);
 }
 
+type HeadOperation = "open_head_a" | "open_head_b" | "open_heads_ab" | "commit_head_c_charlie";
+
+function parseHeadOperation(raw: unknown): HeadOperation {
+  if (
+    raw === "open_head_a"
+    || raw === "open_head_b"
+    || raw === "open_heads_ab"
+    || raw === "commit_head_c_charlie"
+  ) {
+    return raw;
+  }
+  throw new Error("ADMIN_HEAD_OPERATION_INVALID");
+}
+
+function commandForHeadOperation(operation: HeadOperation): string[] {
+  const args = ["tsx", "scripts/hydra-open-heads.ts"];
+  if (operation === "open_head_a") return [...args, "--open-head-a"];
+  if (operation === "open_head_b") return [...args, "--open-head-b"];
+  if (operation === "commit_head_c_charlie") return [...args, "--commit-head-c-charlie"];
+  return args;
+}
+
+async function runHeadOperation(operation: HeadOperation, timeoutMs = 8 * 60 * 1000): Promise<{ stdout: string; stderr: string }> {
+  const args = commandForHeadOperation(operation);
+  return new Promise((resolve, reject) => {
+    const child = spawn("npx", args, { cwd: process.cwd(), env: process.env });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    const timer = setTimeout(() => {
+      child.kill("SIGTERM");
+      reject(new Error(`ADMIN_HEAD_OPERATION_TIMEOUT after ${timeoutMs}ms`));
+    }, timeoutMs);
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (code === 0) {
+        resolve({ stdout, stderr });
+      } else {
+        reject(new Error(`ADMIN_HEAD_OPERATION_SCRIPT_FAILED code=${code}\n${stderr || stdout}`));
+      }
+    });
+  });
+}
+
+async function executeAdminHeadOperationWorkflow(workflow: WorkflowWithSteps, workerId: string) {
+  const payload = JSON.parse(workflow.payloadJson || "{}") as { operation?: unknown };
+  const attempt = workflow.attemptCount + 1;
+  const operation = parseHeadOperation(payload.operation);
+
+  if (!hasSucceededStep(workflow, "prepare")) {
+    await executeWorkflowStep(workflow, "prepare", attempt, workerId, async () => {
+      await appendEvent(workflow.id, "info", "admin_head_operation_validated", { operation });
+    });
+  }
+
+  let result: Record<string, unknown> = parseDraftResult(workflow) ?? {};
+  if (!hasSucceededStep(workflow, "submit")) {
+    await executeWorkflowStep(workflow, "submit", attempt, workerId, async () => {
+      const run = await runHeadOperation(operation);
+      result = {
+        operation,
+        stdout: run.stdout,
+        stderr: run.stderr,
+      };
+      await setWorkflowDraftResultLocked(workflow.id, result, workerId);
+      await appendEvent(workflow.id, "info", "admin_head_operation_submitted", { operation });
+    });
+  }
+
+  if (!hasSucceededStep(workflow, "confirm")) {
+    await executeWorkflowStep(workflow, "confirm", attempt, workerId, async () => {
+      await appendEvent(workflow.id, "info", "admin_head_operation_confirmed", { operation });
+    });
+  }
+
+  await markWorkflowSucceededLocked(workflow.id, result, workerId);
+}
+
 export async function executeWorkflow(workflow: WorkflowWithSteps, workerId: string) {
   try {
     if (workflow.type === WorkflowType.request_funds) {
@@ -313,6 +401,10 @@ export async function executeWorkflow(workflow: WorkflowWithSteps, workerId: str
     }
     if (workflow.type === WorkflowType.buy_ticket) {
       await executeBuyTicketWorkflow(workflow, workerId);
+      return;
+    }
+    if (workflow.type === WorkflowType.admin_head_operation) {
+      await executeAdminHeadOperationWorkflow(workflow, workerId);
       return;
     }
 

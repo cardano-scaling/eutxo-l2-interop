@@ -9,6 +9,7 @@ datasource db {
 enum WorkflowType {
   request_funds
   buy_ticket
+  admin_head_operation
 }
 
 enum WorkflowStatus {

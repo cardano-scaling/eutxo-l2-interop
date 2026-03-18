@@ -8,7 +8,11 @@
     "build": "next build --webpack",
     "start": "next start",
     "worker": "tsx watch worker.ts",
-    "hydra:open-heads": "deno run --no-check --allow-net --allow-read --allow-write scripts/hydra-open-heads.mts",
+    "hydra:open-heads": "tsx scripts/hydra-open-heads.ts",
+    "hydra:open-heads:node": "tsx scripts/hydra-open-heads.ts",
+    "hydra:open-head-a:node": "tsx scripts/hydra-open-heads.ts --open-head-a",
+    "hydra:open-head-b:node": "tsx scripts/hydra-open-heads.ts --open-head-b",
+    "hydra:commit-head-c-charlie:node": "tsx scripts/hydra-open-heads.ts --commit-head-c-charlie",
     "hydra:create-lottery-head-b": "tsx scripts/hydra-create-lottery-head-b.ts",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push"
