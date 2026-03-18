@@ -7,7 +7,7 @@ Production-leaning demo app for Hydra-based flows:
 
 ---
 
-## 1) Run the system (most important)
+## 1) Run the system
 
 ### Prerequisites
 - Docker + Docker Compose
@@ -27,7 +27,7 @@ This starts:
 - Prisma init/bootstrap
 - Next.js app
 - Worker
-- Cardano node + submit API + Hydra scripts publisher
+- Cardano node in local testet + submit API + Hydra scripts publisher
 - Hydra nodes for Heads A/B/C participants
 
 App URL: `http://localhost:3000`
@@ -64,6 +64,8 @@ npm run hydra:open-heads
 npm run hydra:create-lottery-head-b
 ```
 
+These are admin operations also available via the UI in the Admin view.
+
 ### Useful URLs
 - User view: `http://localhost:3000/user`
 - Charlie view: `http://localhost:3000/charlie`
@@ -92,30 +94,36 @@ npm run hydra:create-lottery-head-b
 
 ---
 
-## 3) API surface (main routes)
+## 3) API surface (current routes)
 
 - Health/readiness:
   - `GET /api/health`
   - `GET /api/ready`
-- Hydra/head state:
+- State/snapshots:
   - `GET /api/state/heads`
   - `GET /api/state/snapshots`
-- Operations:
+  - `POST /api/state/heads/mock-connect` (local/dev helper)
+- Wallet utility:
+  - `POST /api/wallet/normalize-address`
+- Hydra operation routes:
   - `POST /api/hydra-ops/request-funds/prepare`
   - `POST /api/hydra-ops/request-funds/submit`
   - `POST /api/hydra-ops/htlc/prepare`
   - `POST /api/hydra-ops/htlc/submit`
-- Workflows:
+- Workflow routes:
   - `POST /api/workflows/request-funds`
   - `POST /api/workflows/buy-ticket`
   - `GET /api/workflows/:id`
-- Admin:
+- Charlie route:
+  - `POST /api/charlie/associate`
+- Admin routes:
   - `GET /api/admin/workflows`
   - `POST /api/admin/workflows/:id/retry`
   - `POST /api/admin/reconcile`
+  - `POST /api/admin/heads/open`
   - `POST /api/admin/lottery/create`
   - `POST /api/admin/lottery/reconcile`
-- Lottery:
+- Lottery routes:
   - `GET /api/lottery/active`
   - `POST /api/lottery/active` (admin-guarded)
 

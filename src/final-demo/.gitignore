@@ -13,3 +13,4 @@ config/*
 testnet/*
 !testnet/.gitkeep
 startup_time.txt
+.env.local
