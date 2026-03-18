@@ -77,7 +77,6 @@ export async function POST(req: Request) {
     logger.warn({ requestId }, "buy-ticket blocked: no active headB lottery");
     return apiError(409, requestId, "NO_ACTIVE_LOTTERY", "No active lottery registered on headB");
   }
-  const derivedDesiredOutput = { address: activeLottery.contractAddress, datum: null as string | null };
   const timeoutMinutes = Number(parsed.data.timeoutMinutes);
   if (!Number.isFinite(timeoutMinutes) || timeoutMinutes <= 0) {
     logger.warn({ requestId, timeoutMinutes: parsed.data.timeoutMinutes }, "buy-ticket invalid timeout");
@@ -225,7 +224,6 @@ export async function POST(req: Request) {
       requestHash,
       address: parsed.data.address,
       amountLovelace: parsed.data.amountLovelace,
-      desiredOutput: derivedDesiredOutput,
       htlcHash: parsed.data.htlcHash.trim().toLowerCase(),
       timeoutMinutes: parsed.data.timeoutMinutes,
       preimage: parsed.data.preimage?.trim() || null,

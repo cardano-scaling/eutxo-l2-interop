@@ -80,6 +80,7 @@ export interface SnapshotRow {
   lovelace: string;
   assets: Array<{ unit: string; amount: string }>;
   hasInlineDatum: boolean;
+  inlineDatum: unknown | null;
 }
 
 export interface HeadSnapshotState {
@@ -165,6 +166,30 @@ function hasWorkflowEvent(workflow: WorkflowResponse, message: string): boolean 
   return workflow.events.some((event) => event.message === message);
 }
 
+function parseWorkflowEventMeta(event: WorkflowEvent): Record<string, unknown> | null {
+  if (!event.metaJson) return null;
+  try {
+    const parsed = JSON.parse(event.metaJson) as Record<string, unknown>;
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function workflowHeadOperation(workflow: WorkflowResponse): string | null {
+  const validated = workflow.events.find((event) => event.message === "admin_head_operation_validated");
+  const meta = validated ? parseWorkflowEventMeta(validated) : null;
+  const operation = meta?.operation;
+  return typeof operation === "string" ? operation : null;
+}
+
+function isHeadCCommitOperationWorkflow(workflow: WorkflowResponse): boolean {
+  if (workflow.type !== "admin_head_operation") return false;
+  const operation = workflowHeadOperation(workflow);
+  if (operation === "commit_head_c_charlie" || operation === "commit_head_c_admin") return true;
+  return workflow.events.some((event) => event.message.startsWith("head_c_"));
+}
+
 function buyTicketMilestones(workflow: WorkflowResponse): Array<{ key: string; label: string; done: boolean }> {
   const sourceLocked = hasWorkflowEvent(workflow, "htlc_source_locked");
   const targetLocked = hasWorkflowEvent(workflow, "htlc_head_b_locked");
@@ -188,6 +213,35 @@ function requestFundsMilestones(workflow: WorkflowResponse): Array<{ key: string
     { key: "submitted", label: "Funding transfer submitted on Head A", state: stepStatus(workflow, "submit") },
     { key: "confirmed", label: "Funding transfer confirmed and available", state: stepStatus(workflow, "confirm") },
   ];
+}
+
+function headCCommitMilestones(workflow: WorkflowResponse): Array<{ key: string; label: string; done: boolean }> {
+  const opened = hasWorkflowEvent(workflow, "head_c_open_completed");
+  const waitingCounterpart = hasWorkflowEvent(workflow, "head_c_waiting_counterpart");
+  return [
+    { key: "validated", label: "Commit request accepted", done: hasWorkflowEvent(workflow, "admin_head_operation_validated") },
+    { key: "script_started", label: "Head C commit script started", done: hasWorkflowEvent(workflow, "head_c_commit_script_started") },
+    { key: "l1_refresh", label: "L1 UTxOs refreshed", done: hasWorkflowEvent(workflow, "head_c_l1_utxos_refreshed_startup") },
+    { key: "tx_signed", label: "Commit tx signed", done: hasWorkflowEvent(workflow, "head_c_commit_tx_signed") },
+    {
+      key: "tx_submitted",
+      label: "Commit tx submitted on L1",
+      done: hasWorkflowEvent(workflow, "head_c_commit_tx_submitted") || hasWorkflowEvent(workflow, "head_c_partial_commit_submitted"),
+    },
+    { key: "waiting_counterpart", label: "Waiting for counterpart commit", done: waitingCounterpart || opened },
+    { key: "opened", label: "Head C open completed", done: opened },
+  ];
+}
+
+function describeHeadCCommitLatestEvent(event: WorkflowEvent): string {
+  if (event.message === "head_c_waiting_counterpart") return "Waiting for counterpart commit";
+  if (event.message === "head_c_open_completed") return "Head C is open";
+  if (event.message === "head_c_commit_tx_submitted") {
+    const meta = parseWorkflowEventMeta(event);
+    const txHash = typeof meta?.txHash === "string" ? meta.txHash : null;
+    return txHash ? `Commit tx submitted: ${txHash}` : "Commit tx submitted";
+  }
+  return event.message;
 }
 
 function milestoneIcon(state: string): string {
@@ -497,15 +551,6 @@ async function runAdminHeadOperation(
     idempotencyKey: string;
     queuedAt: string;
   }>;
-}
-
-async function associateCharlieNode(role: FinalDemoRole) {
-  const r = await fetch("/api/charlie/associate", {
-    method: "POST",
-    headers: roleHeaders(role),
-  });
-  if (!r.ok) throw new Error(await extractApiErrorMessage(r));
-  return r.json();
 }
 
 function newBusinessId(): string {
@@ -1167,13 +1212,6 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
       adminWorkflows.refetch();
     },
   });
-  const associateCharlie = useMutation({
-    mutationFn: () => associateCharlieNode(appRole),
-    onSuccess: () => {
-      heads.refetch();
-      snapshots.refetch();
-    },
-  });
   useEffect(() => {
     const data = workflow.data;
     if (!data || data.type !== "request_funds") return;
@@ -1261,12 +1299,19 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
   const charlieHeadCCommitLatestEvent = charlieHeadCCommitWorkflow && charlieHeadCCommitWorkflow.events.length > 0
     ? charlieHeadCCommitWorkflow.events[charlieHeadCCommitWorkflow.events.length - 1]
     : null;
-  const charlieHeadCCommitProgress = charlieHeadCCommitWorkflow
-    ? [
-      { key: "prepare", label: "Commit request validated", state: stepStatus(charlieHeadCCommitWorkflow, "prepare") },
-      { key: "submit", label: "Charlie commit submitted on L1", state: stepStatus(charlieHeadCCommitWorkflow, "submit") },
-      { key: "confirm", label: "Head C commit flow confirmed", state: stepStatus(charlieHeadCCommitWorkflow, "confirm") },
-    ]
+  const charlieHeadCCommitProgress = charlieHeadCCommitWorkflow && isHeadCCommitOperationWorkflow(charlieHeadCCommitWorkflow)
+    ? headCCommitMilestones(charlieHeadCCommitWorkflow)
+    : [];
+  const adminHeadCCommitWorkflow = workflow.data
+    && workflow.data.type === "admin_head_operation"
+    && isHeadCCommitOperationWorkflow(workflow.data)
+    ? workflow.data
+    : null;
+  const adminHeadCCommitLatestEvent = adminHeadCCommitWorkflow && adminHeadCCommitWorkflow.events.length > 0
+    ? adminHeadCCommitWorkflow.events[adminHeadCCommitWorkflow.events.length - 1]
+    : null;
+  const adminHeadCCommitProgress = adminHeadCCommitWorkflow
+    ? headCCommitMilestones(adminHeadCCommitWorkflow)
     : [];
   const activeReconcileRecord = createLotteryOnHeadBMutation.isSuccess && createLotteryOnHeadBMutation.data.needsReconcile
     ? { ...createLotteryOnHeadBMutation.data.result, savedAtMs: Date.now() }
@@ -1486,16 +1531,13 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
           {view === "charlie" ? (
             <Card>
               <CardHeader>
-                <CardTitle>Charlie Node Association</CardTitle>
+                <CardTitle>Head C Commit</CardTitle>
                 <CardDescription>
-                  Associate Charlie hydra node and commit Charlie funds to Head C.
+                  Commit Charlie funds to Head C.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-2">
-                <Button type="button" variant="outline" onClick={() => associateCharlie.mutate()} disabled={associateCharlie.isPending || runHeadOperation.isPending}>
-                  {associateCharlie.isPending ? "Associating Node..." : "Associate Node"}
-                </Button>
-                <Button type="button" variant="secondary" onClick={() => runHeadOperation.mutate("commit_head_c_charlie")} disabled={runHeadOperation.isPending || associateCharlie.isPending}>
+                <Button type="button" variant="secondary" onClick={() => runHeadOperation.mutate("commit_head_c_charlie")} disabled={runHeadOperation.isPending}>
                   {runHeadOperation.isPending ? "Committing Head C..." : "Commit Head C Funds"}
                 </Button>
                 {charlieHeadCCommitWorkflow ? (
@@ -1506,26 +1548,16 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
                     <ul className="mt-2 space-y-1 text-sm">
                       {charlieHeadCCommitProgress.map((milestone) => (
                         <li key={milestone.key}>
-                          {milestoneIcon(milestone.state)} {milestone.label}
+                          {milestone.done ? "✅" : "⏳"} {milestone.label}
                         </li>
                       ))}
                     </ul>
                     {charlieHeadCCommitLatestEvent ? (
                       <HelperText>
-                        Latest event: [{charlieHeadCCommitLatestEvent.level}] {charlieHeadCCommitLatestEvent.message}
+                        Latest event: [{charlieHeadCCommitLatestEvent.level}] {describeHeadCCommitLatestEvent(charlieHeadCCommitLatestEvent)}
                       </HelperText>
                     ) : null}
                   </div>
-                ) : null}
-                {associateCharlie.isError ? (
-                  <Alert variant="destructive" style={alertErrorBreakStyle}>
-                    Charlie association failed: {formatInlineError(associateCharlie.error.message)}
-                  </Alert>
-                ) : null}
-                {associateCharlie.isSuccess ? (
-                  <Alert style={alertTop6Style}>
-                    Charlie hydra node association requested.
-                  </Alert>
                 ) : null}
                 {runHeadOperation.isError ? (
                   <Alert variant="destructive" style={alertErrorBreakStyle}>
@@ -1708,6 +1740,25 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
             <Alert style={alertTop8Style}>
               Head operation queued: {runHeadOperation.data.operation} (workflow {runHeadOperation.data.workflowId})
             </Alert>
+          ) : null}
+          {adminHeadCCommitWorkflow ? (
+            <div className="mt-3 rounded-md border p-3">
+              <HelperText>
+                Head C Commit Workflow {adminHeadCCommitWorkflow.id} · <strong>{adminHeadCCommitWorkflow.status}</strong>
+              </HelperText>
+              <ul className="mt-2 space-y-1 text-sm">
+                {adminHeadCCommitProgress.map((milestone) => (
+                  <li key={milestone.key}>
+                    {milestone.done ? "✅" : "⏳"} {milestone.label}
+                  </li>
+                ))}
+              </ul>
+              {adminHeadCCommitLatestEvent ? (
+                <HelperText>
+                  Latest event: [{adminHeadCCommitLatestEvent.level}] {describeHeadCCommitLatestEvent(adminHeadCCommitLatestEvent)}
+                </HelperText>
+              ) : null}
+            </div>
           ) : null}
 
           <SectionSubTitle>Create Lottery on Head B</SectionSubTitle>

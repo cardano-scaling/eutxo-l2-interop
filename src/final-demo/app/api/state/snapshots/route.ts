@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { readFileSync } from "node:fs";
-import { validatorToAddress } from "@lucid-evolution/lucid";
+import { Data, credentialToAddress, validatorToAddress } from "@lucid-evolution/lucid";
 import { fetchHydraHeadStatus, hydraHeadApiUrl, type HydraHead } from "@/lib/hydra-client";
 import { getActiveLotteryForHead } from "@/lib/lottery-instances";
-import { getHtlcScriptInfo, getLotteryScriptInfo } from "@/lib/hydra/ops-scripts";
+import { getHtlcScriptInfo, getLotteryScriptInfo, getParameterizedTicketScriptInfo } from "@/lib/hydra/ops-scripts";
+import { TicketDatum, type TicketDatumT } from "@/lib/hydra/ops-lottery-types";
+import { HtlcDatum, type HtlcDatumT } from "@/lib/hydra/ops-htlc-types";
 import { credentialsPath } from "@/lib/runtime-paths";
 
 type SnapshotRow = {
@@ -13,6 +15,7 @@ type SnapshotRow = {
   lovelace: string;
   assets: Array<{ unit: string; amount: string }>;
   hasInlineDatum: boolean;
+  inlineDatum: unknown | null;
 };
 
 type HeadSnapshot = {
@@ -26,6 +29,7 @@ type HeadSnapshot = {
 type LabelContext = {
   addressLabels: Map<string, string>;
   activeLottery: { contractAddress: string; assetUnit: string } | null;
+  ticketScriptAddress: string | null;
 };
 
 function readAddress(actor: "alice" | "bob" | "charlie" | "ida" | "jon"): string | null {
@@ -66,6 +70,7 @@ async function getLabelContext(): Promise<LabelContext> {
   }
 
   let activeLottery: { contractAddress: string; assetUnit: string } | null = null;
+  let ticketScriptAddress: string | null = null;
   try {
     const record = await getActiveLotteryForHead("headB");
     if (record?.contractAddress && record?.assetUnit) {
@@ -73,12 +78,14 @@ async function getLabelContext(): Promise<LabelContext> {
         contractAddress: record.contractAddress,
         assetUnit: record.assetUnit,
       };
+      const ticket = getParameterizedTicketScriptInfo(record.policyId);
+      ticketScriptAddress = validatorToAddress("Custom", { type: "PlutusV3", script: ticket.compiledCode });
     }
   } catch {
     // Ignore DB lookup failures and still return snapshots.
   }
 
-  return { addressLabels: map, activeLottery };
+  return { addressLabels: map, activeLottery, ticketScriptAddress };
 }
 
 function parseAssets(value: Record<string, unknown>): { lovelace: string; assets: Array<{ unit: string; amount: string }> } {
@@ -100,11 +107,113 @@ function resolveSnapshotLabel(
   assets: Array<{ unit: string; amount: string }>,
   labels: LabelContext,
 ): string {
+  if (labels.ticketScriptAddress && address === labels.ticketScriptAddress) {
+    return "lottery_ticket";
+  }
   if (labels.activeLottery && address === labels.activeLottery.contractAddress) {
     const hasActiveAsset = assets.some((asset) => asset.unit === labels.activeLottery?.assetUnit && asset.amount !== "0");
-    return hasActiveAsset ? "lottery" : "lottery_ticket";
+    return hasActiveAsset ? "lottery" : "lottery_script";
   }
   return labels.addressLabels.get(address) ?? (address.startsWith("addr_test1w") ? "script_unknown" : "some_user");
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" ? value as Record<string, unknown> : null;
+}
+
+function adminPkhToBech32Address(adminPkhHex: string): string {
+  return credentialToAddress("Custom", { type: "Key", hash: adminPkhHex });
+}
+
+function dataCredentialToAddress(add: {
+  payment_credential: { Verification_key_cred: { Key: string } } | { Script_cred: { Key: string } };
+  stake_credential: { inline: { Verification_key_cred: { Key: string } } | { Script_cred: { Key: string } } } | null;
+}): string {
+  const extractCredential = (cred: { Verification_key_cred?: { Key: string }; Script_cred?: { Key: string } }) =>
+    cred.Verification_key_cred
+      ? { type: "Key" as const, hash: cred.Verification_key_cred.Key }
+      : { type: "Script" as const, hash: cred.Script_cred!.Key };
+  const payment = extractCredential(add.payment_credential);
+  const stake = add.stake_credential?.inline ? extractCredential(add.stake_credential.inline) : undefined;
+  return credentialToAddress("Custom", payment, stake);
+}
+
+function decorateLotteryTicketInlineDatum(inlineDatum: unknown, inlineDatumRaw: unknown): unknown {
+  if (typeof inlineDatumRaw !== "string" || inlineDatumRaw.trim().length === 0) return inlineDatum;
+  try {
+    const parsed = Data.from<TicketDatumT>(inlineDatumRaw, TicketDatum);
+    const buyerAddress = dataCredentialToAddress(parsed.desired_output.address);
+    const lotteryId = parsed.lottery_id;
+    const root = asRecord(inlineDatum);
+    return {
+      ...(root ?? {}),
+      __ticketSummary: {
+        buyerAddress,
+        lotteryId,
+      },
+    };
+  } catch {
+    return inlineDatum;
+  }
+}
+
+function decorateHtlcInlineDatum(inlineDatum: unknown, inlineDatumRaw: unknown): unknown {
+  if (typeof inlineDatumRaw !== "string" || inlineDatumRaw.trim().length === 0) return inlineDatum;
+  try {
+    const parsed = Data.from<HtlcDatumT>(inlineDatumRaw, HtlcDatum);
+    const desiredOutputAddress = dataCredentialToAddress(parsed.desired_output.address);
+    const desiredLovelace = parsed.desired_output.value.get("")?.get("") ?? 0n;
+    const root = asRecord(inlineDatum);
+    return {
+      ...(root ?? {}),
+      __htlcSummary: {
+        hash: parsed.hash,
+        timeoutMs: parsed.timeout.toString(),
+        senderPkh: parsed.sender,
+        receiverPkh: parsed.receiver,
+        desiredOutputAddress,
+        desiredLovelace: desiredLovelace.toString(),
+        hasDesiredDatum: parsed.desired_output.datum != null,
+      },
+    };
+  } catch {
+    return inlineDatum;
+  }
+}
+
+function decorateLotteryInlineDatum(inlineDatum: unknown): unknown {
+  const root = asRecord(inlineDatum);
+  if (!root) return inlineDatum;
+
+  // Aiken JSON-like object shape: { fields: [prize, ticket_cost, paid_winner, close_timestamp, admin] }
+  const fields = Array.isArray(root.fields) ? [...root.fields] : null;
+  if (fields && fields.length >= 5) {
+    const admin = asRecord(fields[4]);
+    if (admin && typeof admin.bytes === "string") {
+      try {
+        const bech32 = adminPkhToBech32Address(admin.bytes);
+        fields[4] = { ...admin, bech32 };
+        return { ...root, fields };
+      } catch {
+        return inlineDatum;
+      }
+    }
+  }
+
+  // Direct object shape fallback: { admin: { bytes: "<pkh>" }, ... }
+  if ("admin" in root) {
+    const admin = asRecord(root.admin);
+    if (admin && typeof admin.bytes === "string") {
+      try {
+        const bech32 = adminPkhToBech32Address(admin.bytes);
+        return { ...root, admin: { ...admin, bech32 } };
+      } catch {
+        return inlineDatum;
+      }
+    }
+  }
+
+  return inlineDatum;
 }
 
 async function fetchHeadSnapshot(head: HydraHead, labels: LabelContext): Promise<HeadSnapshot> {
@@ -144,13 +253,21 @@ async function fetchHeadSnapshot(head: HydraHead, labels: LabelContext): Promise
     const utxos = Object.entries(snapshot).map(([ref, output]) => {
       const address = String(output?.address ?? "");
       const parsed = parseAssets((output?.value ?? {}) as Record<string, unknown>);
+      const label = resolveSnapshotLabel(address, parsed.assets, labels);
       return {
         ref,
         address,
-        label: resolveSnapshotLabel(address, parsed.assets, labels),
+        label,
         lovelace: parsed.lovelace,
         assets: parsed.assets,
         hasInlineDatum: Boolean(output?.inlineDatumRaw),
+        inlineDatum: label === "lottery"
+          ? decorateLotteryInlineDatum(output?.inlineDatum ?? null)
+          : label === "lottery_ticket"
+            ? decorateLotteryTicketInlineDatum(output?.inlineDatum ?? null, output?.inlineDatumRaw)
+            : label === "htlc_script"
+              ? decorateHtlcInlineDatum(output?.inlineDatum ?? null, output?.inlineDatumRaw)
+            : (output?.inlineDatum ?? null),
       } satisfies SnapshotRow;
     });
     return { head, status, error: null, utxos, fetchedAt: nowIso };

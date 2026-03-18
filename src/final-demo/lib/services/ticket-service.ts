@@ -4,18 +4,18 @@ import { fetchHydraSnapshot, isRealHydraMode } from "@/lib/hydra-client";
 import { getActiveLotteryForHead } from "@/lib/lottery-instances";
 import { HydraOpsHandler, txHashFromCbor } from "@/lib/hydra/ops-handler";
 import { HydraOpsProvider } from "@/lib/hydra/ops-provider";
-import { getHtlcScriptInfo, getLotteryScriptInfo } from "@/lib/hydra/ops-scripts";
+import { getHtlcScriptInfo, getLotteryScriptInfo, getParameterizedTicketScriptInfo } from "@/lib/hydra/ops-scripts";
 import { ensureHydraSlotConfig } from "@/lib/hydra/slot-config";
 import { HtlcDatum, HtlcRedeemer, type HtlcDatumT, type HtlcRedeemerT } from "@/lib/hydra/ops-htlc-types";
-import { LotteryDatum, type LotteryDatumT } from "@/lib/hydra/ops-lottery-types";
+import { LotteryDatum, TicketDatum, type LotteryDatumT, type TicketDatumT } from "@/lib/hydra/ops-lottery-types";
 import { assetsToDataPairs, bech32ToDataAddress, dataAddressToBech32, dataPairsToAssets } from "@/lib/hydra/ops-utils";
+import { normalizeAddressToBech32 } from "@/lib/hydra/ops-address";
 import { credentialsPath } from "@/lib/runtime-paths";
 
 export interface BuyTicketPayload {
   address: string;
   amountLovelace: string;
   sourceHead: "headA" | "headC";
-  desiredOutput: { address: string; datum?: string | null };
   htlcHash: string;
   timeoutMinutes: string;
   preimage?: string;
@@ -36,7 +36,6 @@ export interface BuyTicketResult {
   sourceHtlcRef: string;
   headBHtlcRef: string;
   headBAutomationAction: "reused" | "created";
-  desiredOutput: { address: string; datum?: string | null };
   amountLovelace: string;
   submittedSourceTxHash?: string | null;
   sourceClaimAction: "claimed" | "already_claimed";
@@ -68,9 +67,6 @@ function validatePayload(payload: BuyTicketPayload) {
   }
   if (payload.sourceHead !== "headA" && payload.sourceHead !== "headC") {
     throw new TicketServiceError("BUY_TICKET_INVALID_INPUT", "sourceHead must be headA or headC", false);
-  }
-  if (!payload.desiredOutput?.address?.trim()) {
-    throw new TicketServiceError("BUY_TICKET_INVALID_INPUT", "desiredOutput is required", false);
   }
   if (!/^[0-9a-fA-F]+$/.test(payload.htlcHash.trim())) {
     throw new TicketServiceError("BUY_TICKET_INVALID_INPUT", "htlcHash must be a hex string", false);
@@ -146,31 +142,53 @@ function matchesExpectedHeadBDatum(
   expected: {
     hash: string;
     idaPaymentKeyHash: string;
-    lotteryDataAddress: unknown;
+    ticketScriptDataAddress: unknown;
     ticketCost: bigint;
+    ticketInlineDatum: string;
   },
 ): boolean {
   const lovelace = datum.desired_output.value.get("")?.get("") ?? 0n;
+  const datumMatches = (() => {
+    try {
+      return Data.to(datum.desired_output.datum as any) === expected.ticketInlineDatum;
+    } catch {
+      return false;
+    }
+  })();
   return datum.hash.toLowerCase() === expected.hash.toLowerCase()
     && datum.sender === expected.idaPaymentKeyHash
     && datum.receiver === expected.idaPaymentKeyHash
     && lovelace === expected.ticketCost
-    && datum.desired_output.datum == null
-    && JSON.stringify(datum.desired_output.address) === JSON.stringify(expected.lotteryDataAddress);
+    && JSON.stringify(datum.desired_output.address) === JSON.stringify(expected.ticketScriptDataAddress)
+    && datumMatches;
 }
 
 async function ensureHeadBIdaLock(
-  input: { htlcHash: string; timeoutMinutes: string },
+  input: { buyerAddress: string; htlcHash: string; timeoutMinutes: string },
 ): Promise<{ headBHtlcRef: string; action: "reused" | "created" }> {
   const idaAddressBech32 = loadIdaFundsAddressBech32();
   const idaPaymentKeyHash = paymentKeyHashFromAddress(idaAddressBech32);
   const { activeLottery, ticketCost } = await readActiveLotteryTicketCostFromHeadB();
+  const buyerAddressBech32 = normalizeAddressToBech32(input.buyerAddress);
   const timeoutMinutes = Number(input.timeoutMinutes);
   if (!Number.isFinite(timeoutMinutes) || timeoutMinutes <= 0) {
     throw new Error("timeoutMinutes must be a positive number");
   }
 
-  const lotteryDataAddress = bech32ToDataAddress(activeLottery.contractAddress) as any;
+  const ticketInfo = getParameterizedTicketScriptInfo(activeLottery.policyId);
+  const ticketScriptAddress = validatorToAddress("Custom", { type: "PlutusV3", script: ticketInfo.compiledCode });
+  const ticketScriptDataAddress = bech32ToDataAddress(ticketScriptAddress) as any;
+  const ticketDatumRaw: TicketDatumT = {
+    lottery_id: activeLottery.tokenNameHex,
+    desired_output: {
+      address: bech32ToDataAddress(buyerAddressBech32) as any,
+      datum: null,
+    },
+  };
+  // Mirror offchain/lottery/buy_ticket.ts exactly: first build inline datum with TicketDatum schema.
+  const ticketInlineDatum = Data.to(ticketDatumRaw, TicketDatum);
+  // HTLC desired_output.datum expects generic Data, so decode that CBOR into Data value for nesting.
+  const ticketDatumData = Data.from(ticketInlineDatum);
   const { lucid: headBLucid, handler: headBHandler } = await makeLucidForHead("headB");
   const htlcInfo = getHtlcScriptInfo();
   const htlcScriptAddress = validatorToAddress("Custom", { type: "PlutusV3", script: htlcInfo.compiledCode });
@@ -182,8 +200,9 @@ async function ensureHeadBIdaLock(
       if (matchesExpectedHeadBDatum(datum, {
         hash: input.htlcHash,
         idaPaymentKeyHash,
-        lotteryDataAddress,
+        ticketScriptDataAddress,
         ticketCost,
+        ticketInlineDatum,
       })) {
         return {
           headBHtlcRef: `headB_${utxo.txHash}`,
@@ -201,9 +220,9 @@ async function ensureHeadBIdaLock(
     sender: idaPaymentKeyHash,
     receiver: idaPaymentKeyHash,
     desired_output: {
-      address: lotteryDataAddress,
+      address: ticketScriptDataAddress,
       value: assetsToDataPairs({ lovelace: ticketCost }) as any,
-      datum: null,
+      datum: ticketDatumData as any,
     },
   };
   const headBInlineDatum = Data.to<HtlcDatumT>(headBHtlcDatum, HtlcDatum);
@@ -399,6 +418,7 @@ export async function buyTicket(payload: BuyTicketPayload, _ctx: BuyTicketContex
   let headBAutomationResult: { headBHtlcRef: string; action: "reused" | "created" };
   try {
     headBAutomationResult = await ensureHeadBIdaLock({
+      buyerAddress: payload.address,
       htlcHash: payload.htlcHash.trim().toLowerCase(),
       timeoutMinutes: payload.timeoutMinutes,
     });
@@ -472,7 +492,6 @@ export async function buyTicket(payload: BuyTicketPayload, _ctx: BuyTicketContex
     sourceHtlcRef: submittedSourceHtlcRef,
     headBHtlcRef: headBAutomationResult.headBHtlcRef,
     headBAutomationAction: headBAutomationResult.action,
-    desiredOutput: payload.desiredOutput,
     amountLovelace: payload.amountLovelace,
     submittedSourceTxHash,
     sourceClaimAction,

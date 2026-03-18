@@ -212,7 +212,6 @@ async function executeBuyTicketWorkflow(workflow: WorkflowWithSteps, workerId: s
       if (
         !payload.address ||
         !payload.amountLovelace ||
-        !payload.desiredOutput ||
         !payload.sourceHead ||
         !payload.htlcHash ||
         !payload.timeoutMinutes
@@ -230,7 +229,6 @@ async function executeBuyTicketWorkflow(workflow: WorkflowWithSteps, workerId: s
           address: payload.address!,
           amountLovelace: payload.amountLovelace!,
           sourceHead: payload.sourceHead!,
-          desiredOutput: payload.desiredOutput!,
           htlcHash: payload.htlcHash!,
           timeoutMinutes: payload.timeoutMinutes!,
           preimage: payload.preimage,
@@ -365,6 +363,13 @@ function tailForLogs(text: string, maxChars = 4000): string {
   return text.slice(-maxChars);
 }
 
+function parseSubmittedTxHash(stdout: string): string | null {
+  const matches = [...stdout.matchAll(/submitted -> ([0-9a-fA-F]{64})/g)];
+  if (matches.length === 0) return null;
+  const last = matches[matches.length - 1];
+  return last?.[1] ?? null;
+}
+
 async function runHeadOperation(operation: HeadOperation, timeoutMs = 8 * 60 * 1000): Promise<{ stdout: string; stderr: string }> {
   const args = commandForHeadOperation(operation);
   const tsxBin = resolveTsxExecutable();
@@ -429,9 +434,16 @@ async function executeAdminHeadOperationWorkflow(workflow: WorkflowWithSteps, wo
   let result: Record<string, unknown> = parseDraftResult(workflow) ?? {};
   if (!hasSucceededStep(workflow, "submit")) {
     await executeWorkflowStep(workflow, "submit", attempt, workerId, async () => {
+      const isHeadCOperation = operation === "commit_head_c_charlie" || operation === "commit_head_c_admin";
+      if (isHeadCOperation) {
+        await appendEvent(workflow.id, "info", "head_c_commit_script_started", {
+          operation,
+          actor: workflow.actor,
+        });
+      }
       const run = await runHeadOperation(operation, operationTimeoutMs);
       const stdout = run.stdout ?? "";
-      const isHeadCOperation = operation === "commit_head_c_charlie" || operation === "commit_head_c_admin";
+      const submittedTxHash = parseSubmittedTxHash(stdout);
       const headCOpened = isHeadCOperation && stdout.includes("Head C is now open.");
       result = {
         operation,
@@ -441,10 +453,28 @@ async function executeAdminHeadOperationWorkflow(workflow: WorkflowWithSteps, wo
       await setWorkflowDraftResultLocked(workflow.id, result, workerId);
       await appendEvent(workflow.id, "info", "admin_head_operation_submitted", { operation });
       if (isHeadCOperation) {
+        await appendEvent(workflow.id, "info", "head_c_l1_utxos_refreshed_startup", {
+          operation,
+          actor: workflow.actor,
+          observed: stdout.includes("[l1-utxos] Refreshing from live chain (startup)"),
+        });
+        if (stdout.includes("commit tx signed")) {
+          await appendEvent(workflow.id, "info", "head_c_commit_tx_signed", {
+            operation,
+            actor: workflow.actor,
+          });
+        }
         await appendEvent(workflow.id, "info", "head_c_partial_commit_submitted", {
           operation,
           actor: workflow.actor,
         });
+        if (submittedTxHash) {
+          await appendEvent(workflow.id, "info", "head_c_commit_tx_submitted", {
+            operation,
+            actor: workflow.actor,
+            txHash: submittedTxHash,
+          });
+        }
         await appendEvent(
           workflow.id,
           "info",
