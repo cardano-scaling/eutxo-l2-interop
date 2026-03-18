@@ -36,7 +36,7 @@ function mapHydraHeadStatus(value: string): "open" | "closed" | "idle" | "connec
   const normalized = value.trim().toLowerCase();
   if (normalized === "open") return "open";
   if (normalized === "closed" || normalized === "final") return "closed";
-  if (normalized === "idle" || normalized === "initial") return "idle";
+  if (normalized === "idle" || normalized === "initial" || normalized === "initializing") return "idle";
   return "connected";
 }
 

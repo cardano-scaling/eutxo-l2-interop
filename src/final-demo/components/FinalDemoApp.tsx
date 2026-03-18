@@ -358,6 +358,34 @@ async function submitBuyTicketTx(body: Record<string, unknown>) {
   }>;
 }
 
+async function submitCharlieBuyTicketTx(role: FinalDemoRole, body: { htlcHash: string; timeoutMinutes: string }) {
+  const r = await fetch("/api/charlie/buy-ticket/submit", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...roleHeaders(role) },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await extractApiErrorMessage(r));
+  return r.json() as Promise<{
+    txHash: string;
+    sourceHtlcRef: string;
+    headBHtlcRef: null;
+    hashRef: string;
+    address: string;
+    amountLovelace: string;
+  }>;
+}
+
+async function fetchCharlieAddress(role: FinalDemoRole): Promise<string> {
+  const r = await fetch("/api/charlie/address", {
+    headers: roleHeaders(role),
+    cache: "no-store",
+  });
+  if (!r.ok) throw new Error(await extractApiErrorMessage(r));
+  const payload = await r.json() as { address?: string };
+  if (!payload.address?.trim()) throw new Error("Charlie address is not available");
+  return payload.address.trim();
+}
+
 function stringToHex(input: string): string {
   return Array.from(input)
     .map((char) => char.charCodeAt(0).toString(16).padStart(2, "0"))
@@ -453,7 +481,7 @@ async function reconcileLotteryRegistration(role: FinalDemoRole, payload: Lotter
 
 async function runAdminHeadOperation(
   role: FinalDemoRole,
-  operation: "open_head_a" | "open_head_b" | "open_heads_ab" | "commit_head_c_charlie",
+  operation: "open_head_a" | "open_head_b" | "open_heads_ab" | "commit_head_c_charlie" | "commit_head_c_admin",
 ) {
   const r = await fetch("/api/admin/heads/open", {
     method: "POST",
@@ -743,6 +771,7 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
   const [htlcPairs, setHtlcPairs] = useState<HtlcPairRecord[]>([]);
   const [htlcPairGenerateError, setHtlcPairGenerateError] = useState<string | null>(null);
   const [workflowId, setWorkflowId] = useState("");
+  const [charlieHeadCWorkflowId, setCharlieHeadCWorkflowId] = useState("");
   const [workflowSearchId, setWorkflowSearchId] = useState("");
   const [adminWorkflowStatusFilter, setAdminWorkflowStatusFilter] = useState("__all_excluding_succeeded");
   const [adminWorkflowTypeFilter, setAdminWorkflowTypeFilter] = useState("");
@@ -795,6 +824,18 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
       return false;
     },
   });
+  const charlieHeadCWorkflow = useQuery({
+    queryKey: ["charlie-head-c-workflow", charlieHeadCWorkflowId],
+    queryFn: () => fetchWorkflow(charlieHeadCWorkflowId),
+    enabled: view === "charlie" && Boolean(charlieHeadCWorkflowId),
+    refetchInterval: (q) => {
+      const data = q.state.data;
+      if (!data) return false;
+      if (data.status === "running" || data.status === "pending") return 1500;
+      if (data.status === "failed" && data.nextRetryAt) return 1500;
+      return false;
+    },
+  });
   const adminIncludeCompleted = adminWorkflowStatusFilter === "__all_including_succeeded";
   const adminStatusFilter = adminWorkflowStatusFilter === "__all_excluding_succeeded"
     || adminWorkflowStatusFilter === "__all_including_succeeded"
@@ -836,6 +877,18 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
   }, []);
   useEffect(() => {
     setWalletConnectorError(null);
+    if (view === "charlie") {
+      void fetchCharlieAddress(appRole)
+        .then((charlieAddress) => {
+          setWalletSession(null);
+          setAddress(charlieAddress);
+        })
+        .catch((error) => {
+          const message = error instanceof Error ? error.message : "Failed to load Charlie funds address";
+          setWalletConnectorError(message);
+        });
+      return;
+    }
     restoreWalletSession(defaultActor)
       .then((session) => {
         if (!session) return;
@@ -846,7 +899,7 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
       .catch(() => {
         // Keep UI usable even if wallet restore fails.
       });
-  }, [defaultActor, view]);
+  }, [appRole, defaultActor, view]);
   useEffect(() => {
     const search = new URLSearchParams(window.location.search);
     const wf = search.get("workflowId");
@@ -919,11 +972,13 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
   const buyTicket = useMutation({
     mutationFn: () =>
       {
-        if (!walletSession) {
-          throw new Error("Connect a wallet first.");
-        }
         const actor = actionActor;
-        const walletAddress = walletSession.changeAddress;
+        const walletAddress = actor === "charlie"
+          ? address
+          : walletSession?.changeAddress;
+        if (!walletAddress || walletAddress === "no wallet connected") {
+          throw new Error(actor === "charlie" ? "Charlie funds address is not ready." : "Connect a wallet first.");
+        }
         setHtlcPairGenerateError(null);
         let nextPreimage = "";
         let nextHash = "";
@@ -946,11 +1001,48 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
           timeoutMinutes,
         );
         setBuyTicketIdempotencyKey(intent.idempotencyKey);
+        if (actor === "charlie") {
+          const displayedTicketCost = activeLottery.data?.ticketCostLovelace?.trim() ?? "";
+          if (!/^\d+$/.test(displayedTicketCost)) {
+            throw new Error("Active lottery ticket cost is unavailable for Charlie buy ticket.");
+          }
+          return createWorkflow("/api/workflows/buy-ticket", {
+            actor,
+            idempotencyKey: intent.idempotencyKey,
+            address: walletAddress,
+            amountLovelace: displayedTicketCost,
+            htlcHash: nextHash,
+            timeoutMinutes,
+            preimage: nextPreimage,
+          })
+            .then((pendingWf) => {
+              setWorkflowId(pendingWf.workflowId);
+              bindBuyTicketIntentWorkflow(intent.fingerprint, pendingWf.workflowId);
+              if (pendingWf.idempotencyKey) setBuyTicketIdempotencyKey(pendingWf.idempotencyKey);
+              return submitCharlieBuyTicketTx(appRole, { htlcHash: nextHash, timeoutMinutes });
+            })
+            .then((submitted) =>
+              createWorkflow("/api/workflows/buy-ticket", {
+                actor,
+                idempotencyKey: intent.idempotencyKey,
+                address: submitted.address,
+                amountLovelace: submitted.amountLovelace,
+                htlcHash: nextHash,
+                timeoutMinutes,
+                preimage: nextPreimage,
+                submittedSourceTxHash: submitted.txHash,
+                submittedSourceHtlcRef: submitted.sourceHtlcRef,
+              }).then((d) => ({ ...d, fingerprint: intent.fingerprint })),
+            );
+        }
+        if (!walletSession) {
+          throw new Error("Connect a wallet first.");
+        }
         return prepareBuyTicketTx({
           actor,
           address: walletAddress,
           amountLovelace: "0",
-          sourceHead: actor === "charlie" ? "headC" : "headA",
+          sourceHead: "headA",
           htlcHash: nextHash,
           timeoutMinutes,
         })
@@ -1061,10 +1153,15 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
     },
   });
   const runHeadOperation = useMutation({
-    mutationFn: (operation: "open_head_a" | "open_head_b" | "open_heads_ab" | "commit_head_c_charlie") =>
+    mutationFn: (operation: "open_head_a" | "open_head_b" | "open_heads_ab" | "commit_head_c_charlie" | "commit_head_c_admin") =>
       runAdminHeadOperation(appRole, operation),
     onSuccess: (data) => {
-      setWorkflowId(data.workflowId);
+      if (view === "admin") {
+        setWorkflowId(data.workflowId);
+      }
+      if (view === "charlie" && data.operation === "commit_head_c_charlie") {
+        setCharlieHeadCWorkflowId(data.workflowId);
+      }
       heads.refetch();
       snapshots.refetch();
       adminWorkflows.refetch();
@@ -1127,9 +1224,11 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
   const visibleHeads: Array<"headA" | "headB" | "headC"> = view === "user"
     ? ["headA", "headB"]
     : view === "charlie"
-      ? ["headA", "headC"]
+      ? ["headB", "headC"]
       : ["headA", "headB", "headC"];
-  const hasWalletConnection = Boolean(walletSession);
+  const hasWalletConnection = view === "charlie"
+    ? address !== "no wallet connected"
+    : Boolean(walletSession);
   const requestFundsDisabledReason = !hasWalletConnection
     ? "Connect a wallet first."
     : !headsOpen.headA
@@ -1138,7 +1237,7 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
         ? "Request funds is only enabled for connected user wallets."
         : null;
   const buyTicketDisabledReason = !hasWalletConnection
-    ? "Connect a wallet first."
+    ? (view === "charlie" ? "Charlie funds address is not ready." : "Connect a wallet first.")
     : actionActor === "ida"
       ? "Buy ticket is only enabled for user and charlie wallets."
     : (actionActor === "charlie" && (!headsOpen.headB || !headsOpen.headC))
@@ -1156,6 +1255,19 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
     : null;
   const requestFundsProgress = requestFundsWorkflow ? requestFundsMilestones(requestFundsWorkflow) : [];
   const buyTicketProgress = buyTicketWorkflow ? buyTicketMilestones(buyTicketWorkflow) : [];
+  const charlieHeadCCommitWorkflow = charlieHeadCWorkflow.data?.type === "admin_head_operation"
+    ? charlieHeadCWorkflow.data
+    : null;
+  const charlieHeadCCommitLatestEvent = charlieHeadCCommitWorkflow && charlieHeadCCommitWorkflow.events.length > 0
+    ? charlieHeadCCommitWorkflow.events[charlieHeadCCommitWorkflow.events.length - 1]
+    : null;
+  const charlieHeadCCommitProgress = charlieHeadCCommitWorkflow
+    ? [
+      { key: "prepare", label: "Commit request validated", state: stepStatus(charlieHeadCCommitWorkflow, "prepare") },
+      { key: "submit", label: "Charlie commit submitted on L1", state: stepStatus(charlieHeadCCommitWorkflow, "submit") },
+      { key: "confirm", label: "Head C commit flow confirmed", state: stepStatus(charlieHeadCCommitWorkflow, "confirm") },
+    ]
+    : [];
   const activeReconcileRecord = createLotteryOnHeadBMutation.isSuccess && createLotteryOnHeadBMutation.data.needsReconcile
     ? { ...createLotteryOnHeadBMutation.data.result, savedAtMs: Date.now() }
     : pendingLotteryReconcile;
@@ -1178,38 +1290,40 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
           <div>
             <CardTitle><CardTitleLg>Actions</CardTitleLg></CardTitle>
           </div>
-          <Row>
-            <ConnectWallet
-              fontFamily="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif"
-              isInverted={isDarkTheme}
-              mainButtonStyle={{
-                ...walletConnectMainButtonStyle,
-                border: isDarkTheme ? "1px solid #3b82f6" : walletConnectMainButtonStyle.border,
-                background: isDarkTheme ? "#3b82f6" : walletConnectMainButtonStyle.background,
-              }}
-              modalStyle={walletConnectModalStyle}
-              modalHeaderStyle={walletConnectModalHeaderStyle}
-              disconnectButtonStyle={walletConnectDisconnectButtonStyle}
-              onConnect={(wallet) => {
-                setWalletConnectorError(null);
-                void buildWalletSessionFromEnabledWallet(wallet, defaultActor)
-                  .then((session) => {
-                    setWalletSession(session);
-                    setAddress(session.changeAddress);
-                  })
-                  .catch((error) => {
-                    const message = error instanceof Error ? error.message : "Failed to initialize wallet session";
-                    setWalletConnectorError(message);
-                  });
-              }}
-              onDisconnect={() => {
-                disconnectWallet();
-                setWalletSession(null);
-                setWalletConnectorError(null);
-              }}
-              onError={(message) => setWalletConnectorError(message)}
-            />
-          </Row>
+          {view === "user" ? (
+            <Row>
+              <ConnectWallet
+                fontFamily="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif"
+                isInverted={isDarkTheme}
+                mainButtonStyle={{
+                  ...walletConnectMainButtonStyle,
+                  border: isDarkTheme ? "1px solid #3b82f6" : walletConnectMainButtonStyle.border,
+                  background: isDarkTheme ? "#3b82f6" : walletConnectMainButtonStyle.background,
+                }}
+                modalStyle={walletConnectModalStyle}
+                modalHeaderStyle={walletConnectModalHeaderStyle}
+                disconnectButtonStyle={walletConnectDisconnectButtonStyle}
+                onConnect={(wallet) => {
+                  setWalletConnectorError(null);
+                  void buildWalletSessionFromEnabledWallet(wallet, defaultActor)
+                    .then((session) => {
+                      setWalletSession(session);
+                      setAddress(session.changeAddress);
+                    })
+                    .catch((error) => {
+                      const message = error instanceof Error ? error.message : "Failed to initialize wallet session";
+                      setWalletConnectorError(message);
+                    });
+                }}
+                onDisconnect={() => {
+                  disconnectWallet();
+                  setWalletSession(null);
+                  setWalletConnectorError(null);
+                }}
+                onError={(message) => setWalletConnectorError(message)}
+              />
+            </Row>
+          ) : null}
         </CardHeader>
         <CardContent>
         {walletConnectorError ? (
@@ -1374,13 +1488,35 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
               <CardHeader>
                 <CardTitle>Charlie Node Association</CardTitle>
                 <CardDescription>
-                  Associate Charlie hydra node before running Charlie ticket flow.
+                  Associate Charlie hydra node and commit Charlie funds to Head C.
                 </CardDescription>
               </CardHeader>
-              <CardContent>
-                <Button type="button" variant="outline" onClick={() => associateCharlie.mutate()} disabled={associateCharlie.isPending}>
+              <CardContent className="space-y-2">
+                <Button type="button" variant="outline" onClick={() => associateCharlie.mutate()} disabled={associateCharlie.isPending || runHeadOperation.isPending}>
                   {associateCharlie.isPending ? "Associating Node..." : "Associate Node"}
                 </Button>
+                <Button type="button" variant="secondary" onClick={() => runHeadOperation.mutate("commit_head_c_charlie")} disabled={runHeadOperation.isPending || associateCharlie.isPending}>
+                  {runHeadOperation.isPending ? "Committing Head C..." : "Commit Head C Funds"}
+                </Button>
+                {charlieHeadCCommitWorkflow ? (
+                  <div className="rounded-md border p-3">
+                    <HelperText>
+                      Workflow {charlieHeadCCommitWorkflow.id} · <strong>{charlieHeadCCommitWorkflow.status}</strong>
+                    </HelperText>
+                    <ul className="mt-2 space-y-1 text-sm">
+                      {charlieHeadCCommitProgress.map((milestone) => (
+                        <li key={milestone.key}>
+                          {milestoneIcon(milestone.state)} {milestone.label}
+                        </li>
+                      ))}
+                    </ul>
+                    {charlieHeadCCommitLatestEvent ? (
+                      <HelperText>
+                        Latest event: [{charlieHeadCCommitLatestEvent.level}] {charlieHeadCCommitLatestEvent.message}
+                      </HelperText>
+                    ) : null}
+                  </div>
+                ) : null}
                 {associateCharlie.isError ? (
                   <Alert variant="destructive" style={alertErrorBreakStyle}>
                     Charlie association failed: {formatInlineError(associateCharlie.error.message)}
@@ -1389,6 +1525,21 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
                 {associateCharlie.isSuccess ? (
                   <Alert style={alertTop6Style}>
                     Charlie hydra node association requested.
+                  </Alert>
+                ) : null}
+                {runHeadOperation.isError ? (
+                  <Alert variant="destructive" style={alertErrorBreakStyle}>
+                    Charlie Head C commit failed: {formatInlineError(runHeadOperation.error.message)}
+                  </Alert>
+                ) : null}
+                {runHeadOperation.isSuccess ? (
+                  <Alert style={alertTop6Style}>
+                    Charlie Head C commit queued (workflow {runHeadOperation.data.workflowId}).
+                  </Alert>
+                ) : null}
+                {charlieHeadCWorkflow.isError ? (
+                  <Alert variant="destructive" style={alertTop6Style}>
+                    Could not load Charlie Head C commit workflow: {formatInlineError(charlieHeadCWorkflow.error.message)}
                   </Alert>
                 ) : null}
               </CardContent>
@@ -1537,6 +1688,14 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
                 disabled={runHeadOperation.isPending}
               >
                 Commit Head C (Charlie)
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => runHeadOperation.mutate("commit_head_c_admin")}
+                disabled={runHeadOperation.isPending}
+              >
+                Commit Head C (Admin)
               </Button>
             </div>
           </form>

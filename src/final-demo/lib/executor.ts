@@ -1,5 +1,7 @@
 import { WorkflowStatus, WorkflowType, type Workflow } from "@prisma/client";
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { logger } from "./logger";
 import {
   appendEvent,
@@ -12,7 +14,7 @@ import {
   updateStepWithEvent,
   WorkflowLockError,
 } from "./workflows";
-import { upsertHeadState } from "./heads";
+import { syncHeadSnapshotsHeartbeat, upsertHeadState } from "./heads";
 import { RequestFundsError, requestFunds, type RequestFundsPayload } from "./services/request-funds";
 import { TicketServiceError, buyTicket, type BuyTicketPayload } from "./services/ticket-service";
 
@@ -49,6 +51,13 @@ function isDeferredPreconditionError(errorCode?: string): boolean {
 }
 
 function asWorkflowExecutionError(error: unknown): WorkflowExecutionError {
+  if (error instanceof HeadOperationExecutionError) {
+    const detail = error.details ? ` ${JSON.stringify(error.details)}` : "";
+    const message = `${error.message}${detail}`;
+    const nonRetryable = message.includes("NoFuelUTXOFound")
+      || message.includes("HEAD_C_COMMIT_PRECONDITION_FAILED");
+    return { message, errorCode: error.code, retryable: !nonRetryable };
+  }
   if (error instanceof RequestFundsError) {
     return { message: error.message, errorCode: error.code, retryable: error.retryable };
   }
@@ -305,7 +314,23 @@ async function executeBuyTicketWorkflow(workflow: WorkflowWithSteps, workerId: s
   await markWorkflowSucceededLocked(workflow.id, result, workerId);
 }
 
-type HeadOperation = "open_head_a" | "open_head_b" | "open_heads_ab" | "commit_head_c_charlie";
+type HeadOperation =
+  | "open_head_a"
+  | "open_head_b"
+  | "open_heads_ab"
+  | "commit_head_c_charlie"
+  | "commit_head_c_admin";
+
+class HeadOperationExecutionError extends Error {
+  code: string;
+  details?: Record<string, unknown>;
+  constructor(code: string, message: string, details?: Record<string, unknown>) {
+    super(message);
+    this.name = "HeadOperationExecutionError";
+    this.code = code;
+    this.details = details;
+  }
+}
 
 function parseHeadOperation(raw: unknown): HeadOperation {
   if (
@@ -313,6 +338,7 @@ function parseHeadOperation(raw: unknown): HeadOperation {
     || raw === "open_head_b"
     || raw === "open_heads_ab"
     || raw === "commit_head_c_charlie"
+    || raw === "commit_head_c_admin"
   ) {
     return raw;
   }
@@ -320,17 +346,30 @@ function parseHeadOperation(raw: unknown): HeadOperation {
 }
 
 function commandForHeadOperation(operation: HeadOperation): string[] {
-  const args = ["tsx", "scripts/hydra-open-heads.ts"];
+  const args = ["scripts/hydra-open-heads.ts"];
   if (operation === "open_head_a") return [...args, "--open-head-a"];
   if (operation === "open_head_b") return [...args, "--open-head-b"];
+  if (operation === "commit_head_c_admin") return [...args, "--commit-head-c-admin"];
   if (operation === "commit_head_c_charlie") return [...args, "--commit-head-c-charlie"];
   return args;
 }
 
+function resolveTsxExecutable(): string {
+  const localTsx = join(process.cwd(), "node_modules", ".bin", "tsx");
+  if (existsSync(localTsx)) return localTsx;
+  return "tsx";
+}
+
+function tailForLogs(text: string, maxChars = 4000): string {
+  if (text.length <= maxChars) return text;
+  return text.slice(-maxChars);
+}
+
 async function runHeadOperation(operation: HeadOperation, timeoutMs = 8 * 60 * 1000): Promise<{ stdout: string; stderr: string }> {
   const args = commandForHeadOperation(operation);
+  const tsxBin = resolveTsxExecutable();
   return new Promise((resolve, reject) => {
-    const child = spawn("npx", args, { cwd: process.cwd(), env: process.env });
+    const child = spawn(tsxBin, args, { cwd: process.cwd(), env: process.env });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => {
@@ -341,18 +380,35 @@ async function runHeadOperation(operation: HeadOperation, timeoutMs = 8 * 60 * 1
     });
     const timer = setTimeout(() => {
       child.kill("SIGTERM");
-      reject(new Error(`ADMIN_HEAD_OPERATION_TIMEOUT after ${timeoutMs}ms`));
+      reject(new HeadOperationExecutionError(
+        "ADMIN_HEAD_OPERATION_TIMEOUT",
+        `Head operation timed out after ${timeoutMs}ms`,
+        { operation, timeoutMs },
+      ));
     }, timeoutMs);
     child.on("error", (error) => {
       clearTimeout(timer);
-      reject(error);
+      reject(new HeadOperationExecutionError(
+        "ADMIN_HEAD_OPERATION_SPAWN_FAILED",
+        error instanceof Error ? error.message : String(error),
+        { operation },
+      ));
     });
     child.on("close", (code) => {
       clearTimeout(timer);
       if (code === 0) {
         resolve({ stdout, stderr });
       } else {
-        reject(new Error(`ADMIN_HEAD_OPERATION_SCRIPT_FAILED code=${code}\n${stderr || stdout}`));
+        const combined = `${stderr}\n${stdout}`.trim();
+        reject(new HeadOperationExecutionError(
+          "ADMIN_HEAD_OPERATION_SCRIPT_FAILED",
+          `Head operation script failed with exit code ${String(code)}`,
+          {
+            operation,
+            exitCode: code,
+            outputTail: tailForLogs(combined),
+          },
+        ));
       }
     });
   });
@@ -362,6 +418,7 @@ async function executeAdminHeadOperationWorkflow(workflow: WorkflowWithSteps, wo
   const payload = JSON.parse(workflow.payloadJson || "{}") as { operation?: unknown };
   const attempt = workflow.attemptCount + 1;
   const operation = parseHeadOperation(payload.operation);
+  const operationTimeoutMs = Math.max(60_000, Number(process.env.HEAD_OPERATION_TIMEOUT_MS || 12 * 60 * 1000));
 
   if (!hasSucceededStep(workflow, "prepare")) {
     await executeWorkflowStep(workflow, "prepare", attempt, workerId, async () => {
@@ -372,7 +429,10 @@ async function executeAdminHeadOperationWorkflow(workflow: WorkflowWithSteps, wo
   let result: Record<string, unknown> = parseDraftResult(workflow) ?? {};
   if (!hasSucceededStep(workflow, "submit")) {
     await executeWorkflowStep(workflow, "submit", attempt, workerId, async () => {
-      const run = await runHeadOperation(operation);
+      const run = await runHeadOperation(operation, operationTimeoutMs);
+      const stdout = run.stdout ?? "";
+      const isHeadCOperation = operation === "commit_head_c_charlie" || operation === "commit_head_c_admin";
+      const headCOpened = isHeadCOperation && stdout.includes("Head C is now open.");
       result = {
         operation,
         stdout: run.stdout,
@@ -380,11 +440,29 @@ async function executeAdminHeadOperationWorkflow(workflow: WorkflowWithSteps, wo
       };
       await setWorkflowDraftResultLocked(workflow.id, result, workerId);
       await appendEvent(workflow.id, "info", "admin_head_operation_submitted", { operation });
+      if (isHeadCOperation) {
+        await appendEvent(workflow.id, "info", "head_c_partial_commit_submitted", {
+          operation,
+          actor: workflow.actor,
+        });
+        await appendEvent(
+          workflow.id,
+          "info",
+          headCOpened ? "head_c_open_completed" : "head_c_waiting_counterpart",
+          {
+            operation,
+            actor: workflow.actor,
+          },
+        );
+      }
     });
   }
 
   if (!hasSucceededStep(workflow, "confirm")) {
     await executeWorkflowStep(workflow, "confirm", attempt, workerId, async () => {
+      // Pull fresh status from Hydra right after operation so UI reflects
+      // transitions (e.g. connected -> open) without waiting for next heartbeat.
+      await syncHeadSnapshotsHeartbeat();
       await appendEvent(workflow.id, "info", "admin_head_operation_confirmed", { operation });
     });
   }
