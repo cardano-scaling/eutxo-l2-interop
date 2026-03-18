@@ -39,7 +39,8 @@ services:
     working_dir: /workspace/src/final-demo
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/final_demo?schema=public
-    command: sh -c "npm install && npm run prisma:push && npm run prisma:generate"
+      NPM_CONFIG_LEGACY_PEER_DEPS: "true"
+    command: sh -c "npm install --legacy-peer-deps && npm run prisma:push && npm run prisma:generate"
     volumes:
       - ./:/workspace/src/final-demo
 
@@ -64,6 +65,7 @@ services:
       HYDRA_HEAD_B_API_URL: ${HYDRA_HEAD_B_API_URL:-http://hydra-node-ida-2-lt:4329}
       HYDRA_HEAD_C_API_URL: ${HYDRA_HEAD_C_API_URL:-http://hydra-node-ida-3-lt:4339}
       HYDRA_OPS_DRAFT_TTL_MS: ${HYDRA_OPS_DRAFT_TTL_MS:-300000}
+      NPM_CONFIG_LEGACY_PEER_DEPS: "true"
     command: sh -c "npm run dev"
     volumes:
       - ./:/workspace/src/final-demo
@@ -95,6 +97,7 @@ services:
       HYDRA_HEAD_B_API_URL: ${HYDRA_HEAD_B_API_URL:-http://hydra-node-ida-2-lt:4329}
       HYDRA_HEAD_C_API_URL: ${HYDRA_HEAD_C_API_URL:-http://hydra-node-ida-3-lt:4339}
       HYDRA_OPS_DRAFT_TTL_MS: ${HYDRA_OPS_DRAFT_TTL_MS:-300000}
+      NPM_CONFIG_LEGACY_PEER_DEPS: "true"
     command: sh -c "npm run worker"
     volumes:
       - ./:/workspace/src/final-demo
