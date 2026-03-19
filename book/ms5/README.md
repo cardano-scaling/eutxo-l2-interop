@@ -80,3 +80,13 @@ The admin reclaims funds from losing tickets using a reference to the paid out L
 After paying the winner and collecting the desired funds, the admin burns the Lottery NFT to close the application.
 
 ![Close Lottery](tx_close_lottery.svg)
+
+## Demo Topology
+
+The final demo topology consists of three distinct Hydra heads, designed to illustrate different participation models and cross-L2 interactions:
+
+1. **Main Head (Lottery Head):** This head is operated by Bob, Ida, and Jon, and serves as the execution environment for the lottery smart contract. This setup involves multiple parties to represent that this head could be substituted with another Layer 2 solution utilizing a different consensus mechanism, such as Midgard.
+
+2. **Custodial Head (Head A):** Managed by Alice and Ida, this two-party head acts as a custodial environment. Alice operates it as a faucet, distributing funds to users. This model allows users to participate in the ecosystem and maintain control over their distributed funds without the technical overhead of running their own individual Hydra nodes.
+
+3. **Non-Custodial Head:** This two-party head is established between Charli and Ida. It is included to demonstrate a non-custodial interaction model, allowing Charli to directly participate in the lottery without relying on a custodial intermediary. This showcases the versatility of the architecture in supporting direct, self-managed user participation.
