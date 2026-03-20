@@ -16,8 +16,8 @@ function getHeadAApiUrl(): string {
   return value;
 }
 
-function loadIdaFundsPrivateKeyBech32(): string {
-  const skPath = credentialsPath("ida", "ida-funds.sk");
+function loadAliceFundsPrivateKeyBech32(): string {
+  const skPath = credentialsPath("alice", "alice-funds.sk");
   const skJson = JSON.parse(readFileSync(skPath, "utf8")) as { cborHex: string };
   const skBytes = Buffer.from(skJson.cborHex, "hex");
   const sk = CML.PrivateKey.from_normal_bytes(skBytes.subarray(2));
@@ -44,7 +44,7 @@ export async function prepareRequestFundsDraft(input: { address: string }) {
   const handler = new HydraOpsHandler(getHeadAApiUrl());
   ensureHydraSlotConfig();
   const lucid = await Lucid(new HydraOpsProvider(handler), "Custom");
-  lucid.selectWallet.fromPrivateKey(loadIdaFundsPrivateKeyBech32());
+  lucid.selectWallet.fromPrivateKey(loadAliceFundsPrivateKeyBech32());
 
   const txBuilder = await lucid
     .newTx()
@@ -64,7 +64,7 @@ export async function submitRequestFundsDraft(input: { unsignedTxCborHex: string
   const handler = new HydraOpsHandler(getHeadAApiUrl());
   ensureHydraSlotConfig();
   const lucid = await Lucid(new HydraOpsProvider(handler), "Custom");
-  lucid.selectWallet.fromPrivateKey(loadIdaFundsPrivateKeyBech32());
+  lucid.selectWallet.fromPrivateKey(loadAliceFundsPrivateKeyBech32());
   const signBuilder = lucid
     .fromTx(input.unsignedTxCborHex)
     .assemble([input.witnessHex]);
