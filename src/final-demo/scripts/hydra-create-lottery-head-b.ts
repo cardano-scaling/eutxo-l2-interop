@@ -21,6 +21,7 @@ import {
 import { HydraOpsHandler } from "../lib/hydra/ops-handler";
 import { HydraOpsProvider } from "../lib/hydra/ops-provider";
 import { getLotteryScriptInfo } from "../lib/hydra/ops-scripts";
+import { isCustomNetworkMode, lucidNetworkName } from "../lib/hydra/network";
 import { credentialsPath, startupTimePath } from "../lib/runtime-paths";
 
 const isDockerRuntime = existsSync("/.dockerenv");
@@ -91,6 +92,7 @@ function parseArgs(argv: string[]): CreateLotteryArgs {
 }
 
 function loadStartupTimeMs(): number {
+  if (!isCustomNetworkMode()) return 0;
   const startupTime = readFileSync(startupTimePath(), "utf8").trim();
   const parsed = Number(startupTime);
   if (!Number.isFinite(parsed)) {
@@ -184,11 +186,13 @@ async function main(): Promise<LotteryCreateResult> {
   const rli = nonInteractive ? null : createInterface({ input, output, terminal: true });
   try {
     const startupTimeMs = loadStartupTimeMs();
-    SLOT_CONFIG_NETWORK.Custom = {
-      zeroTime: startupTimeMs,
-      zeroSlot: 0,
-      slotLength: 1000,
-    };
+    if (isCustomNetworkMode()) {
+      SLOT_CONFIG_NETWORK.Custom = {
+        zeroTime: startupTimeMs,
+        zeroSlot: 0,
+        slotLength: 1000,
+      };
+    }
 
     const prizeInput = args.prizeInput
       ?? (rli ? await rli.question("Prize amount (lovelace) [25000000]: ") : "");
@@ -206,7 +210,7 @@ async function main(): Promise<LotteryCreateResult> {
     const { privateKeyBech32, vkeyHashHex } = loadJonKeys();
     const spend = getLotteryScriptInfo();
     const handler = new HydraOpsHandler(HEAD_B_JON_API_URL);
-    const lucid = await Lucid(new HydraOpsProvider(handler), "Custom");
+    const lucid = await Lucid(new HydraOpsProvider(handler), lucidNetworkName());
     lucid.selectWallet.fromPrivateKey(privateKeyBech32);
 
     let jonUtxos;
@@ -241,7 +245,7 @@ async function main(): Promise<LotteryCreateResult> {
       admin: vkeyHashHex,
     };
     const inlineDatum = Data.to<LotteryDatumT>(datum, LotteryDatum);
-    const lotteryScriptAddress = validatorToAddress("Custom", {
+    const lotteryScriptAddress = validatorToAddress(lucidNetworkName(), {
       type: "PlutusV3",
       script: spend.compiledCode,
     });

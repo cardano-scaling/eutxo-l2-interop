@@ -23,6 +23,10 @@ type Cip30Wallet = {
   enable(): Promise<Cip30Api>;
 };
 
+function isLikelyTestnetAddress(address: string): boolean {
+  return address.trim().startsWith("addr_test");
+}
+
 const ENABLED_WALLET_STORAGE_KEY = "final-demo.cip30.enabled-wallet.v1";
 const DUMMY_SIGNER_PLACEHOLDER_PKH = "00000000000000000000000000000000000000000000000000000000";
 const DUMMY_REQUIRED_SIGNER_PREFIX = "0ed9010281581c";
@@ -174,6 +178,61 @@ export async function restoreWalletSession(actor: DemoActor): Promise<WalletSess
     supportsSignTx: typeof api.signTx === "function",
     supportsSubmitTx: typeof api.submitTx === "function",
   };
+}
+
+async function restoreAnyEnabledWalletSession(actor: DemoActor): Promise<WalletSession | null> {
+  const providers = getCardanoProviders();
+  for (const [walletKey, wallet] of Object.entries(providers)) {
+    if (walletKey === "cardano" || !wallet) continue;
+    try {
+      const enabled = await wallet.isEnabled();
+      if (!enabled) continue;
+      const api = await wallet.enable();
+      const usedAddressesRaw = await api.getUsedAddresses();
+      const changeAddressRaw = await api.getChangeAddress();
+      const usedAddresses = await Promise.all(usedAddressesRaw.map((a) => normalizeAddressForUi(a)));
+      const changeAddress = await normalizeAddressForUi(changeAddressRaw);
+      if (!isLikelyTestnetAddress(changeAddress)) {
+        continue;
+      }
+      setEnabledWalletKey(walletKey);
+      return {
+        walletKey,
+        walletName: wallet.name,
+        actor,
+        networkId: await api.getNetworkId(),
+        usedAddresses,
+        changeAddress,
+        supportsSignTx: typeof api.signTx === "function",
+        supportsSubmitTx: typeof api.submitTx === "function",
+      };
+    } catch {
+      // Ignore providers that fail on probe and continue with the next one.
+    }
+  }
+  return null;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export async function restoreWalletSessionWithFallback(
+  actor: DemoActor,
+  options?: { maxAttempts?: number; delayMs?: number },
+): Promise<WalletSession | null> {
+  const maxAttempts = Math.max(1, options?.maxAttempts ?? 8);
+  const delayMs = Math.max(100, options?.delayMs ?? 500);
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const stored = await restoreWalletSession(actor);
+    if (stored) return stored;
+    const anyEnabled = await restoreAnyEnabledWalletSession(actor);
+    if (anyEnabled) return anyEnabled;
+    if (attempt < maxAttempts) {
+      await sleep(delayMs);
+    }
+  }
+  return null;
 }
 
 export async function signTxWithConnectedWallet(session: WalletSession, txCborHex: string, partialSign = true): Promise<string> {

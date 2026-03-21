@@ -1,5 +1,6 @@
 import { credentialToAddress, fromUnit, getAddressDetails, type Assets, type LucidEvolution } from "@lucid-evolution/lucid";
 import type { DesiredOutput } from "./ops-types";
+import { lucidNetworkName } from "./network";
 
 export function bech32ToDataAddress(addr: string) {
   const address = getAddressDetails(addr);
@@ -81,7 +82,7 @@ export function dataPairsToAssets(
 }
 
 export function dataAddressToBech32(
-  lucid: LucidEvolution,
+  _lucid: LucidEvolution,
   add: {
     payment_credential: { Verification_key_cred: { Key: string } } | { Script_cred: { Key: string } };
     stake_credential: { inline: { Verification_key_cred: { Key: string } } | { Script_cred: { Key: string } } } | null;
@@ -93,9 +94,9 @@ export function dataAddressToBech32(
       : { type: "Script", hash: cred.Script_cred.Key };
   const payment = extractCredential(add.payment_credential);
   const stake = add.stake_credential?.inline ? extractCredential(add.stake_credential.inline) : undefined;
-  return credentialToAddress("Custom", payment, stake);
+  return credentialToAddress(lucidNetworkName(), payment, stake);
 }
 
-export function scriptCredentialAddress(network: "Custom", scriptHash: string): string {
+export function scriptCredentialAddress(network: "Custom" | "Preprod" | "Preview" | "Mainnet", scriptHash: string): string {
   return credentialToAddress(network, { type: "Script", hash: scriptHash });
 }

@@ -11,6 +11,7 @@ import {
   loadPrivateKeyHex,
   pickCommitUtxo,
 } from "./lib/node-commit-utils";
+import { isCustomNetworkMode } from "../lib/hydra/network";
 
 type Participant = {
   name: "alice" | "bob" | "ida" | "jon" | "charlie";
@@ -32,6 +33,10 @@ function runtimeUrl(localUrl: string, dockerUrl: string): string {
 
 const CARDANO_QUERY_API = process.env.CARDANO_QUERY_API_URL
   ?? runtimeUrl("http://127.0.0.1:1442", "http://cardano-node:1442");
+
+if (!isCustomNetworkMode() && !process.env.CARDANO_QUERY_API_URL?.trim()) {
+  throw new Error("CARDANO_QUERY_API_URL must be configured for preprod/external mode");
+}
 
 async function queryAddressUtxos(address: string): Promise<Record<string, unknown>> {
   const response = await fetch(`${CARDANO_QUERY_API}/utxo?address=${encodeURIComponent(address)}`);
@@ -110,21 +115,39 @@ function installLifecycleRefreshHooks(): void {
   });
 }
 
-type L1AddressUtxoMap = Record<string, { address: string; value: { lovelace: number } }>;
+type L1ChainUtxo = {
+  address?: string;
+  value?: Record<string, number>;
+  inlineDatum?: unknown;
+  referenceScript?: unknown;
+};
+type L1AddressUtxoMap = Record<string, L1ChainUtxo>;
 type L1UtxoSnapshot = Record<string, L1AddressUtxoMap>;
+
+function isPlainKeyLovelaceOnlyUtxo(out: L1ChainUtxo): out is { address: string; value: { lovelace: number } } {
+  if (typeof out.address !== "string") return false;
+  if (!out.address.startsWith("addr_test1v")) return false;
+  if (out.inlineDatum != null) return false;
+  if (out.referenceScript != null) return false;
+  if (!out.value || typeof out.value.lovelace !== "number") return false;
+  const nonAdaAssets = Object.keys(out.value).filter((k) => k !== "lovelace");
+  return nonAdaAssets.length === 0;
+}
 
 async function loadParticipantUtxos(name: "alice" | "bob" | "ida" | "jon" | "charlie"): Promise<Utxo[]> {
   const raw = JSON.parse(await readFile(l1UtxoFile, "utf8")) as L1UtxoSnapshot;
   const entries = raw[name] ?? {};
-  const utxos: Utxo[] = Object.entries(entries).map(([outRef, out]) => {
-    const [txHash, idx] = outRef.split("#");
-    return {
-      txHash,
-      outputIndex: Number(idx),
-      address: out.address,
-      assets: { lovelace: BigInt(out.value.lovelace) },
-    };
-  });
+  const utxos: Utxo[] = [];
+  for (const [outRef, out] of Object.entries(entries)) {
+    if (!isPlainKeyLovelaceOnlyUtxo(out)) continue;
+      const [txHash, idx] = outRef.split("#");
+      utxos.push({
+        txHash,
+        outputIndex: Number(idx),
+        address: out.address,
+        assets: { lovelace: BigInt(out.value.lovelace) },
+      });
+  }
   utxos.sort((a, b) => Number(a.assets.lovelace - b.assets.lovelace));
   return utxos;
 }
@@ -338,11 +361,13 @@ async function openHead(name: "A" | "B", participants: Participant[], commitUtxo
 
 async function main(): Promise<void> {
   installLifecycleRefreshHooks();
-  try {
-    await stat(l1ReadyFile);
-  } catch {
-    console.error(`Infrastructure not ready - missing sentinel ${l1ReadyFile}`);
-    process.exit(1);
+  if (isCustomNetworkMode()) {
+    try {
+      await stat(l1ReadyFile);
+    } catch {
+      console.error(`Infrastructure not ready - missing sentinel ${l1ReadyFile}`);
+      process.exit(1);
+    }
   }
 
   try {

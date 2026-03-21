@@ -3,6 +3,7 @@ import { CML, Lucid, getAddressDetails } from "@lucid-evolution/lucid";
 import { HydraOpsHandler, txHashFromCbor } from "./ops-handler";
 import { HydraOpsProvider } from "./ops-provider";
 import { hexAddressToBech32 } from "./ops-address";
+import { lucidNetworkName } from "./network";
 import { ensureHydraSlotConfig } from "./slot-config";
 import { credentialsPath } from "@/lib/runtime-paths";
 
@@ -24,6 +25,7 @@ function loadAliceFundsPrivateKeyBech32(): string {
   return sk.to_bech32();
 }
 
+
 function normalizeAddressToBech32(input: string): string {
   const value = input.trim();
   return value.startsWith("addr") ? value : hexAddressToBech32(value);
@@ -34,7 +36,7 @@ function paymentKeyHashFromAddress(addressBech32: string): string {
   const paymentCredential = details.paymentCredential;
   if (!paymentCredential || paymentCredential.type !== "Key") {
     throw new Error("request_funds recipient must use a key payment credential address");
-  }
+  }lucidNetworkName
   return paymentCredential.hash;
 }
 
@@ -43,7 +45,7 @@ export async function prepareRequestFundsDraft(input: { address: string }) {
   const recipientPaymentKeyHash = paymentKeyHashFromAddress(recipientAddress);
   const handler = new HydraOpsHandler(getHeadAApiUrl());
   ensureHydraSlotConfig();
-  const lucid = await Lucid(new HydraOpsProvider(handler), "Custom");
+  const lucid = await Lucid(new HydraOpsProvider(handler), lucidNetworkName());
   lucid.selectWallet.fromPrivateKey(loadAliceFundsPrivateKeyBech32());
 
   const txBuilder = await lucid
@@ -63,7 +65,7 @@ export async function prepareRequestFundsDraft(input: { address: string }) {
 export async function submitRequestFundsDraft(input: { unsignedTxCborHex: string; witnessHex: string }) {
   const handler = new HydraOpsHandler(getHeadAApiUrl());
   ensureHydraSlotConfig();
-  const lucid = await Lucid(new HydraOpsProvider(handler), "Custom");
+  const lucid = await Lucid(new HydraOpsProvider(handler), lucidNetworkName());
   lucid.selectWallet.fromPrivateKey(loadAliceFundsPrivateKeyBech32());
   const signBuilder = lucid
     .fromTx(input.unsignedTxCborHex)

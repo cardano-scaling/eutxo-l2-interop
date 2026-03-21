@@ -6,6 +6,7 @@ import { getActiveLotteryForHead } from "@/lib/lottery-instances";
 import { getHtlcScriptInfo, getLotteryScriptInfo, getParameterizedTicketScriptInfo } from "@/lib/hydra/ops-scripts";
 import { TicketDatum, type TicketDatumT } from "@/lib/hydra/ops-lottery-types";
 import { HtlcDatum, type HtlcDatumT } from "@/lib/hydra/ops-htlc-types";
+import { lucidNetworkName } from "@/lib/hydra/network";
 import { credentialsPath } from "@/lib/runtime-paths";
 
 type SnapshotRow = {
@@ -55,7 +56,7 @@ async function getLabelContext(): Promise<LabelContext> {
 
   try {
     const htlc = getHtlcScriptInfo();
-    const htlcAddress = validatorToAddress("Custom", { type: "PlutusV3", script: htlc.compiledCode });
+    const htlcAddress = validatorToAddress(lucidNetworkName(), { type: "PlutusV3", script: htlc.compiledCode });
     map.set(htlcAddress, "htlc_script");
   } catch {
     // Ignore optional script mapping failures.
@@ -63,7 +64,7 @@ async function getLabelContext(): Promise<LabelContext> {
 
   try {
     const lottery = getLotteryScriptInfo();
-    const lotteryAddress = validatorToAddress("Custom", { type: "PlutusV3", script: lottery.compiledCode });
+    const lotteryAddress = validatorToAddress(lucidNetworkName(), { type: "PlutusV3", script: lottery.compiledCode });
     map.set(lotteryAddress, "lottery_script");
   } catch {
     // Ignore optional script mapping failures.
@@ -79,7 +80,7 @@ async function getLabelContext(): Promise<LabelContext> {
         assetUnit: record.assetUnit,
       };
       const ticket = getParameterizedTicketScriptInfo(record.policyId);
-      ticketScriptAddress = validatorToAddress("Custom", { type: "PlutusV3", script: ticket.compiledCode });
+      ticketScriptAddress = validatorToAddress(lucidNetworkName(), { type: "PlutusV3", script: ticket.compiledCode });
     }
   } catch {
     // Ignore DB lookup failures and still return snapshots.
@@ -122,7 +123,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 }
 
 function adminPkhToBech32Address(adminPkhHex: string): string {
-  return credentialToAddress("Custom", { type: "Key", hash: adminPkhHex });
+  return credentialToAddress(lucidNetworkName(), { type: "Key", hash: adminPkhHex });
 }
 
 function dataCredentialToAddress(add: {
@@ -135,7 +136,7 @@ function dataCredentialToAddress(add: {
       : { type: "Script" as const, hash: cred.Script_cred!.Key };
   const payment = extractCredential(add.payment_credential);
   const stake = add.stake_credential?.inline ? extractCredential(add.stake_credential.inline) : undefined;
-  return credentialToAddress("Custom", payment, stake);
+  return credentialToAddress(lucidNetworkName(), payment, stake);
 }
 
 function decorateLotteryTicketInlineDatum(inlineDatum: unknown, inlineDatumRaw: unknown): unknown {

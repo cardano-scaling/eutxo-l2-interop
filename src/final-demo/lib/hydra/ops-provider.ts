@@ -14,6 +14,7 @@ import {
 } from "@lucid-evolution/lucid";
 import { readFileSync } from "node:fs";
 import { HydraOpsHandler, txHashFromCbor } from "./ops-handler";
+import { lucidNetworkName } from "./network";
 import { configPath } from "@/lib/runtime-paths";
 
 let protocolParametersCache: any | null = null;
@@ -62,7 +63,7 @@ export class HydraOpsProvider implements Provider {
     if (typeof addressOrCredential === "string") {
       return utxos.filter((utxo) => utxo.address === addressOrCredential);
     }
-    const address = credentialToAddress("Custom", addressOrCredential);
+    const address = credentialToAddress(lucidNetworkName(), addressOrCredential);
     return utxos.filter((utxo) => utxo.address === address);
   }
 

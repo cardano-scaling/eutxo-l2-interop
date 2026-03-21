@@ -6,6 +6,7 @@ import {
   getEd25519Signature_sync,
 } from "@harmoniclabs/crypto";
 import { lucidUtxoToHydraUtxo, type HydraUtxo, type Utxo } from "./node-hydra-handler";
+import { isCustomNetworkMode } from "../../lib/hydra/network";
 
 const isDockerRuntime = existsSync("/.dockerenv");
 
@@ -13,8 +14,14 @@ function runtimeUrl(localUrl: string, dockerUrl: string): string {
   return isDockerRuntime ? dockerUrl : localUrl;
 }
 
-const CARDANO_SUBMIT_API = process.env.CARDANO_SUBMIT_API_URL
-  ?? runtimeUrl("http://127.0.0.1:8090/api/submit/tx", "http://cardano-submit-api:8090/api/submit/tx");
+function cardanoSubmitApiUrl(): string {
+  const configured = process.env.CARDANO_SUBMIT_API_URL?.trim();
+  if (configured) return configured;
+  if (!isCustomNetworkMode()) {
+    throw new Error("CARDANO_SUBMIT_API_URL must be configured for preprod/external mode");
+  }
+  return runtimeUrl("http://127.0.0.1:8090/api/submit/tx", "http://cardano-submit-api:8090/api/submit/tx");
+}
 
 export const COMMIT_RETRIES = 3;
 export const COMMIT_BACKOFFS = [5000, 10000, 20000];
@@ -263,7 +270,8 @@ function signTxCbor(txCborHex: string, privateKeyHex: string): string {
 
 async function submitToL1(signedTxCborHex: string): Promise<string> {
   const txBytes = fromHex(signedTxCborHex);
-  const response = await fetch(CARDANO_SUBMIT_API, {
+  const submitApi = cardanoSubmitApiUrl();
+  const response = await fetch(submitApi, {
     method: "POST",
     headers: { "Content-Type": "application/cbor" },
     body: Buffer.from(txBytes),

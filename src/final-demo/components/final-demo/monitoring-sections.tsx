@@ -372,11 +372,14 @@ function LazyUtxoList({ utxos }: { utxos: SnapshotRow[] }) {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    setVisibleCount(UTXO_LAZY_PAGE_SIZE);
-    if (scrollerRef.current) {
-      scrollerRef.current.scrollTop = 0;
-    }
-  }, [utxos]);
+    // Keep user's current scroll position stable across snapshot polls.
+    // Only clamp/expand the render window based on current list size.
+    setVisibleCount((prev) => {
+      const minWindow = UTXO_LAZY_PAGE_SIZE;
+      const maxWindow = Math.max(minWindow, utxos.length);
+      return Math.min(Math.max(prev, minWindow), maxWindow);
+    });
+  }, [utxos.length]);
 
   const handleScroll = useCallback(() => {
     const node = scrollerRef.current;

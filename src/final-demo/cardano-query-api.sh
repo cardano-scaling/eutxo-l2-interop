@@ -9,6 +9,7 @@
 #   GET /tip                       -> JSON chain tip
 #
 # Usage: socat TCP-LISTEN:1442,reuseaddr,fork SYSTEM:"/cardano-query-api.sh"
+NETWORK_MAGIC="${CARDANO_NETWORK_MAGIC:-42}"
 
 # Read the HTTP request line
 read -r REQUEST_LINE
@@ -54,10 +55,10 @@ case "$PATH_ONLY" in
     case "$TXIN" in *%23*) TXIN="${TXIN%%\%23*}#${TXIN#*\%23}" ;; esac
 
     if [ -n "$TXIN" ]; then
-      RESULT=$(cardano-cli latest query utxo --tx-in "$TXIN" --testnet-magic 42 --output-json 2>&1)
+      RESULT=$(cardano-cli latest query utxo --tx-in "$TXIN" --testnet-magic "$NETWORK_MAGIC" --output-json 2>&1)
       EXIT_CODE=$?
     elif [ -n "$ADDR" ]; then
-      RESULT=$(cardano-cli latest query utxo --address "$ADDR" --testnet-magic 42 --output-json 2>&1)
+      RESULT=$(cardano-cli latest query utxo --address "$ADDR" --testnet-magic "$NETWORK_MAGIC" --output-json 2>&1)
       EXIT_CODE=$?
     else
       respond "400 Bad Request" '{"error":"missing address or txin parameter"}'
@@ -71,7 +72,7 @@ case "$PATH_ONLY" in
     fi
     ;;
   /protocol-parameters)
-    RESULT=$(cardano-cli latest query protocol-parameters --testnet-magic 42 2>&1)
+    RESULT=$(cardano-cli latest query protocol-parameters --testnet-magic "$NETWORK_MAGIC" 2>&1)
     EXIT_CODE=$?
     if [ $EXIT_CODE -eq 0 ]; then
       respond "200 OK" "$RESULT"
@@ -80,7 +81,7 @@ case "$PATH_ONLY" in
     fi
     ;;
   /tip)
-    RESULT=$(cardano-cli latest query tip --testnet-magic 42 2>&1)
+    RESULT=$(cardano-cli latest query tip --testnet-magic "$NETWORK_MAGIC" 2>&1)
     EXIT_CODE=$?
     if [ $EXIT_CODE -eq 0 ]; then
       respond "200 OK" "$RESULT"

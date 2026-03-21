@@ -42,7 +42,7 @@ import blake2b from "blake2b";
 import {
   buildWalletSessionFromEnabledWallet,
   disconnectWallet,
-  restoreWalletSession,
+  restoreWalletSessionWithFallback,
   signTxWithConnectedWallet,
   type WalletSession,
 } from "@/lib/wallet/cip30";
@@ -144,6 +144,10 @@ function formatInlineError(message: string, max = 280): string {
   const trimmed = message.trim();
   if (trimmed.length <= max) return trimmed;
   return `${trimmed.slice(0, max)}...`;
+}
+
+function isTestnetAddress(address: string | null | undefined): boolean {
+  return typeof address === "string" && address.trim().startsWith("addr_test");
 }
 
 export interface WorkflowResponse {
@@ -837,18 +841,35 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
     },
     refetchIntervalInBackground: true,
   });
-  const anyOpenHead = Boolean(
-    heads.data
-    && (heads.data.headA.status === "open" || heads.data.headB.status === "open" || heads.data.headC.status === "open"),
-  );
   const snapshots = useQuery({
-    queryKey: ["head-snapshots", anyOpenHead],
+    queryKey: ["head-snapshots"],
     queryFn: fetchHeadSnapshots,
-    enabled: anyOpenHead,
+    enabled: true,
     retry: 1,
-    refetchInterval: 4000,
+    refetchInterval: (q) => {
+      const data = q.state.data;
+      const hasOpen = Boolean(
+        data
+        && (
+          data.heads.headA.status === "open"
+          || data.heads.headB.status === "open"
+          || data.heads.headC.status === "open"
+        ),
+      );
+      return hasOpen ? 4000 : 10000;
+    },
     refetchIntervalInBackground: true,
   });
+  const anyOpenHead = Boolean(
+    (heads.data
+      && (heads.data.headA.status === "open" || heads.data.headB.status === "open" || heads.data.headC.status === "open"))
+    || (snapshots.data
+      && (
+        snapshots.data.heads.headA.status === "open"
+        || snapshots.data.heads.headB.status === "open"
+        || snapshots.data.heads.headC.status === "open"
+      )),
+  );
   const activeLottery = useQuery({
     queryKey: ["active-lottery"],
     queryFn: fetchActiveLottery,
@@ -934,10 +955,16 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
         });
       return;
     }
-    restoreWalletSession(defaultActor)
+    restoreWalletSessionWithFallback(defaultActor)
       .then((session) => {
         if (!session) return;
         if (session.actor !== defaultActor) return;
+        if (!isTestnetAddress(session.changeAddress)) {
+          setWalletSession(null);
+          setAddress("no wallet connected");
+          setWalletConnectorError("Wallet is connected on mainnet. Switch wallet network to testnet.");
+          return;
+        }
         setWalletSession(session);
         setAddress(session.changeAddress);
       })
@@ -991,6 +1018,9 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
         if (!walletSession) {
           throw new Error("Connect a wallet first.");
         }
+        if (!isTestnetAddress(walletSession.changeAddress)) {
+          throw new Error("Wallet is connected on mainnet. Switch wallet network to testnet.");
+        }
         const actor = actionActor;
         const walletAddress = walletSession.changeAddress;
         const intent = getOrCreateRequestFundsIdempotencyKey(actor, walletAddress);
@@ -1023,6 +1053,9 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
           : walletSession?.changeAddress;
         if (!walletAddress || walletAddress === "no wallet connected") {
           throw new Error(actor === "charlie" ? "Charlie funds address is not ready." : "Connect a wallet first.");
+        }
+        if (actor !== "charlie" && !isTestnetAddress(walletAddress)) {
+          throw new Error("Wallet is connected on mainnet. Switch wallet network to testnet.");
         }
         setHtlcPairGenerateError(null);
         let nextPreimage = "";
@@ -1259,6 +1292,16 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
     headB: heads.data?.headB.status === "open",
     headC: heads.data?.headC.status === "open",
   };
+  const snapshotHeadsOpen = {
+    headA: snapshots.data?.heads.headA.status === "open",
+    headB: snapshots.data?.heads.headB.status === "open",
+    headC: snapshots.data?.heads.headC.status === "open",
+  };
+  const effectiveHeadOpen = {
+    headA: headsOpen.headA || snapshotHeadsOpen.headA,
+    headB: headsOpen.headB || snapshotHeadsOpen.headB,
+    headC: headsOpen.headC || snapshotHeadsOpen.headC,
+  };
   const visibleHeads: Array<"headA" | "headB" | "headC"> = view === "user"
     ? ["headA", "headB"]
     : view === "charlie"
@@ -1267,20 +1310,27 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
   const hasWalletConnection = view === "charlie"
     ? address !== "no wallet connected"
     : Boolean(walletSession);
+  const walletNetworkCompatible = view === "charlie"
+    ? true
+    : isTestnetAddress(walletSession?.changeAddress);
   const requestFundsDisabledReason = !hasWalletConnection
     ? "Connect a wallet first."
-    : !headsOpen.headA
+    : !walletNetworkCompatible
+      ? "Wallet must be on testnet (addr_test...)."
+    : !effectiveHeadOpen.headA
       ? "Head A must be open."
       : actionActor !== "user"
         ? "Request funds is only enabled for connected user wallets."
         : null;
   const buyTicketDisabledReason = !hasWalletConnection
     ? (view === "charlie" ? "Charlie funds address is not ready." : "Connect a wallet first.")
+    : !walletNetworkCompatible
+      ? "Wallet must be on testnet (addr_test...)."
     : actionActor === "ida"
       ? "Buy ticket is only enabled for user and charlie wallets."
-    : (actionActor === "charlie" && (!headsOpen.headB || !headsOpen.headC))
+    : (actionActor === "charlie" && (!effectiveHeadOpen.headB || !effectiveHeadOpen.headC))
       ? "Head B and Head C must be open for Charlie buy ticket path."
-      : (actionActor === "user" && (!headsOpen.headA || !headsOpen.headB))
+    : (actionActor === "user" && (!effectiveHeadOpen.headA || !effectiveHeadOpen.headB))
         ? "Head A and Head B must be open for user buy ticket path."
         : null;
   const requestFundsWorkflow = workflow.data?.type === "request_funds" ? workflow.data : null;
@@ -1352,6 +1402,12 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
                   setWalletConnectorError(null);
                   void buildWalletSessionFromEnabledWallet(wallet, defaultActor)
                     .then((session) => {
+                      if (!isTestnetAddress(session.changeAddress)) {
+                        setWalletSession(null);
+                        setAddress("no wallet connected");
+                        setWalletConnectorError("Wallet is connected on mainnet. Switch wallet network to testnet.");
+                        return;
+                      }
                       setWalletSession(session);
                       setAddress(session.changeAddress);
                     })
@@ -1791,6 +1847,7 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
               </Button>
             </div>
           </form>
+
           {createLotteryOnHeadBMutation.isError ? (
             <Alert variant="destructive" style={alertTop8Style}>Lottery create failed: {createLotteryOnHeadBMutation.error.message}</Alert>
           ) : null}

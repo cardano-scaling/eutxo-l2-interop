@@ -6,6 +6,7 @@ import { HydraOpsHandler, txHashFromCbor } from "@/lib/hydra/ops-handler";
 import { HydraOpsProvider } from "@/lib/hydra/ops-provider";
 import { getHtlcScriptInfo, getLotteryScriptInfo, getParameterizedTicketScriptInfo } from "@/lib/hydra/ops-scripts";
 import { ensureHydraSlotConfig } from "@/lib/hydra/slot-config";
+import { lucidNetworkName } from "@/lib/hydra/network";
 import { HtlcDatum, HtlcRedeemer, type HtlcDatumT, type HtlcRedeemerT } from "@/lib/hydra/ops-htlc-types";
 import { LotteryDatum, TicketDatum, type LotteryDatumT, type TicketDatumT } from "@/lib/hydra/ops-lottery-types";
 import { assetsToDataPairs, bech32ToDataAddress, dataAddressToBech32, dataPairsToAssets } from "@/lib/hydra/ops-utils";
@@ -93,7 +94,7 @@ function headApiUrl(head: Head): string {
 async function makeLucidForHead(head: Head): Promise<{ lucid: LucidEvolution; handler: HydraOpsHandler }> {
   ensureHydraSlotConfig();
   const handler = new HydraOpsHandler(headApiUrl(head));
-  const lucid = await Lucid(new HydraOpsProvider(handler), "Custom");
+  const lucid = await Lucid(new HydraOpsProvider(handler), lucidNetworkName());
   return { lucid, handler };
 }
 
@@ -176,7 +177,7 @@ async function ensureHeadBIdaLock(
   }
 
   const ticketInfo = getParameterizedTicketScriptInfo(activeLottery.policyId);
-  const ticketScriptAddress = validatorToAddress("Custom", { type: "PlutusV3", script: ticketInfo.compiledCode });
+  const ticketScriptAddress = validatorToAddress(lucidNetworkName(), { type: "PlutusV3", script: ticketInfo.compiledCode });
   const ticketScriptDataAddress = bech32ToDataAddress(ticketScriptAddress) as any;
   const ticketDatumRaw: TicketDatumT = {
     lottery_id: activeLottery.tokenNameHex,
@@ -191,7 +192,7 @@ async function ensureHeadBIdaLock(
   const ticketDatumData = Data.from(ticketInlineDatum);
   const { lucid: headBLucid, handler: headBHandler } = await makeLucidForHead("headB");
   const htlcInfo = getHtlcScriptInfo();
-  const htlcScriptAddress = validatorToAddress("Custom", { type: "PlutusV3", script: htlcInfo.compiledCode });
+  const htlcScriptAddress = validatorToAddress(lucidNetworkName(), { type: "PlutusV3", script: htlcInfo.compiledCode });
   const htlcUtxos = await headBLucid.utxosAt({ type: "Script", hash: htlcInfo.hash });
 
   for (const utxo of htlcUtxos) {

@@ -16,6 +16,7 @@ import { HtlcDatum, type HtlcDatumT } from "./ops-htlc-types";
 import type { PrepareBuyTicketInput, PreparedBuyTicketDraft, SubmitBuyTicketInput } from "./ops-types";
 import { assetsToDataPairs, bech32ToDataAddress } from "./ops-utils";
 import { normalizeAddressToBech32 } from "./ops-address";
+import { lucidNetworkName } from "./network";
 import { getActiveLotteryForHead } from "../lottery-instances";
 import { logger } from "../logger";
 import { credentialsPath } from "@/lib/runtime-paths";
@@ -39,7 +40,7 @@ function headApiUrl(head: Head): string {
 async function makeLucidForHead(head: Head): Promise<{ lucid: LucidEvolution; handler: HydraOpsHandler }> {
   ensureHydraSlotConfig();
   const handler = new HydraOpsHandler(headApiUrl(head));
-  const lucid = await Lucid(new HydraOpsProvider(handler), "Custom");
+  const lucid = await Lucid(new HydraOpsProvider(handler), lucidNetworkName());
   return { lucid, handler };
 }
 
@@ -116,7 +117,7 @@ export async function prepareBuyTicketDraft(input: PrepareBuyTicketInput): Promi
   lucid.selectWallet.fromAddress(userAddressBech32, userUtxos);
 
   const htlcInfo = getHtlcScriptInfo();
-  const htlcScriptAddress = validatorToAddress("Custom", { type: "PlutusV3", script: htlcInfo.compiledCode });
+  const htlcScriptAddress = validatorToAddress(lucidNetworkName(), { type: "PlutusV3", script: htlcInfo.compiledCode });
 
   const { ticketCost } = await readActiveLotteryTicketCostFromHeadB();
   const timeoutMinutes = Number(input.timeoutMinutes);

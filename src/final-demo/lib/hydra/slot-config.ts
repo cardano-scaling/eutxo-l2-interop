@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { SLOT_CONFIG_NETWORK } from "@lucid-evolution/plutus";
 import { startupTimePath } from "@/lib/runtime-paths";
+import { isCustomNetworkMode } from "./network";
 
 let initialized = false;
 let lastStartupTimeMs = 0;
@@ -15,6 +16,7 @@ function readStartupTimeMs(): number {
 }
 
 export function ensureHydraSlotConfig() {
+  if (!isCustomNetworkMode()) return;
   const startupTimeMs = readStartupTimeMs();
   if (initialized && startupTimeMs === lastStartupTimeMs) return;
   SLOT_CONFIG_NETWORK.Custom.zeroTime = startupTimeMs;
