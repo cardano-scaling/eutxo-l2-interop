@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { RoleNav } from "./RoleNav";
 import { ModeToggle } from "./ModeToggle";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -14,9 +13,19 @@ export function AppShell({ title, subtitle, children }: { title: string; subtitl
                 <div style={shellStyles.titleWrap}>
                   <h1 style={shellStyles.title}>{title}</h1>
                   {subtitle ? <p style={shellStyles.subtitle}>{subtitle}</p> : null}
+                  <p style={shellStyles.infoParagraph}>
+                    This project was funded by{" "}
+                    <a href="https://projectcatalyst.io/funds/13/cardano-open-developers/eutxo-l2-interoperability-connect-hydra-and-other-l2s" target="_blank" rel="noreferrer" style={shellStyles.link}>
+                      Project Catalyst
+                    </a>
+                    . For a deeper dive into the architecture and technical details, please explore the{" "}
+                    <a href="https://cardano-scaling.github.io/eutxo-l2-interop/" target="_blank" rel="noreferrer" style={shellStyles.link}>
+                      Official Documentation
+                    </a>
+                    .
+                  </p>
                 </div>
                 <div style={shellStyles.controls}>
-                  <RoleNav />
                   <ModeToggle />
                 </div>
               </div>
@@ -44,5 +53,7 @@ const shellStyles: Record<string, React.CSSProperties> = {
   titleWrap: { display: "grid", gap: 4 },
   title: { margin: 0, fontSize: 18, letterSpacing: -0.2, lineHeight: 1.2, color: "var(--foreground)" },
   subtitle: { margin: 0, color: "var(--muted-foreground)", fontSize: 12, maxWidth: 760 },
+  infoParagraph: { margin: 0, color: "var(--muted-foreground)", fontSize: 12, display: "inline-block" },
+  link: { color: "var(--primary)", textDecoration: "underline", textUnderlineOffset: 2 },
 };
 
