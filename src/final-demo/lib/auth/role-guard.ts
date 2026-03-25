@@ -3,6 +3,13 @@ import { apiError } from "@/lib/api-error";
 export type FinalDemoRole = "user" | "charlie" | "admin";
 
 const ROLE_HEADER = "x-final-demo-role";
+const PASSWORD_HEADER = "x-final-demo-password";
+
+function requiredPasswordForRole(role: FinalDemoRole): string | null {
+  if (role === "admin") return (process.env.FINAL_DEMO_ADMIN_PASSWORD ?? "").trim() || null;
+  if (role === "charlie") return (process.env.FINAL_DEMO_CHARLIE_PASSWORD ?? "").trim() || null;
+  return null;
+}
 
 function isRole(value: string): value is FinalDemoRole {
   return value === "user" || value === "charlie" || value === "admin";
@@ -39,6 +46,24 @@ export function requireRole(
       }),
     };
   }
+
+  const requiredPassword = requiredPasswordForRole(role);
+  if (requiredPassword) {
+    const provided = (req.headers.get(PASSWORD_HEADER) ?? "").trim();
+    if (!provided) {
+      return {
+        ok: false as const,
+        response: apiError(401, requestId, "PASSWORD_REQUIRED", "Missing required password header"),
+      };
+    }
+    if (provided !== requiredPassword) {
+      return {
+        ok: false as const,
+        response: apiError(403, requestId, "INVALID_PASSWORD", "Invalid password"),
+      };
+    }
+  }
+
   return { ok: true as const, role };
 }
 

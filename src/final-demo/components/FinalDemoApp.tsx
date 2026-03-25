@@ -106,6 +106,55 @@ interface ApiErrorEnvelope {
   requestId: string;
 }
 
+type PasswordPolicyResponse = {
+  requestId: string;
+  adminPasswordRequired: boolean;
+  charliePasswordRequired: boolean;
+};
+
+async function fetchPasswordPolicy(): Promise<PasswordPolicyResponse> {
+  const r = await fetch("/api/auth/password-policy", { cache: "no-store" });
+  if (!r.ok) throw new Error(await extractApiErrorMessage(r));
+  return r.json();
+}
+
+function passwordStorageKey(view: FinalDemoView): string {
+  if (view === "admin") return "final-demo.password.admin.v1";
+  if (view === "charlie") return "final-demo.password.charlie.v1";
+  return "final-demo.password.user.v1";
+}
+
+function getSavedPassword(view: FinalDemoView): string {
+  try {
+    return window.localStorage.getItem(passwordStorageKey(view)) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function savePassword(view: FinalDemoView, password: string) {
+  try {
+    window.localStorage.setItem(passwordStorageKey(view), password);
+  } catch {
+    // ignore
+  }
+}
+
+function clearSavedPassword(view: FinalDemoView) {
+  try {
+    window.localStorage.removeItem(passwordStorageKey(view));
+  } catch {
+    // ignore
+  }
+}
+
+function roleAuthHeaders(role: FinalDemoRole, password: string): Record<string, string> {
+  const base = roleHeaders(role);
+  const trimmed = password.trim();
+  if (!trimmed) return base;
+  return { ...base, "x-final-demo-password": trimmed };
+}
+
 function formatSavedAgo(savedAtMs: number, nowMs: number): string {
   const diffMs = Math.max(0, nowMs - savedAtMs);
   const mins = Math.floor(diffMs / 60_000);
@@ -430,10 +479,14 @@ async function submitBuyTicketTx(body: Record<string, unknown>) {
   }>;
 }
 
-async function submitCharlieBuyTicketTx(role: FinalDemoRole, body: { htlcHash: string; timeoutMinutes: string }) {
+async function submitCharlieBuyTicketTx(
+  role: FinalDemoRole,
+  password: string,
+  body: { htlcHash: string; timeoutMinutes: string },
+) {
   const r = await fetch("/api/charlie/buy-ticket/submit", {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...roleHeaders(role) },
+    headers: { "Content-Type": "application/json", ...roleAuthHeaders(role, password) },
     body: JSON.stringify(body),
   });
   if (!r.ok) throw new Error(await extractApiErrorMessage(r));
@@ -447,9 +500,9 @@ async function submitCharlieBuyTicketTx(role: FinalDemoRole, body: { htlcHash: s
   }>;
 }
 
-async function fetchCharlieAddress(role: FinalDemoRole): Promise<string> {
+async function fetchCharlieAddress(role: FinalDemoRole, password: string): Promise<string> {
   const r = await fetch("/api/charlie/address", {
-    headers: roleHeaders(role),
+    headers: roleAuthHeaders(role, password),
     cache: "no-store",
   });
   if (!r.ok) throw new Error(await extractApiErrorMessage(r));
@@ -489,10 +542,10 @@ async function fetchWorkflow(id: string): Promise<WorkflowResponse> {
   return r.json();
 }
 
-async function retryWorkflow(id: string, role: FinalDemoRole) {
+async function retryWorkflow(id: string, role: FinalDemoRole, password: string) {
   const r = await fetch(`/api/admin/workflows/${id}/retry`, {
     method: "POST",
-    headers: roleHeaders(role),
+    headers: roleAuthHeaders(role, password),
   });
   if (!r.ok) throw new Error(await extractApiErrorMessage(r));
   return r.json();
@@ -500,6 +553,7 @@ async function retryWorkflow(id: string, role: FinalDemoRole) {
 
 async function fetchAdminWorkflows(
   role: FinalDemoRole,
+  password: string,
   filters: { status?: string; type?: string; idContains?: string; page?: number; includeCompleted?: boolean },
 ): Promise<WorkflowListResponse> {
   const url = new URL("/api/admin/workflows", window.location.origin);
@@ -510,16 +564,16 @@ async function fetchAdminWorkflows(
   if (filters.includeCompleted) url.searchParams.set("includeCompleted", "true");
   url.searchParams.set("limit", "25");
   const r = await fetch(url.toString(), {
-    headers: roleHeaders(role),
+    headers: roleAuthHeaders(role, password),
   });
   if (!r.ok) throw new Error(await extractApiErrorMessage(r));
   return r.json();
 }
 
-async function runAdminReconcile(role: FinalDemoRole) {
+async function runAdminReconcile(role: FinalDemoRole, password: string) {
   const r = await fetch("/api/admin/reconcile", {
     method: "POST",
-    headers: roleHeaders(role),
+    headers: roleAuthHeaders(role, password),
   });
   if (!r.ok) throw new Error(await extractApiErrorMessage(r));
   return r.json();
@@ -531,30 +585,30 @@ async function fetchActiveLottery(): Promise<LotteryActiveResponse> {
   return r.json();
 }
 
-async function createLotteryOnHeadB(role: FinalDemoRole, body: Record<string, unknown>) {
+async function createLotteryOnHeadB(role: FinalDemoRole, password: string, body: Record<string, unknown>) {
   const r = await fetch("/api/admin/lottery/create", {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...roleHeaders(role) },
+    headers: { "Content-Type": "application/json", ...roleAuthHeaders(role, password) },
     body: JSON.stringify(body),
   });
   if (!r.ok) throw new Error(await extractApiErrorMessage(r));
   return r.json() as Promise<AdminLotteryCreateResponse>;
 }
 
-async function reconcileLotteryRegistration(role: FinalDemoRole, payload: LotteryRegistrationPayload) {
+async function reconcileLotteryRegistration(role: FinalDemoRole, password: string, payload: LotteryRegistrationPayload) {
   const r = await fetch("/api/admin/lottery/reconcile", {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...roleHeaders(role) },
+    headers: { "Content-Type": "application/json", ...roleAuthHeaders(role, password) },
     body: JSON.stringify(payload),
   });
   if (!r.ok) throw new Error(await extractApiErrorMessage(r));
   return r.json() as Promise<AdminLotteryReconcileResponse>;
 }
 
-async function payRandomLotteryWinner(role: FinalDemoRole) {
+async function payRandomLotteryWinner(role: FinalDemoRole, password: string) {
   const r = await fetch("/api/admin/lottery/pay-random-winner", {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...roleHeaders(role) },
+    headers: { "Content-Type": "application/json", ...roleAuthHeaders(role, password) },
     body: JSON.stringify({}),
   });
   if (!r.ok) throw new Error(await extractApiErrorMessage(r));
@@ -563,11 +617,12 @@ async function payRandomLotteryWinner(role: FinalDemoRole) {
 
 async function runAdminHeadOperation(
   role: FinalDemoRole,
+  password: string,
   operation: "open_head_a" | "open_head_b" | "open_heads_ab" | "commit_head_c_charlie" | "commit_head_c_admin",
 ) {
   const r = await fetch("/api/admin/heads/open", {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...roleHeaders(role) },
+    headers: { "Content-Type": "application/json", ...roleAuthHeaders(role, password) },
     body: JSON.stringify({ operation }),
   });
   if (!r.ok) throw new Error(await extractApiErrorMessage(r));
@@ -832,6 +887,22 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
   const isDarkTheme = resolvedTheme === "dark";
   const defaultActor = view === "charlie" ? "charlie" : "user";
   const appRole: FinalDemoRole = view === "admin" ? "admin" : view;
+  const passwordPolicy = useQuery({
+    queryKey: ["password-policy"],
+    queryFn: fetchPasswordPolicy,
+    retry: 0,
+    staleTime: 30_000,
+    refetchInterval: false,
+  });
+  const passwordRequired = view === "admin"
+    ? Boolean(passwordPolicy.data?.adminPasswordRequired)
+    : view === "charlie"
+      ? Boolean(passwordPolicy.data?.charliePasswordRequired)
+      : false;
+  const [rolePassword, setRolePassword] = useState(() => (view === "admin" || view === "charlie") ? getSavedPassword(view) : "");
+  const [passwordDraft, setPasswordDraft] = useState("");
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+
   const [walletSession, setWalletSession] = useState<WalletSession | null>(null);
   const [walletConnectorError, setWalletConnectorError] = useState<string | null>(null);
   const actionActor = walletSession?.actor ?? defaultActor;
@@ -853,6 +924,83 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
   const [adminLotteryTicketCostLovelace, setAdminLotteryTicketCostLovelace] = useState("5000000");
   const [adminLotteryCloseTimestampMs, setAdminLotteryCloseTimestampMs] = useState("");
   const [pendingLotteryReconcile, setPendingLotteryReconcile] = useState<PendingLotteryReconcileRecord | null>(null);
+
+  // Gate Admin/Charlie pages when a password is configured server-side.
+  // IMPORTANT: do not early-return before all hooks, or React will detect hook order changes.
+  const passwordGateUi = (() => {
+    if (view !== "admin" && view !== "charlie") return null;
+    if (passwordPolicy.isLoading) {
+      return (
+        <PageGrid>
+          <Alert>Loading access policy…</Alert>
+        </PageGrid>
+      );
+    }
+    if (passwordPolicy.isError) {
+      return (
+        <PageGrid>
+          <Alert variant="destructive">
+            Failed to load access policy: {passwordPolicy.error?.message}
+          </Alert>
+        </PageGrid>
+      );
+    }
+    if (passwordRequired && !rolePassword.trim()) {
+      return (
+        <PageGrid>
+          <Card style={cardStyle}>
+            <CardHeader>
+              <CardTitle>Protected page</CardTitle>
+              <CardDescription>
+                Enter the password to access the {view} dashboard.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="space-y-2">
+                <Label>Password</Label>
+                <Input
+                  type="password"
+                  value={passwordDraft}
+                  onChange={(e) => setPasswordDraft(e.target.value)}
+                  placeholder={`Password for ${view}`}
+                />
+                {passwordError ? (
+                  <Alert variant="destructive">{passwordError}</Alert>
+                ) : null}
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  onClick={() => {
+                    const next = passwordDraft.trim();
+                    savePassword(view, next);
+                    setRolePassword(next);
+                    setPasswordError(null);
+                  }}
+                  disabled={!passwordDraft.trim()}
+                >
+                  Unlock
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => {
+                    clearSavedPassword(view);
+                    setRolePassword("");
+                    setPasswordDraft("");
+                    setPasswordError(null);
+                  }}
+                >
+                  Clear
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </PageGrid>
+      );
+    }
+    return null;
+  })();
 
   const heads = useQuery({
     queryKey: ["heads"],
@@ -941,7 +1089,7 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
       adminIncludeCompleted,
     ],
     queryFn: () =>
-      fetchAdminWorkflows(appRole, {
+      fetchAdminWorkflows(appRole, rolePassword, {
         status: adminStatusFilter || undefined,
         type: adminWorkflowTypeFilter || undefined,
         idContains: workflowSearchId || undefined,
@@ -968,7 +1116,7 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
   useEffect(() => {
     setWalletConnectorError(null);
     if (view === "charlie") {
-      void fetchCharlieAddress(appRole)
+      void fetchCharlieAddress(appRole, rolePassword)
         .then((charlieAddress) => {
           setWalletSession(null);
           setAddress(charlieAddress);
@@ -1121,7 +1269,7 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
               setWorkflowId(pendingWf.workflowId);
               bindBuyTicketIntentWorkflow(intent.fingerprint, pendingWf.workflowId);
               if (pendingWf.idempotencyKey) setBuyTicketIdempotencyKey(pendingWf.idempotencyKey);
-              return submitCharlieBuyTicketTx(appRole, { htlcHash: nextHash, timeoutMinutes });
+              return submitCharlieBuyTicketTx(appRole, rolePassword, { htlcHash: nextHash, timeoutMinutes });
             })
             .then((submitted) =>
               createWorkflow("/api/workflows/buy-ticket", {
@@ -1211,11 +1359,11 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
   });
 
   const retry = useMutation({
-    mutationFn: () => retryWorkflow(workflowId, appRole),
+    mutationFn: () => retryWorkflow(workflowId, appRole, rolePassword),
     onSuccess: () => workflow.refetch(),
   });
   const reconcile = useMutation({
-    mutationFn: () => runAdminReconcile(appRole),
+    mutationFn: () => runAdminReconcile(appRole, rolePassword),
     onSuccess: () => {
       heads.refetch();
       adminWorkflows.refetch();
@@ -1224,7 +1372,7 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
   });
   const createLotteryOnHeadBMutation = useMutation({
     mutationFn: () =>
-      createLotteryOnHeadB(appRole, {
+      createLotteryOnHeadB(appRole, rolePassword, {
         prizeLovelace: adminLotteryPrizeLovelace.trim(),
         ticketCostLovelace: adminLotteryTicketCostLovelace.trim(),
         closeTimestampMs: adminLotteryCloseTimestampMs.trim() || undefined,
@@ -1245,7 +1393,7 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
     },
   });
   const reconcileLotteryRegistrationMutation = useMutation({
-    mutationFn: (payload: LotteryRegistrationPayload) => reconcileLotteryRegistration(appRole, payload),
+    mutationFn: (payload: LotteryRegistrationPayload) => reconcileLotteryRegistration(appRole, rolePassword, payload),
     onSuccess: () => {
       heads.refetch();
       snapshots.refetch();
@@ -1255,7 +1403,7 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
     },
   });
   const payRandomLotteryWinnerMutation = useMutation({
-    mutationFn: () => payRandomLotteryWinner(appRole),
+    mutationFn: () => payRandomLotteryWinner(appRole, rolePassword),
     onSuccess: (data) => {
       setWorkflowId(data.workflowId);
       heads.refetch();
@@ -1266,7 +1414,7 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
   });
   const runHeadOperation = useMutation({
     mutationFn: (operation: "open_head_a" | "open_head_b" | "open_heads_ab" | "commit_head_c_charlie" | "commit_head_c_admin") =>
-      runAdminHeadOperation(appRole, operation),
+      runAdminHeadOperation(appRole, rolePassword, operation),
     onSuccess: (data) => {
       if (view === "admin") {
         setWorkflowId(data.workflowId);
@@ -1400,7 +1548,7 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
   const activeReconcileRecord = createLotteryOnHeadBMutation.isSuccess && createLotteryOnHeadBMutation.data.needsReconcile
     ? { ...createLotteryOnHeadBMutation.data.result, savedAtMs: Date.now() }
     : pendingLotteryReconcile;
-  return (
+  return passwordGateUi ?? (
     <PageGrid>
       <HeadMonitoringSection
         heads={heads}

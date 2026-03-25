@@ -56,6 +56,8 @@ services:
     working_dir: /workspace/src/final-demo
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/final_demo?schema=public
+      FINAL_DEMO_ADMIN_PASSWORD: ${FINAL_DEMO_ADMIN_PASSWORD:-}
+      FINAL_DEMO_CHARLIE_PASSWORD: ${FINAL_DEMO_CHARLIE_PASSWORD:-}
       WORKER_POLL_MS: 2000
       REQUEST_FUNDS_MOCK_FAILURE_MODE: ${REQUEST_FUNDS_MOCK_FAILURE_MODE:-none}
       BUY_TICKET_MOCK_FAILURE_MODE: ${BUY_TICKET_MOCK_FAILURE_MODE:-none}
@@ -89,6 +91,8 @@ services:
     working_dir: /workspace/src/final-demo
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/final_demo?schema=public
+      FINAL_DEMO_ADMIN_PASSWORD: ${FINAL_DEMO_ADMIN_PASSWORD:-}
+      FINAL_DEMO_CHARLIE_PASSWORD: ${FINAL_DEMO_CHARLIE_PASSWORD:-}
       WORKER_POLL_MS: 2000
       REQUEST_FUNDS_MOCK_FAILURE_MODE: ${REQUEST_FUNDS_MOCK_FAILURE_MODE:-none}
       BUY_TICKET_MOCK_FAILURE_MODE: ${BUY_TICKET_MOCK_FAILURE_MODE:-none}
