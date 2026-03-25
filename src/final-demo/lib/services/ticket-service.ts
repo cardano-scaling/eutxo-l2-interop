@@ -120,9 +120,12 @@ function loadIdaFundsAddressBech32(): string {
   return readFileSync(addrPath, "utf8").trim();
 }
 
-function ticketCostFromLotteryDatum(lotteryUtxo: { datum?: string | null }): bigint {
+function lotteryParamsFromDatum(lotteryUtxo: { datum?: string | null }): { ticketCost: bigint; prize: bigint } {
   const lotteryDatum = Data.from<LotteryDatumT>(lotteryUtxo.datum ?? Data.void(), LotteryDatum);
-  return lotteryDatum.ticket_cost;
+  return {
+    ticketCost: lotteryDatum.ticket_cost,
+    prize: lotteryDatum.prize,
+  };
 }
 
 async function readActiveLotteryTicketCostFromHeadB() {
@@ -135,7 +138,8 @@ async function readActiveLotteryTicketCostFromHeadB() {
   if (!lotteryUtxo) {
     throw new Error(`Could not find lottery UTxO for asset ${activeLottery.assetUnit}`);
   }
-  return { activeLottery, ticketCost: ticketCostFromLotteryDatum(lotteryUtxo) };
+  const { ticketCost, prize } = lotteryParamsFromDatum(lotteryUtxo);
+  return { activeLottery, ticketCost, prize };
 }
 
 function matchesExpectedHeadBDatum(
@@ -149,19 +153,54 @@ function matchesExpectedHeadBDatum(
   },
 ): boolean {
   const lovelace = datum.desired_output.value.get("")?.get("") ?? 0n;
-  const datumMatches = (() => {
-    try {
-      return Data.to(datum.desired_output.datum as any) === expected.ticketInlineDatum;
-    } catch {
+  // The nested TicketDatum.desired_output.datum may include an HTLC `timeout` that depends on wall-clock
+  // time (Date.now()). For idempotency we must treat an existing lock as reusable even if that nested
+  // timeout differs slightly between retries.
+  //
+  // So we compare the nested structure while intentionally ignoring nested HtlcDatum.timeout.
+  try {
+    if (datum.hash.toLowerCase() !== expected.hash.toLowerCase()) return false;
+    if (datum.sender !== expected.idaPaymentKeyHash) return false;
+    if (datum.receiver !== expected.idaPaymentKeyHash) return false;
+    if (lovelace !== expected.ticketCost) return false;
+    if (JSON.stringify(datum.desired_output.address) !== JSON.stringify(expected.ticketScriptDataAddress)) return false;
+
+    // Decode nested TicketDatum from the HTLC desired_output.datum (stored as generic Data.Any).
+    const actualTicketInline = Data.to(datum.desired_output.datum as any);
+    const actualTicket = Data.from<TicketDatumT>(actualTicketInline, TicketDatum);
+
+    const expectedTicket = Data.from<TicketDatumT>(expected.ticketInlineDatum, TicketDatum);
+
+    // Compare TicketDatum lottery_id + desired_output address/datum (ignoring nested timeout).
+    if (actualTicket.lottery_id !== expectedTicket.lottery_id) return false;
+    if (JSON.stringify(actualTicket.desired_output.address) !== JSON.stringify(expectedTicket.desired_output.address)) return false;
+
+    // If both have no desired_output.datum, accept.
+    if (actualTicket.desired_output.datum == null && expectedTicket.desired_output.datum == null) return true;
+    if (actualTicket.desired_output.datum == null || expectedTicket.desired_output.datum == null) return false;
+
+    const actualNestedHtlcInline = Data.to(actualTicket.desired_output.datum as any);
+    const expectedNestedHtlcInline = Data.to(expectedTicket.desired_output.datum as any);
+    const actualNested = Data.from<HtlcDatumT>(actualNestedHtlcInline, HtlcDatum);
+    const expectedNested = Data.from<HtlcDatumT>(expectedNestedHtlcInline, HtlcDatum);
+
+    // Compare nested HTLC fields except timeout.
+    if (actualNested.hash.toLowerCase() !== expectedNested.hash.toLowerCase()) return false;
+    if (actualNested.sender !== expectedNested.sender) return false;
+    if (actualNested.receiver !== expectedNested.receiver) return false;
+    if (JSON.stringify(actualNested.desired_output.address) !== JSON.stringify(expectedNested.desired_output.address)) return false;
+    const actualLovelace = actualNested.desired_output.value.get("")?.get("") ?? 0n;
+    const expectedLovelace = expectedNested.desired_output.value.get("")?.get("") ?? 0n;
+    if (actualLovelace !== expectedLovelace) return false;
+    if (actualNested.desired_output.datum != null || expectedNested.desired_output.datum != null) {
+      // For our payout ticket scheme desired_output.datum is expected to be null.
       return false;
     }
-  })();
-  return datum.hash.toLowerCase() === expected.hash.toLowerCase()
-    && datum.sender === expected.idaPaymentKeyHash
-    && datum.receiver === expected.idaPaymentKeyHash
-    && lovelace === expected.ticketCost
-    && JSON.stringify(datum.desired_output.address) === JSON.stringify(expected.ticketScriptDataAddress)
-    && datumMatches;
+
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function ensureHeadBIdaLock(
@@ -169,8 +208,9 @@ async function ensureHeadBIdaLock(
 ): Promise<{ headBHtlcRef: string; action: "reused" | "created" }> {
   const idaAddressBech32 = loadIdaFundsAddressBech32();
   const idaPaymentKeyHash = paymentKeyHashFromAddress(idaAddressBech32);
-  const { activeLottery, ticketCost } = await readActiveLotteryTicketCostFromHeadB();
+  const { activeLottery, ticketCost, prize } = await readActiveLotteryTicketCostFromHeadB();
   const buyerAddressBech32 = normalizeAddressToBech32(input.buyerAddress);
+  const buyerPaymentKeyHash = paymentKeyHashFromAddress(buyerAddressBech32);
   const timeoutMinutes = Number(input.timeoutMinutes);
   if (!Number.isFinite(timeoutMinutes) || timeoutMinutes <= 0) {
     throw new Error("timeoutMinutes must be a positive number");
@@ -179,11 +219,32 @@ async function ensureHeadBIdaLock(
   const ticketInfo = getParameterizedTicketScriptInfo(activeLottery.policyId);
   const ticketScriptAddress = validatorToAddress(lucidNetworkName(), { type: "PlutusV3", script: ticketInfo.compiledCode });
   const ticketScriptDataAddress = bech32ToDataAddress(ticketScriptAddress) as any;
+
+  // Lottery `TicketDatum.desired_output` must point at the HTLC payout script address
+  // (because `lottery.ak` will expect `PayWinner` to create the winner output at that address).
+  const htlcInfoForPayout = getHtlcScriptInfo();
+  const htlcPayoutScriptAddress = validatorToAddress(lucidNetworkName(), { type: "PlutusV3", script: htlcInfoForPayout.compiledCode });
+  const htlcPayoutScriptDataAddress = bech32ToDataAddress(htlcPayoutScriptAddress) as any;
+  const payoutTimeout = BigInt(Date.now() + timeoutMinutes * 60_000);
+  const winnerPayoutHtlcDatumRaw: HtlcDatumT = {
+    hash: input.htlcHash.toLowerCase(),
+    timeout: payoutTimeout,
+    // Preserve winner identity in sender so pay-winner automation can route target head A/C.
+    sender: buyerPaymentKeyHash,
+    receiver: idaPaymentKeyHash,
+    desired_output: {
+      address: bech32ToDataAddress(idaAddressBech32) as any,
+      value: assetsToDataPairs({ lovelace: prize }) as any,
+      datum: null,
+    },
+  };
+  const winnerPayoutHtlcDatumData = Data.from(Data.to(winnerPayoutHtlcDatumRaw, HtlcDatum));
   const ticketDatumRaw: TicketDatumT = {
     lottery_id: activeLottery.tokenNameHex,
     desired_output: {
-      address: bech32ToDataAddress(buyerAddressBech32) as any,
-      datum: null,
+      // Winner output is the HTLC script instance (not the ticket script).
+      address: htlcPayoutScriptDataAddress,
+      datum: winnerPayoutHtlcDatumData as any,
     },
   };
   // Mirror offchain/lottery/buy_ticket.ts exactly: first build inline datum with TicketDatum schema.
@@ -191,8 +252,8 @@ async function ensureHeadBIdaLock(
   // HTLC desired_output.datum expects generic Data, so decode that CBOR into Data value for nesting.
   const ticketDatumData = Data.from(ticketInlineDatum);
   const { lucid: headBLucid, handler: headBHandler } = await makeLucidForHead("headB");
-  const htlcInfo = getHtlcScriptInfo();
-  const htlcScriptAddress = validatorToAddress(lucidNetworkName(), { type: "PlutusV3", script: htlcInfo.compiledCode });
+  const htlcInfo = htlcInfoForPayout;
+  const htlcScriptAddress = htlcPayoutScriptAddress;
   const htlcUtxos = await headBLucid.utxosAt({ type: "Script", hash: htlcInfo.hash });
 
   for (const utxo of htlcUtxos) {

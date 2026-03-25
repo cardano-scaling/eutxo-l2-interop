@@ -36,9 +36,21 @@ const LOTTERY_REGISTRY_ROLE_HEADER = "x-final-demo-role";
 const LOTTERY_REGISTRY_ROLE_VALUE = "admin";
 const LOTTERY_REGISTRATION_RETRIES = Number(process.env.LOTTERY_REGISTRATION_RETRIES ?? "5");
 const LOTTERY_REGISTRATION_BACKOFF_MS = Number(process.env.LOTTERY_REGISTRATION_BACKOFF_MS ?? "2000");
-// Use a far-future default so the on-chain "validity entirely before close"
-// check passes even with local clock / slot conversion drift.
-const DEFAULT_CLOSE_DELAY_MS = 30 * 24 * 60 * 60 * 1000;
+// Default time until lottery close (POSIX ms offset from Date.now() at create time).
+// - Mint path needs close_timestamp > tx validTo (~now+60s); a few minutes of slack is plenty.
+// - PayWinner only works after close (+ 5m buffer in pay_winner.ts / ops-pay-random-winner).
+// Far-future closes (e.g. 30d) block demos; override with LOTTERY_DEFAULT_CLOSE_DELAY_MS when needed.
+const DEFAULT_CLOSE_DELAY_MS = (() => {
+  const raw = process.env.LOTTERY_DEFAULT_CLOSE_DELAY_MS;
+  if (raw !== undefined && raw.trim() !== "") {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n > 120_000) return n;
+    console.warn(
+      `LOTTERY_DEFAULT_CLOSE_DELAY_MS=${raw} invalid or too small; using built-in demo default (30 minutes).`,
+    );
+  }
+  return 30 * 60 * 1000;
+})();
 
 type CreateLotteryArgs = {
   prizeInput?: string;

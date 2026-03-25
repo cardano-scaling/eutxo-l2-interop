@@ -26,6 +26,7 @@ function parseType(value: string | null): WorkflowType | undefined {
     value === WorkflowType.buy_ticket
     || value === WorkflowType.request_funds
     || value === WorkflowType.admin_head_operation
+    || value === WorkflowType.pay_random_winner
   ) {
     return value;
   }

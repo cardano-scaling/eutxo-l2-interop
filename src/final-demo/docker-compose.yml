@@ -63,6 +63,7 @@ services:
       HYDRA_OPERATION_TIMEOUT_MS: ${HYDRA_OPERATION_TIMEOUT_MS:-20000}
       HYDRA_HEAD_A_API_URL: ${HYDRA_HEAD_A_API_URL:-http://hydra-node-ida-1-lt:4319}
       HYDRA_HEAD_B_API_URL: ${HYDRA_HEAD_B_API_URL:-http://hydra-node-ida-2-lt:4329}
+      HYDRA_HEAD_B_JON_API_URL: ${HYDRA_HEAD_B_JON_API_URL:-http://hydra-node-jon-lt:4328}
       HYDRA_HEAD_C_API_URL: ${HYDRA_HEAD_C_API_URL:-http://hydra-node-ida-3-lt:4339}
       HYDRA_OPS_DRAFT_TTL_MS: ${HYDRA_OPS_DRAFT_TTL_MS:-300000}
       NPM_CONFIG_LEGACY_PEER_DEPS: "true"
@@ -95,6 +96,7 @@ services:
       HYDRA_OPERATION_TIMEOUT_MS: ${HYDRA_OPERATION_TIMEOUT_MS:-20000}
       HYDRA_HEAD_A_API_URL: ${HYDRA_HEAD_A_API_URL:-http://hydra-node-ida-1-lt:4319}
       HYDRA_HEAD_B_API_URL: ${HYDRA_HEAD_B_API_URL:-http://hydra-node-ida-2-lt:4329}
+      HYDRA_HEAD_B_JON_API_URL: ${HYDRA_HEAD_B_JON_API_URL:-http://hydra-node-jon-lt:4328}
       HYDRA_HEAD_C_API_URL: ${HYDRA_HEAD_C_API_URL:-http://hydra-node-ida-3-lt:4339}
       HYDRA_OPS_DRAFT_TTL_MS: ${HYDRA_OPS_DRAFT_TTL_MS:-300000}
       NPM_CONFIG_LEGACY_PEER_DEPS: "true"

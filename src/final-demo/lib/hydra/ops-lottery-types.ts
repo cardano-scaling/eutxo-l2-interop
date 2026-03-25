@@ -39,6 +39,16 @@ const OutputReferenceSchema = Data.Object({
   output_index: Data.Integer(),
 });
 
+const LotteryRedeemerSchema = Data.Enum([
+  Data.Object({ PayWinner: Data.Tuple([OutputReferenceSchema]) }),
+  Data.Object({ Close: Data.Tuple([]) }),
+]);
+
+const TicketRedeemerSchema = Data.Enum([
+  Data.Object({ Win: Data.Tuple([]) }),
+  Data.Object({ Lose: Data.Tuple([]) }),
+]);
+
 const LotteryMintRedeemerSchema = Data.Enum([
   Data.Object({ Mint: Data.Tuple([OutputReferenceSchema]) }),
   Data.Object({ Burn: Data.Tuple([]) }),
@@ -50,5 +60,9 @@ export type LotteryDatumT = Data.Static<typeof LotteryDatumSchema>;
 export const LotteryDatum = LotteryDatumSchema as unknown as LotteryDatumT;
 export type OutputReferenceT = Data.Static<typeof OutputReferenceSchema>;
 export const OutputReference = OutputReferenceSchema as unknown as OutputReferenceT;
+export type LotteryRedeemerT = Data.Static<typeof LotteryRedeemerSchema>;
+export const LotteryRedeemer = LotteryRedeemerSchema as unknown as LotteryRedeemerT;
+export type TicketRedeemerT = Data.Static<typeof TicketRedeemerSchema>;
+export const TicketRedeemer = TicketRedeemerSchema as unknown as TicketRedeemerT;
 export type LotteryMintRedeemerT = Data.Static<typeof LotteryMintRedeemerSchema>;
 export const LotteryMintRedeemer = LotteryMintRedeemerSchema as unknown as LotteryMintRedeemerT;

@@ -17,6 +17,11 @@ import {
 import { syncHeadSnapshotsHeartbeat, upsertHeadState } from "./heads";
 import { RequestFundsError, requestFunds, type RequestFundsPayload } from "./services/request-funds";
 import { TicketServiceError, buyTicket, type BuyTicketPayload } from "./services/ticket-service";
+import {
+  submitPayRandomLotteryWinnerOnHeadB,
+  relayPayRandomLotteryWinnerOnHeadB,
+  type PayRandomLotteryWinnerDraft,
+} from "./hydra/ops-pay-random-winner";
 
 type WorkflowExecutionError = {
   message: string;
@@ -312,6 +317,50 @@ async function executeBuyTicketWorkflow(workflow: WorkflowWithSteps, workerId: s
   await markWorkflowSucceededLocked(workflow.id, result, workerId);
 }
 
+async function executePayRandomWinnerWorkflow(workflow: WorkflowWithSteps, workerId: string) {
+  const attempt = workflow.attemptCount + 1;
+  let result: Record<string, unknown> = parseDraftResult(workflow) ?? {};
+
+  if (!hasSucceededStep(workflow, "prepare")) {
+    await executeWorkflowStep(workflow, "prepare", attempt, workerId, async () => {
+      // No-op: payload is intentionally empty; workflow.resultJson is populated after submit.
+    });
+  }
+
+  if (!hasSucceededStep(workflow, "submit")) {
+    await executeWorkflowStep(workflow, "submit", attempt, workerId, async () => {
+      const draft = await submitPayRandomLotteryWinnerOnHeadB();
+      result = { ...draft };
+      await appendEvent(workflow.id, "info", "pay_random_winner_submitted", {
+        hashRef: draft.hashRef,
+        ticketCandidates: draft.ticketCandidates,
+        txHash: draft.txHash,
+      });
+      await setWorkflowDraftResultLocked(workflow.id, result, workerId);
+    });
+  }
+
+  if (!hasSucceededStep(workflow, "confirm")) {
+    await executeWorkflowStep(workflow, "confirm", attempt, workerId, async () => {
+      const draft = parseDraftResult(workflow) as PayRandomLotteryWinnerDraft | null;
+      if (!draft?.hashRef) {
+        throw new Error("pay_random_winner confirm missing draft result");
+      }
+      const finalResult = await relayPayRandomLotteryWinnerOnHeadB(draft);
+      result = { ...finalResult };
+      await appendEvent(workflow.id, "info", "pay_random_winner_relay_completed", {
+        hashRef: finalResult.hashRef,
+        targetHead: finalResult.targetHead,
+        targetClaimTxHash: finalResult.targetClaimTxHash,
+        sourceClaimTxHash: finalResult.sourceClaimTxHash,
+      });
+      await setWorkflowDraftResultLocked(workflow.id, result, workerId);
+    });
+  }
+
+  await markWorkflowSucceededLocked(workflow.id, result, workerId);
+}
+
 type HeadOperation =
   | "open_head_a"
   | "open_head_b"
@@ -513,6 +562,10 @@ export async function executeWorkflow(workflow: WorkflowWithSteps, workerId: str
     }
     if (workflow.type === WorkflowType.admin_head_operation) {
       await executeAdminHeadOperationWorkflow(workflow, workerId);
+      return;
+    }
+    if (workflow.type === WorkflowType.pay_random_winner) {
+      await executePayRandomWinnerWorkflow(workflow, workerId);
       return;
     }
 

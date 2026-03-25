@@ -120,8 +120,13 @@ function extractLotteryTicketSummary(inlineDatum: unknown): { buyerAddress: stri
   if (!obj) return null;
   const summary = asRecord(obj.__ticketSummary);
   if (!summary) return null;
-  if (typeof summary.buyerAddress !== "string" || typeof summary.lotteryId !== "string") return null;
-  const buyerAddress = summary.buyerAddress.trim();
+  const buyerAddressRaw = typeof summary.buyerAddress === "string"
+    ? summary.buyerAddress
+    : typeof summary.desiredOutputAddress === "string"
+      ? summary.desiredOutputAddress
+      : null;
+  if (!buyerAddressRaw || typeof summary.lotteryId !== "string") return null;
+  const buyerAddress = buyerAddressRaw.trim();
   const lotteryId = summary.lotteryId.trim();
   if (!buyerAddress || !lotteryId) return null;
   return { buyerAddress, lotteryId };

@@ -152,7 +152,7 @@ function isTestnetAddress(address: string | null | undefined): boolean {
 
 export interface WorkflowResponse {
   id: string;
-  type: "request_funds" | "buy_ticket" | "admin_head_operation";
+  type: "request_funds" | "buy_ticket" | "admin_head_operation" | "pay_random_winner";
   status: string;
   resultJson: string | null;
   attemptCount: number;
@@ -219,8 +219,13 @@ function requestFundsMilestones(workflow: WorkflowResponse): Array<{ key: string
   ];
 }
 
-function headCCommitMilestones(workflow: WorkflowResponse): Array<{ key: string; label: string; done: boolean }> {
-  const opened = hasWorkflowEvent(workflow, "head_c_open_completed");
+function headCCommitMilestones(
+  workflow: WorkflowResponse,
+  headCSnapshot: HeadSnapshotState | null | undefined,
+): Array<{ key: string; label: string; done: boolean }> {
+  // Workflow may not emit head_c_open_completed in all environments; non-empty Head C snapshot implies the head is open.
+  const openInferredFromSnapshot = Boolean(headCSnapshot?.utxos?.length);
+  const opened = hasWorkflowEvent(workflow, "head_c_open_completed") || openInferredFromSnapshot;
   const waitingCounterpart = hasWorkflowEvent(workflow, "head_c_waiting_counterpart");
   return [
     { key: "validated", label: "Commit request accepted", done: hasWorkflowEvent(workflow, "admin_head_operation_validated") },
@@ -324,6 +329,15 @@ interface AdminLotteryReconcileResponse {
   requestId: string;
   ok: boolean;
   reconciledAt: string;
+}
+
+interface AdminPayRandomWinnerResponse {
+  requestId: string;
+  ok: boolean;
+  workflowId: string;
+  workflowStatus: string;
+  queuedAt: string;
+  deduplicated?: boolean;
 }
 
 type PendingLotteryReconcileRecord = AdminLotteryCreateResponse["result"] & {
@@ -535,6 +549,16 @@ async function reconcileLotteryRegistration(role: FinalDemoRole, payload: Lotter
   });
   if (!r.ok) throw new Error(await extractApiErrorMessage(r));
   return r.json() as Promise<AdminLotteryReconcileResponse>;
+}
+
+async function payRandomLotteryWinner(role: FinalDemoRole) {
+  const r = await fetch("/api/admin/lottery/pay-random-winner", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...roleHeaders(role) },
+    body: JSON.stringify({}),
+  });
+  if (!r.ok) throw new Error(await extractApiErrorMessage(r));
+  return r.json() as Promise<AdminPayRandomWinnerResponse>;
 }
 
 async function runAdminHeadOperation(
@@ -1230,6 +1254,16 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
       setPendingLotteryReconcile(null);
     },
   });
+  const payRandomLotteryWinnerMutation = useMutation({
+    mutationFn: () => payRandomLotteryWinner(appRole),
+    onSuccess: (data) => {
+      setWorkflowId(data.workflowId);
+      heads.refetch();
+      snapshots.refetch();
+      adminWorkflows.refetch();
+      activeLottery.refetch();
+    },
+  });
   const runHeadOperation = useMutation({
     mutationFn: (operation: "open_head_a" | "open_head_b" | "open_heads_ab" | "commit_head_c_charlie" | "commit_head_c_admin") =>
       runAdminHeadOperation(appRole, operation),
@@ -1350,7 +1384,7 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
     ? charlieHeadCCommitWorkflow.events[charlieHeadCCommitWorkflow.events.length - 1]
     : null;
   const charlieHeadCCommitProgress = charlieHeadCCommitWorkflow && isHeadCCommitOperationWorkflow(charlieHeadCCommitWorkflow)
-    ? headCCommitMilestones(charlieHeadCCommitWorkflow)
+    ? headCCommitMilestones(charlieHeadCCommitWorkflow, snapshots.data?.heads.headC)
     : [];
   const adminHeadCCommitWorkflow = workflow.data
     && workflow.data.type === "admin_head_operation"
@@ -1361,7 +1395,7 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
     ? adminHeadCCommitWorkflow.events[adminHeadCCommitWorkflow.events.length - 1]
     : null;
   const adminHeadCCommitProgress = adminHeadCCommitWorkflow
-    ? headCCommitMilestones(adminHeadCCommitWorkflow)
+    ? headCCommitMilestones(adminHeadCCommitWorkflow, snapshots.data?.heads.headC)
     : [];
   const activeReconcileRecord = createLotteryOnHeadBMutation.isSuccess && createLotteryOnHeadBMutation.data.needsReconcile
     ? { ...createLotteryOnHeadBMutation.data.result, savedAtMs: Date.now() }
@@ -1828,25 +1862,67 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
                 <Label>Ticket cost (lovelace)</Label>
                 <Input value={adminLotteryTicketCostLovelace} onChange={(e) => setAdminLotteryTicketCostLovelace(e.target.value)} />
               </div>
-              <div className="space-y-2">
+              <div className="space-y-2 md:col-span-2">
                 <Label>Close timestamp (POSIX ms, optional)</Label>
                 <Input
                   value={adminLotteryCloseTimestampMs}
                   onChange={(e) => setAdminLotteryCloseTimestampMs(e.target.value)}
-                  placeholder="defaults to now + 30d"
+                  placeholder="empty = server default (now + 30 min, demo-friendly)"
                 />
+                <MutedText>
+                  On-chain rule: <strong>Pay random winner</strong> only works after this time plus ~5 minutes
+                  (<InlineCodeBlock>pay_winner.ts</InlineCodeBlock> / <InlineCodeBlock>lottery.ak</InlineCodeBlock>).
+                  Leave empty for a short demo window; set explicitly for a longer run. Production-style delay: set env{" "}
+                  <InlineCodeBlock>LOTTERY_DEFAULT_CLOSE_DELAY_MS</InlineCodeBlock> (ms)
+                </MutedText>
               </div>
             </div>
             <div className="border-t pt-3">
               <Button
                 type="button"
                 onClick={() => createLotteryOnHeadBMutation.mutate()}
-                disabled={createLotteryOnHeadBMutation.isPending || reconcileLotteryRegistrationMutation.isPending}
+                disabled={
+                  createLotteryOnHeadBMutation.isPending
+                  || reconcileLotteryRegistrationMutation.isPending
+                  || payRandomLotteryWinnerMutation.isPending
+                }
               >
                 Create + Register Lottery
               </Button>
             </div>
           </form>
+
+          <SectionSubTitle className="mt-6">Select Random Lottery Winner</SectionSubTitle>
+          <div className="mt-3">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => payRandomLotteryWinnerMutation.mutate()}
+              disabled={
+                payRandomLotteryWinnerMutation.isPending
+                || createLotteryOnHeadBMutation.isPending
+                || reconcileLotteryRegistrationMutation.isPending
+                || !activeLottery.data?.active
+              }
+            >
+              {payRandomLotteryWinnerMutation.isPending ? "Queueing winner workflow…" : "Pick random ticket & queue pay winner"}
+            </Button>
+          </div>
+          {payRandomLotteryWinnerMutation.isError ? (
+            <Alert variant="destructive" style={alertTop8Style}>
+              Pay random winner failed: {payRandomLotteryWinnerMutation.error.message}
+            </Alert>
+          ) : null}
+          {payRandomLotteryWinnerMutation.isSuccess ? (
+            <Alert style={alertTop8Style}>
+              Pay-random-winner workflow queued:
+              {" "}
+              <InlineCodeBlock>{payRandomLotteryWinnerMutation.data.workflowId}</InlineCodeBlock>
+              {" "}
+              (status: {payRandomLotteryWinnerMutation.data.workflowStatus})
+              {payRandomLotteryWinnerMutation.data.deduplicated ? " (deduplicated)" : null}
+            </Alert>
+          ) : null}
 
           {createLotteryOnHeadBMutation.isError ? (
             <Alert variant="destructive" style={alertTop8Style}>Lottery create failed: {createLotteryOnHeadBMutation.error.message}</Alert>

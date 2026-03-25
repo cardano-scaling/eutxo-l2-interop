@@ -143,14 +143,30 @@ function decorateLotteryTicketInlineDatum(inlineDatum: unknown, inlineDatumRaw: 
   if (typeof inlineDatumRaw !== "string" || inlineDatumRaw.trim().length === 0) return inlineDatum;
   try {
     const parsed = Data.from<TicketDatumT>(inlineDatumRaw, TicketDatum);
-    const buyerAddress = dataCredentialToAddress(parsed.desired_output.address);
+    const desiredOutputAddress = dataCredentialToAddress(parsed.desired_output.address);
+    let payoutHash: string | null = null;
+    let payoutReceiverPkh: string | null = null;
+    let payoutFinalAddress: string | null = null;
+    try {
+      if (parsed.desired_output.datum != null) {
+        const nested = Data.from<HtlcDatumT>(Data.to(parsed.desired_output.datum as any), HtlcDatum);
+        payoutHash = nested.hash;
+        payoutReceiverPkh = nested.receiver;
+        payoutFinalAddress = dataCredentialToAddress(nested.desired_output.address);
+      }
+    } catch {
+      // Keep summary resilient for legacy ticket datum shapes.
+    }
     const lotteryId = parsed.lottery_id;
     const root = asRecord(inlineDatum);
     return {
       ...(root ?? {}),
       __ticketSummary: {
-        buyerAddress,
+        desiredOutputAddress,
         lotteryId,
+        payoutHash,
+        payoutReceiverPkh,
+        payoutFinalAddress,
       },
     };
   } catch {

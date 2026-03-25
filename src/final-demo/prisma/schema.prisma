@@ -10,6 +10,7 @@ enum WorkflowType {
   request_funds
   buy_ticket
   admin_head_operation
+  pay_random_winner
 }
 
 enum WorkflowStatus {
