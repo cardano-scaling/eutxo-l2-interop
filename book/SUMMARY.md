@@ -5,7 +5,7 @@
 - [Milestone 2](./ms2/README.md)
 - [Milestone 3](./ms3/README.md)
 - [Milestone 4](./ms4/README.md)
-- [Milestone 5]()
+- [Milestone 5](./ms5/README.md)
 - [Close-out]()
 
 ---
