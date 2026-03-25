@@ -122,7 +122,6 @@ function resolveSnapshotLabel(
   }
   const known = labels.addressLabels.get(address);
   if (known) return known;
-  if (address.startsWith("addr_test1w")) return "script_unknown";
   if (ownWalletAddress && addressesEqual(address, ownWalletAddress)) {
     return "some_user (you)";
   }
