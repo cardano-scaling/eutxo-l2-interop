@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert } from "@/components/ui/alert";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Tooltip,
   TooltipContent,
@@ -13,6 +13,7 @@ import type { HeadReadModel, HeadSnapshotState, SnapshotRow, WorkflowResponse } 
 
 type VisibleHead = "headA" | "headB" | "headC";
 const UTXO_LAZY_PAGE_SIZE = 24;
+const SNAPSHOT_LABEL_YOU_SUFFIX = " (you)";
 
 function lovelaceToAdaLabel(lovelace: string): string {
   try {
@@ -232,7 +233,9 @@ function SnapshotUtxoRow({ row }: { row: SnapshotRow }) {
   return (
     <div style={monitorStyles.utxoCard}>
       <div style={monitorStyles.utxoTitleRow}>
-        <strong style={monitorStyles.strongText}>{row.label}</strong>
+        <span style={{ display: "inline-flex", alignItems: "baseline", gap: "0.2em", minWidth: 0, flexWrap: "wrap" }}>
+          {renderSnapshotUtxoLabel(row.label)}
+        </span>
         <span style={monitorStyles.valueText}>{lovelaceToAdaLabel(row.lovelace)}</span>
       </div>
       <div style={monitorStyles.utxoMetaStack}>
@@ -925,6 +928,13 @@ const monitorStyles: Record<string, React.CSSProperties> = {
     paddingRight: 4,
   },
   snapshotMeta: { margin: "8px 0 0 0", color: "var(--muted-foreground)", fontSize: 11 },
+  /** Matches secondary copy in head state (e.g. “…s ago”) — smaller than UTxO title. */
+  snapshotLabelYouSuffix: {
+    color: "var(--muted-foreground)",
+    fontSize: 11,
+    fontWeight: 500,
+    lineHeight: 1.2,
+  },
   cardHeaderTight: { paddingBottom: 0 },
   cardTitle: { fontSize: 24 },
   lastUpdateText: { marginTop: 0, marginBottom: 14, color: "var(--muted-foreground)", fontSize: 13 },
@@ -948,6 +958,19 @@ const monitorStyles: Record<string, React.CSSProperties> = {
   },
   pre: { fontSize: 12, whiteSpace: "pre-wrap", overflowWrap: "anywhere", wordBreak: "break-word" },
 };
+
+function renderSnapshotUtxoLabel(label: string): ReactNode {
+  if (label.endsWith(SNAPSHOT_LABEL_YOU_SUFFIX)) {
+    const base = label.slice(0, -SNAPSHOT_LABEL_YOU_SUFFIX.length);
+    return (
+      <>
+        <strong style={monitorStyles.strongText}>{base}</strong>
+        <span style={monitorStyles.snapshotLabelYouSuffix}> (you)</span>
+      </>
+    );
+  }
+  return <strong style={monitorStyles.strongText}>{label}</strong>;
+}
 
 function headGridStyle(visibleHeadCount: number): React.CSSProperties {
   return { ...monitorStyles.gridAuto, gridTemplateColumns: `repeat(${visibleHeadCount}, minmax(0, 1fr))` };

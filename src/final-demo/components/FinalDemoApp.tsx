@@ -406,8 +406,10 @@ async function fetchHeads(): Promise<HeadsResponse> {
   return r.json();
 }
 
-async function fetchHeadSnapshots(): Promise<HeadSnapshotsResponse> {
-  const r = await fetch("/api/state/snapshots", { cache: "no-store" });
+async function fetchHeadSnapshots(selfAddress?: string): Promise<HeadSnapshotsResponse> {
+  const self = selfAddress?.trim();
+  const q = self ? `?self=${encodeURIComponent(self)}` : "";
+  const r = await fetch(`/api/state/snapshots${q}`, { cache: "no-store" });
   if (!r.ok) {
     try {
       const err = await r.json() as ApiErrorEnvelope;
@@ -922,7 +924,7 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
   const [adminWorkflowPage, setAdminWorkflowPage] = useState(1);
   const [adminLotteryPrizeLovelace, setAdminLotteryPrizeLovelace] = useState("25000000");
   const [adminLotteryTicketCostLovelace, setAdminLotteryTicketCostLovelace] = useState("5000000");
-  const [adminLotteryCloseTimestampMs, setAdminLotteryCloseTimestampMs] = useState("");
+  const [adminLotteryCloseTimestampMs, setAdminLotteryCloseTimestampMs] = useState(String(new Date().getTime() + 5 * 60 * 1000));
   const [pendingLotteryReconcile, setPendingLotteryReconcile] = useState<PendingLotteryReconcileRecord | null>(null);
 
   // Gate Admin/Charlie pages when a password is configured server-side.
@@ -1002,6 +1004,16 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
     return null;
   })();
 
+  const snapshotSelfAddress = (() => {
+    const fromWallet = walletSession?.changeAddress?.trim();
+    if (fromWallet) return fromWallet;
+    if (view === "charlie" && address !== "no wallet connected") {
+      const a = address.trim();
+      if (a.startsWith("addr_")) return a;
+    }
+    return "";
+  })();
+
   const heads = useQuery({
     queryKey: ["heads"],
     queryFn: fetchHeads,
@@ -1014,8 +1026,8 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
     refetchIntervalInBackground: true,
   });
   const snapshots = useQuery({
-    queryKey: ["head-snapshots"],
-    queryFn: fetchHeadSnapshots,
+    queryKey: ["head-snapshots", snapshotSelfAddress],
+    queryFn: () => fetchHeadSnapshots(snapshotSelfAddress || undefined),
     enabled: true,
     retry: 1,
     refetchInterval: (q) => {
@@ -2014,15 +2026,9 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
                 <Label>Close timestamp (POSIX ms, optional)</Label>
                 <Input
                   value={adminLotteryCloseTimestampMs}
-                  onChange={(e) => setAdminLotteryCloseTimestampMs(e.target.value)}
+                  onChange={(e) => setAdminLotteryCloseTimestampMs(String(e.target.value))}
                   placeholder="empty = server default (now + 30 min, demo-friendly)"
                 />
-                <MutedText>
-                  On-chain rule: <strong>Pay random winner</strong> only works after this time plus ~5 minutes
-                  (<InlineCodeBlock>pay_winner.ts</InlineCodeBlock> / <InlineCodeBlock>lottery.ak</InlineCodeBlock>).
-                  Leave empty for a short demo window; set explicitly for a longer run. Production-style delay: set env{" "}
-                  <InlineCodeBlock>LOTTERY_DEFAULT_CLOSE_DELAY_MS</InlineCodeBlock> (ms)
-                </MutedText>
               </div>
             </div>
             <div className="border-t pt-3">

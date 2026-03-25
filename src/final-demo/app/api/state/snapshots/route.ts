@@ -103,10 +103,15 @@ function parseAssets(value: Record<string, unknown>): { lovelace: string; assets
   return { lovelace, assets };
 }
 
+function addressesEqual(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
 function resolveSnapshotLabel(
   address: string,
   assets: Array<{ unit: string; amount: string }>,
   labels: LabelContext,
+  ownWalletAddress: string | null,
 ): string {
   if (labels.ticketScriptAddress && address === labels.ticketScriptAddress) {
     return "lottery_ticket";
@@ -115,7 +120,13 @@ function resolveSnapshotLabel(
     const hasActiveAsset = assets.some((asset) => asset.unit === labels.activeLottery?.assetUnit && asset.amount !== "0");
     return hasActiveAsset ? "lottery" : "lottery_script";
   }
-  return labels.addressLabels.get(address) ?? (address.startsWith("addr_test1w") ? "script_unknown" : "some_user");
+  const known = labels.addressLabels.get(address);
+  if (known) return known;
+  if (address.startsWith("addr_test1w")) return "script_unknown";
+  if (ownWalletAddress && addressesEqual(address, ownWalletAddress)) {
+    return "some_user (you)";
+  }
+  return "some_user";
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -233,7 +244,11 @@ function decorateLotteryInlineDatum(inlineDatum: unknown): unknown {
   return inlineDatum;
 }
 
-async function fetchHeadSnapshot(head: HydraHead, labels: LabelContext): Promise<HeadSnapshot> {
+async function fetchHeadSnapshot(
+  head: HydraHead,
+  labels: LabelContext,
+  ownWalletAddress: string | null,
+): Promise<HeadSnapshot> {
   const nowIso = new Date().toISOString();
   const statusProbe = await fetchHydraHeadStatus(head);
   const status = statusProbe.ok ? statusProbe.status : "unreachable";
@@ -270,7 +285,7 @@ async function fetchHeadSnapshot(head: HydraHead, labels: LabelContext): Promise
     const utxos = Object.entries(snapshot).map(([ref, output]) => {
       const address = String(output?.address ?? "");
       const parsed = parseAssets((output?.value ?? {}) as Record<string, unknown>);
-      const label = resolveSnapshotLabel(address, parsed.assets, labels);
+      const label = resolveSnapshotLabel(address, parsed.assets, labels, ownWalletAddress);
       return {
         ref,
         address,
@@ -294,12 +309,14 @@ async function fetchHeadSnapshot(head: HydraHead, labels: LabelContext): Promise
   }
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  const url = new URL(req.url);
+  const ownWalletAddress = url.searchParams.get("self")?.trim() || null;
   const labels = await getLabelContext();
   const [headA, headB, headC] = await Promise.all([
-    fetchHeadSnapshot("headA", labels),
-    fetchHeadSnapshot("headB", labels),
-    fetchHeadSnapshot("headC", labels),
+    fetchHeadSnapshot("headA", labels, ownWalletAddress),
+    fetchHeadSnapshot("headB", labels, ownWalletAddress),
+    fetchHeadSnapshot("headC", labels, ownWalletAddress),
   ]);
   return NextResponse.json({
     updatedAt: new Date().toISOString(),
