@@ -8,8 +8,6 @@ runtime/*
 !runtime/.gitkeep
 credentials/*
 !credentials/.gitkeep
-config/*
-!config/.gitkeep
 testnet/*
 !testnet/.gitkeep
 startup_time.txt

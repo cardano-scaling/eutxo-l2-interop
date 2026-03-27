@@ -49,6 +49,12 @@ import {
 import { ConnectWallet } from "@newm.io/cardano-dapp-wallet-connector";
 import { roleHeaders, type FinalDemoRole } from "@/lib/auth/role-guard";
 import {
+  isRequestFundsAmountAllowed,
+  parseRequestFundsLovelaceString,
+  requestFundsDefaultLovelaceString,
+  requestFundsMaxLovelaceString,
+} from "@/lib/request-funds-amount";
+import {
   HeadMonitoringSection,
   WorkflowTimelineSection,
 } from "@/components/final-demo/monitoring-sections";
@@ -651,7 +657,6 @@ const BUY_TICKET_INTENT_STORAGE_KEY = "final-demo.buy-ticket-intents.v1";
 const HTLC_PAIRS_STORAGE_KEY = "final-demo.htlc-pairs.v1";
 const LOTTERY_RECONCILE_STORAGE_KEY = "final-demo.admin.lottery-reconcile.v1";
 const HTLC_PAIRS_MAX = 10;
-const REQUEST_FUNDS_FIXED_LOVELACE = "20000000";
 
 type RequestFundsIntentRecord = {
   idempotencyKey: string;
@@ -663,11 +668,11 @@ type RequestFundsIntentStore = Record<string, RequestFundsIntentRecord>;
 type BuyTicketIntentStore = Record<string, RequestFundsIntentRecord>;
 type HtlcPairRecord = { preimage: string; htlcHash: string; createdAtMs: number };
 
-function requestFundsPayloadFingerprint(actor: string, address: string): string {
+function requestFundsPayloadFingerprint(actor: string, address: string, amountLovelace: string): string {
   return JSON.stringify({
     actor: actor.trim().toLowerCase(),
     address: address.trim(),
-    amountLovelace: REQUEST_FUNDS_FIXED_LOVELACE,
+    amountLovelace: amountLovelace.trim(),
   });
 }
 
@@ -692,9 +697,9 @@ function saveRequestFundsIntentStore(store: RequestFundsIntentStore) {
   window.localStorage.setItem(REQUEST_FUNDS_INTENT_STORAGE_KEY, JSON.stringify(store));
 }
 
-function getOrCreateRequestFundsIdempotencyKey(actor: string, address: string) {
+function getOrCreateRequestFundsIdempotencyKey(actor: string, address: string, amountLovelace: string) {
   const nowMs = Date.now();
-  const fingerprint = requestFundsPayloadFingerprint(actor, address);
+  const fingerprint = requestFundsPayloadFingerprint(actor, address, amountLovelace);
   const store = loadRequestFundsIntentStore(nowMs);
   const existing = store[fingerprint];
   if (existing) {
@@ -706,9 +711,9 @@ function getOrCreateRequestFundsIdempotencyKey(actor: string, address: string) {
   return { fingerprint, idempotencyKey };
 }
 
-function rotateRequestFundsIdempotencyKey(actor: string, address: string) {
+function rotateRequestFundsIdempotencyKey(actor: string, address: string, amountLovelace: string) {
   const nowMs = Date.now();
-  const fingerprint = requestFundsPayloadFingerprint(actor, address);
+  const fingerprint = requestFundsPayloadFingerprint(actor, address, amountLovelace);
   const store = loadRequestFundsIntentStore(nowMs);
   const idempotencyKey = `${actor}:${newBusinessId()}`;
   store[fingerprint] = { idempotencyKey, createdAtMs: nowMs };
@@ -909,6 +914,9 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
   const [walletConnectorError, setWalletConnectorError] = useState<string | null>(null);
   const actionActor = walletSession?.actor ?? defaultActor;
   const [address, setAddress] = useState("no wallet connected");
+  const [requestFundsAmountLovelace, setRequestFundsAmountLovelace] = useState(() =>
+    requestFundsDefaultLovelaceString(),
+  );
   const [requestFundsIdempotencyKey, setRequestFundsIdempotencyKey] = useState(() => newBusinessId());
   const [buyTicketIdempotencyKey, setBuyTicketIdempotencyKey] = useState(() => newBuyTicketIntentId());
   const [htlcHash, setHtlcHash] = useState("aabbccddeeff00112233445566778899");
@@ -1183,9 +1191,9 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
     window.history.replaceState(null, "", url);
   }, [workflowId]);
   useEffect(() => {
-    const intent = getOrCreateRequestFundsIdempotencyKey(actionActor, address);
+    const intent = getOrCreateRequestFundsIdempotencyKey(actionActor, address, requestFundsAmountLovelace);
     setRequestFundsIdempotencyKey(intent.idempotencyKey);
-  }, [actionActor, address]);
+  }, [actionActor, address, requestFundsAmountLovelace]);
   useEffect(() => {
     const intent = getOrCreateBuyTicketIdempotencyKey(
       actionActor,
@@ -1207,11 +1215,22 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
         }
         const actor = actionActor;
         const walletAddress = walletSession.changeAddress;
-        const intent = getOrCreateRequestFundsIdempotencyKey(actor, walletAddress);
-        return prepareRequestFundsTx({ address: walletAddress })
+        const amount = parseRequestFundsLovelaceString(requestFundsAmountLovelace);
+        if (amount === null || !isRequestFundsAmountAllowed(amount)) {
+          throw new Error(
+            `Enter a valid amount in lovelace (1–${requestFundsMaxLovelaceString()}, i.e. up to 10 ADA).`,
+          );
+        }
+        const amountStr = amount.toString();
+        const intent = getOrCreateRequestFundsIdempotencyKey(actor, walletAddress, amountStr);
+        return prepareRequestFundsTx({ address: walletAddress, amountLovelace: amountStr })
           .then((draft) => signTxWithConnectedWallet(walletSession, draft.unsignedTxCborHex, true)
             .then((witnessHex) => ({ draft, witnessHex })))
-          .then(({ draft, witnessHex }) => submitRequestFundsTx({ unsignedTxCborHex: draft.unsignedTxCborHex, witnessHex }))
+          .then(({ draft, witnessHex }) => submitRequestFundsTx({
+            unsignedTxCborHex: draft.unsignedTxCborHex,
+            witnessHex,
+            amountLovelace: draft.amountLovelace,
+          }))
           .then((submitted) => createWorkflow("/api/workflows/request-funds", {
             actor,
             idempotencyKey: intent.idempotencyKey,
@@ -1444,9 +1463,11 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
     if (!data || data.type !== "request_funds") return;
     if (data.status !== "succeeded" && data.status !== "cancelled") return;
     if (clearRequestFundsIntentByWorkflowId(data.id)) {
-      setRequestFundsIdempotencyKey(rotateRequestFundsIdempotencyKey(actionActor, address));
+      setRequestFundsIdempotencyKey(
+        rotateRequestFundsIdempotencyKey(actionActor, address, requestFundsAmountLovelace),
+      );
     }
-  }, [actionActor, address, workflow.data]);
+  }, [actionActor, address, requestFundsAmountLovelace, workflow.data]);
   useEffect(() => {
     const data = workflow.data;
     if (!data || data.type !== "buy_ticket") return;
@@ -1630,7 +1651,7 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
               <CardHeader>
                 <CardTitle>Request Funds</CardTitle>
                 <CardDescription>
-                  Fixed transfer from Ida to connected user address on Head A.
+                  Transfer from Alice on Head A to your connected address (amount you choose, up to 10 ADA).
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -1645,8 +1666,15 @@ function FinalDemoInner({ view }: { view: FinalDemoView }) {
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label>Request funds amount (in lovelace)</Label>
-                      <Input value={REQUEST_FUNDS_FIXED_LOVELACE} readOnly disabled />
+                      <Label>Amount (lovelace, max {requestFundsMaxLovelaceString()} = 10 ADA)</Label>
+                      <Input
+                        inputMode="numeric"
+                        value={requestFundsAmountLovelace}
+                        onChange={(e) => {
+                          const next = e.target.value.replace(/\D/g, "");
+                          setRequestFundsAmountLovelace(next);
+                        }}
+                      />
                     </div>
                   </div>
                   <Button type="button" onClick={() => requestFunds.mutate()} disabled={requestFundsBusy || Boolean(requestFundsDisabledReason)}>

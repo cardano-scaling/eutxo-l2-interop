@@ -11,8 +11,7 @@ import {
   validateRequestFundsActor,
 } from "@/lib/interaction-policy";
 import { createWorkflow, findWorkflowByIdempotency } from "@/lib/workflows";
-
-const MAX_AMOUNT_LOVELACE = 50_000_000n;
+import { REQUEST_FUNDS_MAX_LOVELACE } from "@/lib/request-funds-amount";
 
 const schema = z.object({
   actor: z.string().min(1),
@@ -45,7 +44,7 @@ export async function POST(req: Request) {
   }
 
   const amount = BigInt(parsed.data.amountLovelace);
-  if (amount <= 0n || amount > MAX_AMOUNT_LOVELACE) {
+  if (amount <= 0n || amount > REQUEST_FUNDS_MAX_LOVELACE) {
     logger.warn({ requestId, amountLovelace: parsed.data.amountLovelace }, "request-funds invalid amount");
     return apiError(
       400,

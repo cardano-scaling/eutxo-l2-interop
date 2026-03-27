@@ -1,4 +1,5 @@
 import { fetchHydraSnapshot, isRealHydraMode } from "@/lib/hydra-client";
+import { isRequestFundsAmountAllowed, parseRequestFundsLovelaceString } from "@/lib/request-funds-amount";
 
 export interface RequestFundsPayload {
   address: string;
@@ -19,7 +20,6 @@ export interface RequestFundsResult {
 }
 
 type FailureMode = "none" | "retryable_once" | "retryable_always" | "non_retryable";
-const REQUEST_FUNDS_FIXED_LOVELACE = "20000000";
 
 export class RequestFundsError extends Error {
   code: string;
@@ -47,9 +47,13 @@ function getFailureMode(): FailureMode {
 }
 
 function validatePayload(payload: RequestFundsPayload) {
-  const amount = BigInt(payload.amountLovelace);
-  if (amount <= 0n) {
-    throw new RequestFundsError("REQUEST_FUNDS_INVALID_INPUT", "amountLovelace must be positive", false);
+  const amount = parseRequestFundsLovelaceString(payload.amountLovelace);
+  if (amount === null || !isRequestFundsAmountAllowed(amount)) {
+    throw new RequestFundsError(
+      "REQUEST_FUNDS_INVALID_INPUT",
+      "amountLovelace must be a positive numeric string within the request-funds cap",
+      false,
+    );
   }
 }
 
@@ -75,7 +79,7 @@ export async function requestFunds(payload: RequestFundsPayload, ctx: RequestFun
     return {
       txHash: mockTxHash("fund"),
       head: "A",
-      amountLovelace: REQUEST_FUNDS_FIXED_LOVELACE,
+      amountLovelace: payload.amountLovelace.trim(),
     };
   }
 
@@ -92,7 +96,7 @@ export async function requestFunds(payload: RequestFundsPayload, ctx: RequestFun
     return {
       txHash: payload.submittedTxHash,
       head: "A",
-      amountLovelace: REQUEST_FUNDS_FIXED_LOVELACE,
+      amountLovelace: payload.amountLovelace.trim(),
     };
   } catch (error) {
     if (error instanceof RequestFundsError) {

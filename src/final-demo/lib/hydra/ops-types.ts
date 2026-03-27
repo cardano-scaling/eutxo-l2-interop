@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { REQUEST_FUNDS_MAX_LOVELACE } from "@/lib/request-funds-amount";
 
 export const desiredOutputSchema = z.object({
   address: z.string().min(8),
@@ -29,8 +30,21 @@ export const submitBuyTicketSchema = z.object({
 
 export type SubmitBuyTicketInput = z.infer<typeof submitBuyTicketSchema>;
 
+const requestFundsAmountField = z
+  .string()
+  .regex(/^\d+$/)
+  .refine((s) => {
+    try {
+      const n = BigInt(s);
+      return n > 0n && n <= REQUEST_FUNDS_MAX_LOVELACE;
+    } catch {
+      return false;
+    }
+  }, "amountLovelace must be between 1 and max (inclusive)");
+
 export const prepareRequestFundsSchema = z.object({
   address: z.string().min(8),
+  amountLovelace: requestFundsAmountField,
 });
 
 export type PrepareRequestFundsInput = z.infer<typeof prepareRequestFundsSchema>;
@@ -38,6 +52,7 @@ export type PrepareRequestFundsInput = z.infer<typeof prepareRequestFundsSchema>
 export const submitRequestFundsSchema = z.object({
   unsignedTxCborHex: z.string().regex(/^[0-9a-fA-F]+$/),
   witnessHex: z.string().regex(/^[0-9a-fA-F]+$/),
+  amountLovelace: requestFundsAmountField,
 });
 
 export type SubmitRequestFundsInput = z.infer<typeof submitRequestFundsSchema>;

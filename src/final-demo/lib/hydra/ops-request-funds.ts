@@ -6,8 +6,7 @@ import { hexAddressToBech32 } from "./ops-address";
 import { lucidNetworkName } from "./network";
 import { ensureHydraSlotConfig } from "./slot-config";
 import { credentialsPath } from "@/lib/runtime-paths";
-
-const REQUEST_FUNDS_FIXED_LOVELACE = 20_000_000n;
+import { isRequestFundsAmountAllowed, parseRequestFundsLovelaceString } from "@/lib/request-funds-amount";
 
 function getHeadAApiUrl(): string {
   const value = process.env.HYDRA_HEAD_A_API_URL;
@@ -36,11 +35,20 @@ function paymentKeyHashFromAddress(addressBech32: string): string {
   const paymentCredential = details.paymentCredential;
   if (!paymentCredential || paymentCredential.type !== "Key") {
     throw new Error("request_funds recipient must use a key payment credential address");
-  }lucidNetworkName
+  }
   return paymentCredential.hash;
 }
 
-export async function prepareRequestFundsDraft(input: { address: string }) {
+function lovelaceAmountFromInput(amountLovelace: string): bigint {
+  const amount = parseRequestFundsLovelaceString(amountLovelace);
+  if (amount === null || !isRequestFundsAmountAllowed(amount)) {
+    throw new Error("request_funds amountLovelace must be a positive amount within the cap");
+  }
+  return amount;
+}
+
+export async function prepareRequestFundsDraft(input: { address: string; amountLovelace: string }) {
+  const lovelace = lovelaceAmountFromInput(input.amountLovelace);
   const recipientAddress = normalizeAddressToBech32(input.address);
   const recipientPaymentKeyHash = paymentKeyHashFromAddress(recipientAddress);
   const handler = new HydraOpsHandler(getHeadAApiUrl());
@@ -50,7 +58,7 @@ export async function prepareRequestFundsDraft(input: { address: string }) {
 
   const txBuilder = await lucid
     .newTx()
-    .pay.ToAddress(recipientAddress, { lovelace: REQUEST_FUNDS_FIXED_LOVELACE })
+    .pay.ToAddress(recipientAddress, { lovelace })
     .addSignerKey(recipientPaymentKeyHash)
     .complete();
 
@@ -58,11 +66,16 @@ export async function prepareRequestFundsDraft(input: { address: string }) {
   return {
     unsignedTxCborHex,
     txBodyHash: txBuilder.toHash(),
-    amountLovelace: REQUEST_FUNDS_FIXED_LOVELACE.toString(),
+    amountLovelace: lovelace.toString(),
   };
 }
 
-export async function submitRequestFundsDraft(input: { unsignedTxCborHex: string; witnessHex: string }) {
+export async function submitRequestFundsDraft(input: {
+  unsignedTxCborHex: string;
+  witnessHex: string;
+  amountLovelace: string;
+}) {
+  const lovelace = lovelaceAmountFromInput(input.amountLovelace);
   const handler = new HydraOpsHandler(getHeadAApiUrl());
   ensureHydraSlotConfig();
   const lucid = await Lucid(new HydraOpsProvider(handler), lucidNetworkName());
@@ -76,7 +89,7 @@ export async function submitRequestFundsDraft(input: { unsignedTxCborHex: string
   const txHash = txHashFromCbor(signedTxCborHex);
   return {
     txHash,
-    amountLovelace: REQUEST_FUNDS_FIXED_LOVELACE.toString(),
+    amountLovelace: lovelace.toString(),
   };
 }
 
