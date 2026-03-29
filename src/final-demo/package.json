@@ -10,7 +10,7 @@
     "worker": "tsx watch worker.ts",
     "worker:prod": "tsx worker.ts",
     "hydra:open-heads": "tsx scripts/hydra-open-heads.ts",
-    "hydra:open-heads:node": "tsx scripts/hydra-open-heads.ts",
+    "hydra:open-heads:node": "tsx scripts/hydra-open-heads.ts --open-heads-ab",
     "hydra:open-head-a:node": "tsx scripts/hydra-open-heads.ts --open-head-a",
     "hydra:open-head-b:node": "tsx scripts/hydra-open-heads.ts --open-head-b",
     "hydra:commit-head-c-admin:node": "tsx scripts/hydra-open-heads.ts --commit-head-c-admin",

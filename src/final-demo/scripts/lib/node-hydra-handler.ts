@@ -43,6 +43,8 @@ export class HydraHandler {
   private greetingsPromise: Promise<GreetingsMessage>;
   private resolveGreetings!: (msg: GreetingsMessage) => void;
   private headStatus: HeadStatus = "Idle";
+  private lastError: unknown = null;
+  private subscribers: Array<(data: any) => void> = [];
 
   constructor(url: string) {
     const wsURL = new URL(url);
@@ -57,11 +59,23 @@ export class HydraHandler {
     this.connection.on("close", () => {
       this.isReady = false;
     });
+    // Prevent unhandled websocket errors (e.g. DNS ENOTFOUND when a service is stopped).
+    this.connection.on("error", (error: unknown) => {
+      this.lastError = error;
+      this.isReady = false;
+    });
     this.connection.on("message", (raw: unknown) => {
       const data = JSON.parse(String(raw));
       this.updateStatus(data);
       if (data.tag === "Greetings") {
         this.resolveGreetings(data as GreetingsMessage);
+      }
+      for (const sub of this.subscribers) {
+        try {
+          sub(data);
+        } catch {
+          // subscriber errors must not crash the handler
+        }
       }
     });
   }
@@ -69,7 +83,9 @@ export class HydraHandler {
   private updateStatus(data: { tag?: string; headStatus?: HeadStatus }): void {
     switch (data.tag) {
       case "Greetings":
-        this.headStatus = data.headStatus ?? "Idle";
+        // Hydra nodes sometimes report "Initializing" via Greetings (string), while other events use HeadIsInitializing.
+        // Normalize to our internal "Initial" spelling to keep status-based logic consistent.
+        this.headStatus = (data.headStatus === ("Initializing" as any) ? "Initial" : data.headStatus) ?? "Idle";
         break;
       case "HeadIsInitializing":
         this.headStatus = "Initial";
@@ -91,6 +107,9 @@ export class HydraHandler {
 
   private async ensureReady(): Promise<void> {
     if (this.isReady) return;
+    if (this.lastError) {
+      throw this.lastError instanceof Error ? this.lastError : new Error(String(this.lastError));
+    }
     if (this.connection.readyState === NodeWebSocket.CLOSED || this.connection.readyState === NodeWebSocket.CLOSING) {
       throw new Error("WebSocket is not open");
     }
@@ -103,6 +122,7 @@ export class HydraHandler {
       });
       this.connection.once("error", (error: unknown) => {
         clearTimeout(timeout);
+        this.lastError = error;
         reject(error);
       });
     });
@@ -110,7 +130,11 @@ export class HydraHandler {
 
   async getHeadStatus(): Promise<HeadStatus> {
     await this.ensureReady();
-    await this.greetingsPromise;
+    // Greetings may never arrive when the node is down/unresolvable; bound it to avoid hanging.
+    await Promise.race([
+      this.greetingsPromise,
+      new Promise<void>((_, reject) => setTimeout(() => reject(new Error("Timeout waiting for Greetings")), 5_000)),
+    ]);
     return this.headStatus;
   }
 
@@ -132,6 +156,18 @@ export class HydraHandler {
       };
       this.connection.on("message", handler);
     });
+  }
+
+  /**
+   * Subscribe to all incoming websocket messages for this connection.
+   * Returns an unsubscribe function.
+   */
+  subscribe(handler: (data: any) => void): () => void {
+    this.subscribers.push(handler);
+    return () => {
+      const idx = this.subscribers.indexOf(handler);
+      if (idx >= 0) this.subscribers.splice(idx, 1);
+    };
   }
 
   async initIfNeeded(): Promise<HeadStatus> {

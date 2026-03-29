@@ -1,5 +1,5 @@
 x-hydra-node-base: &hydra-node-base
-  image: ghcr.io/cardano-scaling/hydra-node:1.0.0
+  image: ghcr.io/cardano-scaling/hydra-node:1.2.0
   networks:
     hydra_net:
   restart: always
@@ -65,6 +65,7 @@ services:
       HYDRA_OPERATION_TIMEOUT_MS: ${HYDRA_OPERATION_TIMEOUT_MS:-20000}
       HYDRA_HEAD_A_API_URL: ${HYDRA_HEAD_A_API_URL:-http://hydra-node-ida-1-lt:4319}
       HYDRA_HEAD_B_API_URL: ${HYDRA_HEAD_B_API_URL:-http://hydra-node-ida-2-lt:4329}
+      HYDRA_HEAD_B_BOB_API_URL: ${HYDRA_HEAD_B_BOB_API_URL:-http://hydra-node-bob-lt:4322}
       HYDRA_HEAD_B_JON_API_URL: ${HYDRA_HEAD_B_JON_API_URL:-http://hydra-node-jon-lt:4328}
       HYDRA_HEAD_C_API_URL: ${HYDRA_HEAD_C_API_URL:-http://hydra-node-ida-3-lt:4339}
       HYDRA_OPS_DRAFT_TTL_MS: ${HYDRA_OPS_DRAFT_TTL_MS:-300000}
@@ -100,6 +101,7 @@ services:
       HYDRA_OPERATION_TIMEOUT_MS: ${HYDRA_OPERATION_TIMEOUT_MS:-20000}
       HYDRA_HEAD_A_API_URL: ${HYDRA_HEAD_A_API_URL:-http://hydra-node-ida-1-lt:4319}
       HYDRA_HEAD_B_API_URL: ${HYDRA_HEAD_B_API_URL:-http://hydra-node-ida-2-lt:4329}
+      HYDRA_HEAD_B_BOB_API_URL: ${HYDRA_HEAD_B_BOB_API_URL:-http://hydra-node-bob-lt:4322}
       HYDRA_HEAD_B_JON_API_URL: ${HYDRA_HEAD_B_JON_API_URL:-http://hydra-node-jon-lt:4328}
       HYDRA_HEAD_C_API_URL: ${HYDRA_HEAD_C_API_URL:-http://hydra-node-ida-3-lt:4339}
       HYDRA_OPS_DRAFT_TTL_MS: ${HYDRA_OPS_DRAFT_TTL_MS:-300000}
@@ -181,7 +183,7 @@ services:
 
   hydra-scripts-publisher:
     profiles: ["full"]
-    image: ghcr.io/cardano-scaling/hydra-node:1.0.0
+    image: ghcr.io/cardano-scaling/hydra-node:1.2.0
     volumes:
       - shared-config:/shared
       - ./credentials:/devnet/credentials:ro
