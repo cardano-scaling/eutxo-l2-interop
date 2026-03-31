@@ -1,0 +1,522 @@
+x-hydra-node-base: &hydra-node-base
+  image: ghcr.io/cardano-scaling/hydra-node:1.2.0
+  networks:
+    hydra_net:
+  restart: always
+
+volumes:
+  cardano-node-data:
+  shared-config:
+  final_demo_pg:
+  final_demo_next_cache:
+
+services:
+  postgres:
+    profiles: ["dev", "full"]
+    image: postgres:16
+    container_name: final-demo-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: final_demo
+    ports:
+      - "5434:5432"
+    volumes:
+      - final_demo_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d final_demo"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+
+  init:
+    profiles: ["dev", "full"]
+    image: node:20
+    container_name: final-demo-init
+    depends_on:
+      postgres:
+        condition: service_healthy
+    working_dir: /workspace/src/final-demo
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/final_demo?schema=public
+      NPM_CONFIG_LEGACY_PEER_DEPS: "true"
+    command: sh -c "npm install --legacy-peer-deps && npm run prisma:push && npm run prisma:generate"
+    volumes:
+      - ./:/workspace/src/final-demo
+
+  app:
+    profiles: ["full"]
+    image: node:20
+    container_name: final-demo-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      init:
+        condition: service_completed_successfully
+    working_dir: /workspace/src/final-demo
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/final_demo?schema=public
+      FINAL_DEMO_ADMIN_PASSWORD: ${FINAL_DEMO_ADMIN_PASSWORD:-}
+      FINAL_DEMO_CHARLIE_PASSWORD: ${FINAL_DEMO_CHARLIE_PASSWORD:-}
+      WORKER_POLL_MS: 2000
+      REQUEST_FUNDS_MOCK_FAILURE_MODE: ${REQUEST_FUNDS_MOCK_FAILURE_MODE:-none}
+      BUY_TICKET_MOCK_FAILURE_MODE: ${BUY_TICKET_MOCK_FAILURE_MODE:-none}
+      HYDRA_ADAPTER_MODE: ${HYDRA_ADAPTER_MODE:-real}
+      HYDRA_OPERATION_TIMEOUT_MS: ${HYDRA_OPERATION_TIMEOUT_MS:-20000}
+      HYDRA_HEAD_A_API_URL: ${HYDRA_HEAD_A_API_URL:-http://hydra-node-ida-1-lt:4319}
+      HYDRA_HEAD_B_API_URL: ${HYDRA_HEAD_B_API_URL:-http://hydra-node-ida-2-lt:4329}
+      HYDRA_HEAD_B_BOB_API_URL: ${HYDRA_HEAD_B_BOB_API_URL:-http://hydra-node-bob-lt:4322}
+      HYDRA_HEAD_B_JON_API_URL: ${HYDRA_HEAD_B_JON_API_URL:-http://hydra-node-jon-lt:4328}
+      HYDRA_HEAD_C_API_URL: ${HYDRA_HEAD_C_API_URL:-http://hydra-node-ida-3-lt:4339}
+      HYDRA_OPS_DRAFT_TTL_MS: ${HYDRA_OPS_DRAFT_TTL_MS:-300000}
+      NPM_CONFIG_LEGACY_PEER_DEPS: "true"
+    command: sh -c "npm run dev"
+    volumes:
+      - ./:/workspace/src/final-demo
+      - final_demo_next_cache:/workspace/src/final-demo/.next
+    ports:
+      - "3000:3000"
+    networks:
+      - default
+      - hydra_net
+
+  worker:
+    profiles: ["dev", "full"]
+    image: node:20
+    container_name: final-demo-worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      init:
+        condition: service_completed_successfully
+    working_dir: /workspace/src/final-demo
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/final_demo?schema=public
+      FINAL_DEMO_ADMIN_PASSWORD: ${FINAL_DEMO_ADMIN_PASSWORD:-}
+      FINAL_DEMO_CHARLIE_PASSWORD: ${FINAL_DEMO_CHARLIE_PASSWORD:-}
+      WORKER_POLL_MS: 2000
+      REQUEST_FUNDS_MOCK_FAILURE_MODE: ${REQUEST_FUNDS_MOCK_FAILURE_MODE:-none}
+      BUY_TICKET_MOCK_FAILURE_MODE: ${BUY_TICKET_MOCK_FAILURE_MODE:-none}
+      HYDRA_ADAPTER_MODE: ${HYDRA_ADAPTER_MODE:-real}
+      HYDRA_OPERATION_TIMEOUT_MS: ${HYDRA_OPERATION_TIMEOUT_MS:-20000}
+      HYDRA_HEAD_A_API_URL: ${HYDRA_HEAD_A_API_URL:-http://hydra-node-ida-1-lt:4319}
+      HYDRA_HEAD_B_API_URL: ${HYDRA_HEAD_B_API_URL:-http://hydra-node-ida-2-lt:4329}
+      HYDRA_HEAD_B_BOB_API_URL: ${HYDRA_HEAD_B_BOB_API_URL:-http://hydra-node-bob-lt:4322}
+      HYDRA_HEAD_B_JON_API_URL: ${HYDRA_HEAD_B_JON_API_URL:-http://hydra-node-jon-lt:4328}
+      HYDRA_HEAD_C_API_URL: ${HYDRA_HEAD_C_API_URL:-http://hydra-node-ida-3-lt:4339}
+      HYDRA_OPS_DRAFT_TTL_MS: ${HYDRA_OPS_DRAFT_TTL_MS:-300000}
+      NPM_CONFIG_LEGACY_PEER_DEPS: "true"
+    command: sh -c "npm run worker"
+    volumes:
+      - ./:/workspace/src/final-demo
+    networks:
+      - default
+      - hydra_net
+
+  cardano-node:
+    profiles: ["full"]
+    image: ghcr.io/intersectmbo/cardano-node:10.1.4
+    platform: linux/amd64
+    volumes:
+      - cardano-node-data:/data
+      - shared-config:/shared
+      - ./testnet:/testnet
+      - ./testnet/cardano-private-testnet-config/busybox:/busybox
+      - ./entrypoint.sh:/entrypoint.sh
+      - ./testnet/cardano-private-testnet-config/cardano/topology-pool1.json:/shared/node-1-topology.json
+      - ./testnet/cardano-private-testnet-config/cardano/config-pool1.json:/shared/node-1-config.json.base
+      - ./testnet/cardano-private-testnet-config/cardano/keys:/keys
+      - ./testnet/cardano-private-testnet-config/genesis/byron/genesis.json:/shared/byron/genesis.json.base
+      - ./testnet/cardano-private-testnet-config/genesis/shelley/genesis.json:/shared/shelley/genesis.json.base
+      - ./testnet/cardano-private-testnet-config/genesis/shelley/genesis.alonzo.json:/shared/shelley/genesis.alonzo.json.base
+      - ./testnet/cardano-private-testnet-config/genesis/shelley/genesis-utxo.addr:/shared/shelley/genesis-utxo.addr
+      - ./testnet/cardano-private-testnet-config/genesis/shelley/genesis-utxo.skey:/shared/shelley/genesis-utxo.skey
+      - ./testnet/cardano-private-testnet-config/genesis/shelley/genesis-utxo.vkey:/shared/shelley/genesis-utxo.vkey
+      - ./testnet/cardano-private-testnet-config/genesis/conway/genesis.conway.json:/shared/conway/genesis.conway.json.base
+      - ./cardano-query-api.sh:/cardano-query-api.sh
+      - ./credentials:/devnet/credentials:ro
+      - ./config/protocol-parameters.json:/devnet/protocol-parameters.json:ro
+      - ./persistence:/devnet/persistence
+    environment:
+      - CARDANO_NODE_SOCKET_PATH=/data/node.socket
+    entrypoint: ["/bin/bash", "/entrypoint.sh"]
+    ports:
+      - "32000:32000"
+      - "1442:1442"
+    networks:
+      hydra_net:
+        ipv4_address: 172.16.233.100
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /shared/cardano.ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 60s
+
+  cardano-submit-api:
+    profiles: ["full"]
+    image: ghcr.io/intersectmbo/cardano-submit-api:10.1.4
+    volumes:
+      - cardano-node-data:/data:ro
+      - shared-config:/shared:ro
+    environment:
+      - CARDANO_NODE_SOCKET_PATH=/data/node.socket
+    command:
+      - --socket-path
+      - /data/node.socket
+      - --listen-address
+      - "0.0.0.0"
+      - --port
+      - "8090"
+      - --config
+      - /shared/node-1-config.json
+      - --testnet-magic
+      - "42"
+    ports:
+      - "8090:8090"
+    networks:
+      hydra_net:
+        ipv4_address: 172.16.233.101
+    depends_on:
+      cardano-node:
+        condition: service_healthy
+
+  hydra-scripts-publisher:
+    profiles: ["full"]
+    image: ghcr.io/cardano-scaling/hydra-node:1.2.0
+    volumes:
+      - shared-config:/shared
+      - ./credentials:/devnet/credentials:ro
+      - ./persistence:/devnet/persistence
+      - ./hydra-scripts-publisher-entrypoint.sh:/hydra-scripts-publisher-entrypoint.sh
+      - cardano-node-data:/data:ro
+    entrypoint: ["/bin/sh", "/hydra-scripts-publisher-entrypoint.sh"]
+    networks:
+      hydra_net:
+    depends_on:
+      cardano-node:
+        condition: service_healthy
+
+  # Lottery topology (from src/infra/docker-compose.lottery.yaml)
+  # Head A: ida-1 + alice
+  hydra-node-alice-lt:
+    <<: *hydra-node-base
+    profiles: ["full"]
+    volumes:
+      - ./credentials:/devnet/credentials:ro
+      - ./config/protocol-parameters.json:/devnet/protocol-parameters.json:ro
+      - ./persistence/alice-lt:/devnet/persistence/alice-lt
+      - shared-config:/shared
+      - cardano-node-data:/data:ro
+    ports:
+      - "4311:4311"
+      - "5311:5311"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        HYDRA_SCRIPTS_TX_ID=$$(cat /shared/hydra-scripts-tx-id.txt | tr -d '\n\r')
+        HYDRA_NODE_PATH=$$(find /nix/store -name "hydra-node" -type f 2>/dev/null | head -1)
+        exec $$HYDRA_NODE_PATH \
+          --node-id 1 \
+          --api-host 0.0.0.0 \
+          --listen 172.16.233.11:5311 \
+          --monitoring-port 6311 \
+          --api-port 4311 \
+          --peer 172.16.233.19:5319 \
+          --hydra-signing-key /devnet/credentials/alice/alice-hydra.sk \
+          --hydra-verification-key /devnet/credentials/ida/ida-hydra.vk \
+          --cardano-signing-key /devnet/credentials/alice/alice-funds.sk \
+          --cardano-verification-key /devnet/credentials/ida/ida-funds.vk \
+          --persistence-dir /devnet/persistence/alice-lt \
+          --node-socket /data/node.socket \
+          --testnet-magic 42 \
+          --hydra-scripts-tx-id "$$HYDRA_SCRIPTS_TX_ID" \
+          --contestation-period 5s \
+          --ledger-protocol-parameters /devnet/protocol-parameters.json
+    networks:
+      hydra_net:
+        ipv4_address: 172.16.233.11
+    depends_on:
+      hydra-scripts-publisher:
+        condition: service_completed_successfully
+
+  hydra-node-ida-1-lt:
+    <<: *hydra-node-base
+    profiles: ["full"]
+    volumes:
+      - ./credentials:/devnet/credentials:ro
+      - ./config/protocol-parameters.json:/devnet/protocol-parameters.json:ro
+      - ./persistence/ida-1-lt:/devnet/persistence/ida-1-lt
+      - shared-config:/shared
+      - cardano-node-data:/data:ro
+    ports:
+      - "4319:4319"
+      - "5319:5319"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        HYDRA_SCRIPTS_TX_ID=$$(cat /shared/hydra-scripts-tx-id.txt | tr -d '\n\r')
+        HYDRA_NODE_PATH=$$(find /nix/store -name "hydra-node" -type f 2>/dev/null | head -1)
+        exec $$HYDRA_NODE_PATH \
+          --node-id 2 \
+          --api-host 0.0.0.0 \
+          --listen 172.16.233.19:5319 \
+          --monitoring-port 6319 \
+          --api-port 4319 \
+          --peer 172.16.233.11:5311 \
+          --hydra-signing-key /devnet/credentials/ida/ida-hydra.sk \
+          --hydra-verification-key /devnet/credentials/alice/alice-hydra.vk \
+          --cardano-signing-key /devnet/credentials/ida/ida-funds.sk \
+          --cardano-verification-key /devnet/credentials/alice/alice-funds.vk \
+          --persistence-dir /devnet/persistence/ida-1-lt \
+          --node-socket /data/node.socket \
+          --testnet-magic 42 \
+          --hydra-scripts-tx-id "$$HYDRA_SCRIPTS_TX_ID" \
+          --contestation-period 5s \
+          --ledger-protocol-parameters /devnet/protocol-parameters.json
+    networks:
+      hydra_net:
+        ipv4_address: 172.16.233.19
+    depends_on:
+      hydra-scripts-publisher:
+        condition: service_completed_successfully
+
+  # Head B: ida-2 + bob + jon
+  hydra-node-bob-lt:
+    <<: *hydra-node-base
+    profiles: ["full"]
+    volumes:
+      - ./credentials:/devnet/credentials:ro
+      - ./config/protocol-parameters.json:/devnet/protocol-parameters.json:ro
+      - ./persistence/bob-lt:/devnet/persistence/bob-lt
+      - shared-config:/shared
+      - cardano-node-data:/data:ro
+    ports:
+      - "4322:4322"
+      - "5322:5322"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        HYDRA_SCRIPTS_TX_ID=$$(cat /shared/hydra-scripts-tx-id.txt | tr -d '\n\r')
+        HYDRA_NODE_PATH=$$(find /nix/store -name "hydra-node" -type f 2>/dev/null | head -1)
+        exec $$HYDRA_NODE_PATH \
+          --node-id 3 \
+          --api-host 0.0.0.0 \
+          --listen 172.16.233.22:5322 \
+          --monitoring-port 6322 \
+          --api-port 4322 \
+          --peer 172.16.233.29:5329 \
+          --peer 172.16.233.28:5328 \
+          --hydra-signing-key /devnet/credentials/bob/bob-hydra.sk \
+          --hydra-verification-key /devnet/credentials/ida/ida-hydra.vk \
+          --hydra-verification-key /devnet/credentials/jon/jon-hydra.vk \
+          --cardano-signing-key /devnet/credentials/bob/bob-funds.sk \
+          --cardano-verification-key /devnet/credentials/ida/ida-funds.vk \
+          --cardano-verification-key /devnet/credentials/jon/jon-funds.vk \
+          --persistence-dir /devnet/persistence/bob-lt \
+          --node-socket /data/node.socket \
+          --testnet-magic 42 \
+          --hydra-scripts-tx-id "$$HYDRA_SCRIPTS_TX_ID" \
+          --contestation-period 5s \
+          --ledger-protocol-parameters /devnet/protocol-parameters.json
+    networks:
+      hydra_net:
+        ipv4_address: 172.16.233.22
+    depends_on:
+      hydra-scripts-publisher:
+        condition: service_completed_successfully
+
+  hydra-node-ida-2-lt:
+    <<: *hydra-node-base
+    profiles: ["full"]
+    volumes:
+      - ./credentials:/devnet/credentials:ro
+      - ./config/protocol-parameters.json:/devnet/protocol-parameters.json:ro
+      - ./persistence/ida-2-lt:/devnet/persistence/ida-2-lt
+      - shared-config:/shared
+      - cardano-node-data:/data:ro
+    ports:
+      - "4329:4329"
+      - "5329:5329"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        HYDRA_SCRIPTS_TX_ID=$$(cat /shared/hydra-scripts-tx-id.txt | tr -d '\n\r')
+        HYDRA_NODE_PATH=$$(find /nix/store -name "hydra-node" -type f 2>/dev/null | head -1)
+        exec $$HYDRA_NODE_PATH \
+          --node-id 4 \
+          --api-host 0.0.0.0 \
+          --listen 172.16.233.29:5329 \
+          --monitoring-port 6329 \
+          --api-port 4329 \
+          --peer 172.16.233.22:5322 \
+          --peer 172.16.233.28:5328 \
+          --hydra-signing-key /devnet/credentials/ida/ida-hydra.sk \
+          --hydra-verification-key /devnet/credentials/bob/bob-hydra.vk \
+          --hydra-verification-key /devnet/credentials/jon/jon-hydra.vk \
+          --cardano-signing-key /devnet/credentials/ida/ida-funds.sk \
+          --cardano-verification-key /devnet/credentials/bob/bob-funds.vk \
+          --cardano-verification-key /devnet/credentials/jon/jon-funds.vk \
+          --persistence-dir /devnet/persistence/ida-2-lt \
+          --node-socket /data/node.socket \
+          --testnet-magic 42 \
+          --hydra-scripts-tx-id "$$HYDRA_SCRIPTS_TX_ID" \
+          --contestation-period 5s \
+          --ledger-protocol-parameters /devnet/protocol-parameters.json
+    networks:
+      hydra_net:
+        ipv4_address: 172.16.233.29
+    depends_on:
+      hydra-scripts-publisher:
+        condition: service_completed_successfully
+
+  hydra-node-jon-lt:
+    <<: *hydra-node-base
+    profiles: ["full"]
+    volumes:
+      - ./credentials:/devnet/credentials:ro
+      - ./config/protocol-parameters.json:/devnet/protocol-parameters.json:ro
+      - ./persistence/jon-lt:/devnet/persistence/jon-lt
+      - shared-config:/shared
+      - cardano-node-data:/data:ro
+    ports:
+      - "4328:4328"
+      - "5328:5328"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        HYDRA_SCRIPTS_TX_ID=$$(cat /shared/hydra-scripts-tx-id.txt | tr -d '\n\r')
+        HYDRA_NODE_PATH=$$(find /nix/store -name "hydra-node" -type f 2>/dev/null | head -1)
+        exec $$HYDRA_NODE_PATH \
+          --node-id 5 \
+          --api-host 0.0.0.0 \
+          --listen 172.16.233.28:5328 \
+          --monitoring-port 6328 \
+          --api-port 4328 \
+          --peer 172.16.233.22:5322 \
+          --peer 172.16.233.29:5329 \
+          --hydra-signing-key /devnet/credentials/jon/jon-hydra.sk \
+          --hydra-verification-key /devnet/credentials/bob/bob-hydra.vk \
+          --hydra-verification-key /devnet/credentials/ida/ida-hydra.vk \
+          --cardano-signing-key /devnet/credentials/jon/jon-funds.sk \
+          --cardano-verification-key /devnet/credentials/bob/bob-funds.vk \
+          --cardano-verification-key /devnet/credentials/ida/ida-funds.vk \
+          --persistence-dir /devnet/persistence/jon-lt \
+          --node-socket /data/node.socket \
+          --testnet-magic 42 \
+          --hydra-scripts-tx-id "$$HYDRA_SCRIPTS_TX_ID" \
+          --contestation-period 5s \
+          --ledger-protocol-parameters /devnet/protocol-parameters.json
+    networks:
+      hydra_net:
+        ipv4_address: 172.16.233.28
+    depends_on:
+      hydra-scripts-publisher:
+        condition: service_completed_successfully
+
+  # Head C: ida-3 + charlie
+  hydra-node-charlie-lt:
+    <<: *hydra-node-base
+    profiles: ["full"]
+    volumes:
+      - ./credentials:/devnet/credentials:ro
+      - ./config/protocol-parameters.json:/devnet/protocol-parameters.json:ro
+      - ./persistence/charlie-lt:/devnet/persistence/charlie-lt
+      - shared-config:/shared
+      - cardano-node-data:/data:ro
+    ports:
+      - "4333:4333"
+      - "5333:5333"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        HYDRA_SCRIPTS_TX_ID=$$(cat /shared/hydra-scripts-tx-id.txt | tr -d '\n\r')
+        HYDRA_NODE_PATH=$$(find /nix/store -name "hydra-node" -type f 2>/dev/null | head -1)
+        exec $$HYDRA_NODE_PATH \
+          --node-id 6 \
+          --api-host 0.0.0.0 \
+          --listen 172.16.233.33:5333 \
+          --monitoring-port 6333 \
+          --api-port 4333 \
+          --peer 172.16.233.39:5339 \
+          --hydra-signing-key /devnet/credentials/charlie/charlie-hydra.sk \
+          --hydra-verification-key /devnet/credentials/ida/ida-hydra.vk \
+          --cardano-signing-key /devnet/credentials/charlie/charlie-funds.sk \
+          --cardano-verification-key /devnet/credentials/ida/ida-funds.vk \
+          --persistence-dir /devnet/persistence/charlie-lt \
+          --node-socket /data/node.socket \
+          --testnet-magic 42 \
+          --hydra-scripts-tx-id "$$HYDRA_SCRIPTS_TX_ID" \
+          --contestation-period 5s \
+          --ledger-protocol-parameters /devnet/protocol-parameters.json
+    networks:
+      hydra_net:
+        ipv4_address: 172.16.233.33
+    depends_on:
+      hydra-scripts-publisher:
+        condition: service_completed_successfully
+
+  hydra-node-ida-3-lt:
+    <<: *hydra-node-base
+    profiles: ["full"]
+    volumes:
+      - ./credentials:/devnet/credentials:ro
+      - ./config/protocol-parameters.json:/devnet/protocol-parameters.json:ro
+      - ./persistence/ida-3-lt:/devnet/persistence/ida-3-lt
+      - shared-config:/shared
+      - cardano-node-data:/data:ro
+    ports:
+      - "4339:4339"
+      - "5339:5339"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        HYDRA_SCRIPTS_TX_ID=$$(cat /shared/hydra-scripts-tx-id.txt | tr -d '\n\r')
+        HYDRA_NODE_PATH=$$(find /nix/store -name "hydra-node" -type f 2>/dev/null | head -1)
+        exec $$HYDRA_NODE_PATH \
+          --node-id 7 \
+          --api-host 0.0.0.0 \
+          --listen 172.16.233.39:5339 \
+          --monitoring-port 6339 \
+          --api-port 4339 \
+          --peer 172.16.233.33:5333 \
+          --hydra-signing-key /devnet/credentials/ida/ida-hydra.sk \
+          --hydra-verification-key /devnet/credentials/charlie/charlie-hydra.vk \
+          --cardano-signing-key /devnet/credentials/ida/ida-funds.sk \
+          --cardano-verification-key /devnet/credentials/charlie/charlie-funds.vk \
+          --persistence-dir /devnet/persistence/ida-3-lt \
+          --node-socket /data/node.socket \
+          --testnet-magic 42 \
+          --hydra-scripts-tx-id "$$HYDRA_SCRIPTS_TX_ID" \
+          --contestation-period 5s \
+          --ledger-protocol-parameters /devnet/protocol-parameters.json
+    networks:
+      hydra_net:
+        ipv4_address: 172.16.233.39
+    depends_on:
+      hydra-scripts-publisher:
+        condition: service_completed_successfully
+
+  startup-time-logger:
+    profiles: ["full"]
+    image: alpine
+    depends_on:
+      - hydra-node-alice-lt
+      - hydra-node-ida-1-lt
+      - hydra-node-bob-lt
+      - hydra-node-ida-2-lt
+      - hydra-node-jon-lt
+      - hydra-node-charlie-lt
+      - hydra-node-ida-3-lt
+    command: sh -c "ts=$$(( $$(date +%s) * 1000 )) && echo $$ts > /shared/startup_time.txt && echo $$ts > /final-demo/startup_time.txt && echo 'Timestamp written to /shared and final-demo/startup_time.txt:' $$ts"
+    volumes:
+      - shared-config:/shared
+      - ./:/final-demo
+
+networks:
+  hydra_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.16.233.0/24
+          gateway: 172.16.233.1

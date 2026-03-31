@@ -1,0 +1,162 @@
+services:
+  cardano-query-api:
+    image: ghcr.io/intersectmbo/cardano-node:10.1.4
+    container_name: final-demo-preprod-cardano-query-api
+    restart: unless-stopped
+    entrypoint: []
+    environment:
+      CARDANO_NODE_SOCKET_PATH: /ipc/node.socket
+      CARDANO_NETWORK_MAGIC: ${CARDANO_NETWORK_MAGIC:-1}
+    command: sh -c 'socat TCP-LISTEN:1442,reuseaddr,fork SYSTEM:"sh /cardano-query-api.sh"'
+    volumes:
+      - ${CARDANO_SOCKET_PATH:-./node.socket}:/ipc/node.socket
+      - ./cardano-query-api.sh:/cardano-query-api.sh:ro
+    ports:
+      - "${CARDANO_QUERY_API_PORT:-1442}:1442"
+    networks:
+      - default
+
+  cardano-submit-api:
+    image: ghcr.io/intersectmbo/cardano-submit-api:10.1.4
+    container_name: final-demo-preprod-cardano-submit-api
+    restart: unless-stopped
+    command:
+      - --socket-path
+      - /data/node.socket
+      - --listen-address
+      - "0.0.0.0"
+      - --port
+      - "8090"
+      - --config
+      - /config/cardano-node/config.json
+      - --testnet-magic
+      - "${CARDANO_NETWORK_MAGIC:-1}"
+    volumes:
+      - ${CARDANO_SOCKET_PATH:-./node.socket}:/data/node.socket
+      - ${CARDANO_SUBMIT_API_CONFIG_PATH:-${CARDANO_NODE_CONFIG_PATH:-/data/cardano-configurations/network/preprod/cardano-node/config.json}}:/config/cardano-node/config.json:ro
+    ports:
+      - "${CARDANO_SUBMIT_API_PORT:-8090}:8090"
+    networks:
+      - default
+
+  postgres:
+    image: postgres:16
+    container_name: final-demo-preprod-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-final_demo}
+    volumes:
+      - final_demo_preprod_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-final_demo}"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  init:
+    image: node:20
+    container_name: final-demo-preprod-init
+    depends_on:
+      postgres:
+        condition: service_healthy
+      cardano-query-api:
+        condition: service_started
+      cardano-submit-api:
+        condition: service_started
+    working_dir: /workspace/src/final-demo
+    restart: "no"
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/final_demo?schema=public}
+      NPM_CONFIG_LEGACY_PEER_DEPS: "true"
+    command: sh -c "npm ci --legacy-peer-deps && npm run prisma:migrate:deploy && npm run prisma:push && npm run prisma:generate"
+    volumes:
+      - ./:/workspace/src/final-demo
+    networks:
+      - default
+
+  app:
+    image: node:20
+    container_name: final-demo-preprod-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      init:
+        condition: service_completed_successfully
+    working_dir: /workspace/src/final-demo
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/final_demo?schema=public}
+      FINAL_DEMO_ADMIN_PASSWORD: ${FINAL_DEMO_ADMIN_PASSWORD:-}
+      FINAL_DEMO_CHARLIE_PASSWORD: ${FINAL_DEMO_CHARLIE_PASSWORD:-}
+      WORKER_POLL_MS: ${WORKER_POLL_MS:-2000}
+      HYDRA_ADAPTER_MODE: ${HYDRA_ADAPTER_MODE:-real}
+      HYDRA_OPERATION_TIMEOUT_MS: ${HYDRA_OPERATION_TIMEOUT_MS:-90000}
+      HYDRA_HEAD_A_API_URL: ${HYDRA_HEAD_A_API_URL:-http://hydra-node-ida-1-lt:4319}
+      HYDRA_HEAD_B_API_URL: ${HYDRA_HEAD_B_API_URL:-http://hydra-node-ida-2-lt:4329}
+      HYDRA_HEAD_B_BOB_API_URL: ${HYDRA_HEAD_B_BOB_API_URL:-http://hydra-node-bob-lt:4322}
+      HYDRA_HEAD_B_JON_API_URL: ${HYDRA_HEAD_B_JON_API_URL:-http://hydra-node-jon-lt:4328}
+      HYDRA_HEAD_C_API_URL: ${HYDRA_HEAD_C_API_URL:-http://hydra-node-ida-3-lt:4339}
+      CARDANO_NETWORK: ${CARDANO_NETWORK:-preprod}
+      CARDANO_NETWORK_MAGIC: ${CARDANO_NETWORK_MAGIC:-1}
+      CARDANO_QUERY_API_URL: ${CARDANO_QUERY_API_URL:-http://cardano-query-api:1442}
+      CARDANO_SUBMIT_API_URL: ${CARDANO_SUBMIT_API_URL:-http://cardano-submit-api:8090/api/submit/tx}
+      HEAD_OPERATION_TIMEOUT_MS: ${HEAD_OPERATION_TIMEOUT_MS:-720000}
+      HYDRA_OPS_DRAFT_TTL_MS: ${HYDRA_OPS_DRAFT_TTL_MS:-300000}
+      NPM_CONFIG_LEGACY_PEER_DEPS: "true"
+    command: sh -c "npm run build && npm run start"
+    volumes:
+      - ./:/workspace/src/final-demo
+      - final_demo_preprod_next_cache:/workspace/src/final-demo/.next
+    ports:
+      - "127.0.0.1:${FINAL_DEMO_PORT:-3000}:3000"
+    networks:
+      - default
+      - lottery_hydra
+
+  worker:
+    image: node:20
+    container_name: final-demo-preprod-worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      init:
+        condition: service_completed_successfully
+    working_dir: /workspace/src/final-demo
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/final_demo?schema=public}
+      FINAL_DEMO_ADMIN_PASSWORD: ${FINAL_DEMO_ADMIN_PASSWORD:-}
+      FINAL_DEMO_CHARLIE_PASSWORD: ${FINAL_DEMO_CHARLIE_PASSWORD:-}
+      WORKER_POLL_MS: ${WORKER_POLL_MS:-2000}
+      HYDRA_ADAPTER_MODE: ${HYDRA_ADAPTER_MODE:-real}
+      HYDRA_OPERATION_TIMEOUT_MS: ${HYDRA_OPERATION_TIMEOUT_MS:-90000}
+      HYDRA_HEAD_A_API_URL: ${HYDRA_HEAD_A_API_URL:-http://hydra-node-ida-1-lt:4319}
+      HYDRA_HEAD_B_API_URL: ${HYDRA_HEAD_B_API_URL:-http://hydra-node-ida-2-lt:4329}
+      HYDRA_HEAD_B_BOB_API_URL: ${HYDRA_HEAD_B_BOB_API_URL:-http://hydra-node-bob-lt:4322}
+      HYDRA_HEAD_B_JON_API_URL: ${HYDRA_HEAD_B_JON_API_URL:-http://hydra-node-jon-lt:4328}
+      HYDRA_HEAD_C_API_URL: ${HYDRA_HEAD_C_API_URL:-http://hydra-node-ida-3-lt:4339}
+      CARDANO_NETWORK: ${CARDANO_NETWORK:-preprod}
+      CARDANO_NETWORK_MAGIC: ${CARDANO_NETWORK_MAGIC:-1}
+      CARDANO_QUERY_API_URL: ${CARDANO_QUERY_API_URL:-http://cardano-query-api:1442}
+      CARDANO_SUBMIT_API_URL: ${CARDANO_SUBMIT_API_URL:-http://cardano-submit-api:8090/api/submit/tx}
+      HEAD_OPERATION_TIMEOUT_MS: ${HEAD_OPERATION_TIMEOUT_MS:-720000}
+      HYDRA_OPS_DRAFT_TTL_MS: ${HYDRA_OPS_DRAFT_TTL_MS:-300000}
+      NPM_CONFIG_LEGACY_PEER_DEPS: "true"
+    command: sh -c "npm run worker:prod"
+    volumes:
+      - ./:/workspace/src/final-demo
+    networks:
+      - default
+      - lottery_hydra
+
+volumes:
+  final_demo_preprod_pg:
+  final_demo_preprod_next_cache:
+
+networks:
+  lottery_hydra:
+    external: true
+    name: ${LOTTERY_HYDRA_NETWORK:-infra_hydra_net}
+

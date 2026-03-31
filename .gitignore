@@ -24,3 +24,5 @@ src/onchain/tests/infra/l1-utxos.ready
 src/onchain/tests/infra/persistence/**
 
 blockfrost*.txt
+src/infra/l1-utxos.json
+src/infra/l1-utxos.ready
