@@ -131,3 +131,34 @@ These are admin operations also available via the UI in the Admin view.
   - `GET /api/lottery/active`
   - `POST /api/lottery/active` (admin-guarded)
 
+---
+
+## 4) Preprod deployment (external Cardano + lottery Hydra deployment)
+
+The default [`docker-compose.yml`](docker-compose.yml) in this folder runs a **local** Cardano devnet and full Hydra topology. For **Cardano Preprod**, use the overlay [`docker-compose.preprod.yml`](docker-compose.preprod.yml) instead: it runs **Postgres, app, worker**, and small **L1 sidecars** (`cardano-query-api`, `cardano-submit-api`) that talk to an **external** `cardano-node` via a **host-mounted socket**. It does **not** embed `cardano-node` or Hydra nodes.
+
+### Topology dependency
+
+Hydra nodes for Heads A/B/C are expected to come from the **lottery** stack in the repo:
+
+- [`src/infra/docker-compose.lottery.yaml`](../../infra/docker-compose.lottery.yaml) — Preprod-connected Hydra nodes (custodial + lottery heads), with `CARDANO_NODE_SOCKET_PATH` pointing at the same external node socket.
+
+Bring that stack up **first** and ensure its Docker network exists (Compose typically creates a network like `infra_hydra_net` when the project is run from `src/infra`).
+
+### Final-demo overlay
+
+From `src/final-demo`:
+
+1. Copy env template: `cp .env.preprod.example .env` and edit paths/passwords (see comments in [`.env.preprod.example`](.env.preprod.example)).
+2. Set `CARDANO_SOCKET_PATH` (and submit-api config paths) to your **live** Preprod node socket and config files on the host.
+3. Set `LOTTERY_HYDRA_NETWORK` so it matches the **external** network name used by the lottery compose project (default in the example: `infra_hydra_net`). The overlay attaches `app` and `worker` to that network so they can reach `hydra-node-*-lt` by service name.
+4. Run:
+
+```bash
+cp .env.preprod.example .env.preprod
+# add whats needed in .env.preprod, then
+docker compose -f docker-compose.preprod.yml --env-file .env.preprod up -d
+```
+
+The app listens on `127.0.0.1:${FINAL_DEMO_PORT:-3000}` by default (see `docker-compose.preprod.yml`).
+
