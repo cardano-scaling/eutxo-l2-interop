@@ -1,9 +1,10 @@
 # Milestone 5
 
-Consists of two parts:
+Consists of three parts:
 
 1. Lottery contract specification
 2. Topology description
+3. Demo walkthrough
 
 This final milestone demonstrates a non-trivial use case where smart contracts deployed across multiple L2s interact seamlessly. Users participate in a lottery contract running on a different head by locking assets, submitting entries, and receiving results through cross-ledger interaction. This proves the feasibility of building multi-L2 dApps.
 

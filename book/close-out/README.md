@@ -32,4 +32,4 @@ The current ad-hoc ledger mechanism is designed for ADA and fungible tokens, whe
 
 ### Integration with alternative L2s (Midgard)
 
-While the current implementation targets Hydra Heads as the L2 layer, the ad-hoc ledger design is intentionally L2-agnostic. Midgard, an optimistic rollup for Cardano, offers different liveness guarantees that could complement or improve the system. Integrating Midgard would validate the generality of the protocol.
+While the current implementation targets Hydra Heads as the L2 layer, the ad-hoc ledger design is intentionally L2-agnostic. Midgard, an optimistic rollup for Cardano, offers different liveness guarantees that could complement or improve the system. Integrating Midgard would validate the generality of the protocol, but Midgard nodes are not currently production ready yet, so we intentionaly leave this for future work.
