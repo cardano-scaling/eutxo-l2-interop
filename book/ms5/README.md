@@ -24,7 +24,7 @@ The lottery validator stores the state of the lottery, including the prize, tick
   * admin: VerificationKeyHash (the creator and manager of the lottery)
   * prize: Int (the amount of lovelace the winner will receive)
   * ticket_cost: Int (the cost in lovelace for a single ticket)
-  * close_timestamp: Int (the time after which the lottery concludes and no more tickets can win)
+  * close_timestamp: Int (the time after which the lottery concludes, tickets submited after this time are not eligible to win)
   * paid_winner: Bool (whether the prize has been distributed)
 
 ### Lottery script
