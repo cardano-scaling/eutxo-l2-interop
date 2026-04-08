@@ -1,9 +1,10 @@
 # Milestone 5
 
-Consists of two parts:
+Consists of three parts:
 
 1. Lottery contract specification
 2. Topology description
+3. Demo walkthrough
 
 This final milestone demonstrates a non-trivial use case where smart contracts deployed across multiple L2s interact seamlessly. Users participate in a lottery contract running on a different head by locking assets, submitting entries, and receiving results through cross-ledger interaction. This proves the feasibility of building multi-L2 dApps.
 
@@ -23,7 +24,7 @@ The lottery validator stores the state of the lottery, including the prize, tick
   * admin: VerificationKeyHash (the creator and manager of the lottery)
   * prize: Int (the amount of lovelace the winner will receive)
   * ticket_cost: Int (the cost in lovelace for a single ticket)
-  * close_timestamp: Int (the time after which the lottery concludes and no more tickets can win)
+  * close_timestamp: Int (the time after which the lottery concludes, tickets submited after this time are not eligible to win)
   * paid_winner: Bool (whether the prize has been distributed)
 
 ### Lottery script
