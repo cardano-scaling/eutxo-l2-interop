@@ -7,8 +7,3 @@
 - [Milestone 4](./ms4/README.md)
 - [Milestone 5](./ms5/README.md)
 - [Close-out](./close-out/README.md)
-
----
-
-- [Logbook](./logbook.md)
-- [Demo](./demo.md)
