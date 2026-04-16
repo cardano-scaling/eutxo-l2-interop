@@ -1,5 +1,7 @@
 # Close-out Report
 
+This page serves as a condensed view on challenges and future improvements. You can access the official catalyst close-out report [here](./report.md)
+
 ## Challenges
 
 ### Circular dependency between verify and perform transactions
@@ -28,7 +30,7 @@ The current implementation simplifies collateral management by supporting a limi
 
 ### NFT support in the ad-hoc ledger mechanism
 
-The current ad-hoc ledger mechanism is designed for ADA and fungible tokens, where value can be replicated across heads through collateralization. NFTs present a fundamental challenge: they are by definition unique and cannot be duplicated across replicas. 
+The current ad-hoc ledger mechanism is designed for ADA and fungible tokens, where value can be replicated across heads through collateralization. NFTs present a fundamental challenge: they are by definition unique and cannot be duplicated across replicas.
 
 ### Integration with alternative L2s (Midgard)
 
